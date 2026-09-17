@@ -43,42 +43,50 @@ sampleRate=$(printf '%d' "0x${sampleRateHex}")
 fileSize=$(wc -c < "$input")
 pcmSize=$((fileSize - 48))
 
+# Helper: pack a 16-bit integer as little-endian hex bytes
+pack_le16() {
+   printf '%02x%02x' $(( $1 & 0xFF )) $(( ( $1 >> 8 ) & 0xFF ))
+}
+
+# Helper: pack a 32-bit integer as little-endian hex bytes
+pack_le32() {
+   printf '%02x%02x%02x%02x' $(( $1 & 0xFF )) $(( ( $1 >> 8 ) & 0xFF )) $(( ( $1 >> 16 ) & 0xFF )) $(( ( $1 >> 24 ) & 0xFF ))
+}
+
+riffSize=$(( 36 + pcmSize ))
+byteRate=$(( sampleRate * channels * 2 ))
+blockAlign=$(( channels * 2 ))
+
 # Build the 44-byte WAV header as a hex string, then convert to binary.
 # WAV header layout (little-endian):
-#   Offset 0:  "RIFF" (4 bytes)
-#   Offset 4:  file size - 8 (4 bytes)
-#   Offset 8:  "WAVE" (4 bytes)
-#   Offset 12: "fmt " (4 bytes)
-#   Offset 16: 16 (fmt chunk size, 4 bytes)
-#   Offset 20: 1 (audio format = PCM, 2 bytes)
-#   Offset 22: channels (2 bytes)
-#   Offset 24: sampleRate (4 bytes)
-#   Offset 28: byteRate = sampleRate * channels * 2 (4 bytes)
-#   Offset 32: blockAlign = channels * 2 (2 bytes)
-#   Offset 34: 16 (bits per sample, 2 bytes)
-#   Offset 36: "data" (4 bytes)
-#   Offset 40: pcmSize (4 bytes)
+#   Offset  0:  "RIFF" (4 bytes)
+#   Offset  4:  file size - 8 (4 bytes, little-endian)
+#   Offset  8:  "WAVE" (4 bytes)
+#   Offset 12:  "fmt " (4 bytes)
+#   Offset 16:  16 (fmt chunk size, 4 bytes, little-endian)
+#   Offset 20:  1 (audio format = PCM, 2 bytes, little-endian)
+#   Offset 22:  channels (2 bytes, little-endian)
+#   Offset 24:  sampleRate (4 bytes, little-endian)
+#   Offset 28:  byteRate (4 bytes, little-endian)
+#   Offset 32:  blockAlign (2 bytes, little-endian)
+#   Offset 34:  16 (bits per sample, 2 bytes, little-endian)
+#   Offset 36:  "data" (4 bytes)
+#   Offset 40:  pcmSize (4 bytes, little-endian)
 
-riffSize=$((36 + pcmSize))
-byteRate=$((sampleRate * channels * 2))
-blockAlign=$((channels * 2))
-
-# Build hex string for the 44-byte header
-# Each byte as 2 hex digits, concatenated
 headerHex=""
 headerHex="${headerHex}52494646"  # "RIFF"
-headerHex="${headerHex}$(printf '%08x' "$riffSize")"
+headerHex="${headerHex}$(pack_le32 "$riffSize")"
 headerHex="${headerHex}57415645"  # "WAVE"
 headerHex="${headerHex}666d7420"  # "fmt "
-headerHex="${headerHex}$(printf '%08x' 16)"     # fmt chunk size
-headerHex="${headerHex}$(printf '%04x' 1)"      # audio format = PCM
-headerHex="${headerHex}$(printf '%04x' "$channels")"
-headerHex="${headerHex}$(printf '%08x' "$sampleRate")"
-headerHex="${headerHex}$(printf '%08x' "$byteRate")"
-headerHex="${headerHex}$(printf '%04x' "$blockAlign")"
-headerHex="${headerHex}$(printf '%04x' 16)"      # bits per sample
+headerHex="${headerHex}$(printf '%08x' 16)"     # fmt chunk size (always 16)
+headerHex="${headerHex}$(pack_le16 1)"          # audio format = PCM
+headerHex="${headerHex}$(pack_le16 "$channels")"
+headerHex="${headerHex}$(pack_le32 "$sampleRate")"
+headerHex="${headerHex}$(pack_le32 "$byteRate")"
+headerHex="${headerHex}$(pack_le16 "$blockAlign")"
+headerHex="${headerHex}$(pack_le16 16)"         # bits per sample
 headerHex="${headerHex}64617461"  # "data"
-headerHex="${headerHex}$(printf '%08x' "$pcmSize")"
+headerHex="${headerHex}$(pack_le32 "$pcmSize")"
 
 # Convert hex string to binary and write header
 printf "%s" "$headerHex" | xxd -r -p > "$output"
