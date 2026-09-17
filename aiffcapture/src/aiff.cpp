@@ -106,7 +106,7 @@ bool AiffWriter::open(const std::string& filePath, const AudioFormat& format) {
 
    // Core Guidelines: we write the COMM chunk (metadata).
    // The COMM chunk contains the number of channels, number of samples,
-   // sample size, and sample rate (as an 80-bit extended float).
+   // sample size (16-bit signed integer), and sample rate (32-bit integer).
    // We need to calculate the number of samples from the total bytes.
    // Note: we write the COMM chunk with a placeholder for the number
    // of samples, which is patched up in close().
@@ -238,15 +238,20 @@ bool AiffWriter::writeFormHeader() {
 bool AiffWriter::writeCommChunk(uint32_t numSamples) {
    // Core Guidelines: we write the COMM chunk:
    //   - "COMM" (4 bytes)
-   //   - 18 (4 bytes, big-endian)
+   //   - 12 (4 bytes, big-endian)
    //   - numChannels (2 bytes, big-endian)
    //   - numSamples (4 bytes, big-endian)
    //   - sampleSize (2 bytes, big-endian)
-   //   - sampleRate (80-bit extended float, 10 bytes)
+   //   - sampleRate (32-bit integer, 4 bytes)
    //
    // IMPORTANT FIX: All multi-byte integers in AIFF must be written
    // in big-endian byte order. We write each field byte-by-byte
    // to ensure correct byte order regardless of platform.
+   //
+   // NOTE: We use 16-bit signed integer PCM (CDDA standard) and
+   // 32-bit integer sample rate encoding. This ensures macOS tools
+   // (afinfo, ffprobe) and all standard AIFF decoders correctly
+   // interpret the file format.
 
    // Core Guidelines: we write the "COMM" magic bytes.
    const char commId[4] = {'C', 'O', 'M', 'M'};
@@ -254,10 +259,10 @@ bool AiffWriter::writeCommChunk(uint32_t numSamples) {
       return false;
    }
 
-   // Core Guidelines: we write the COMM chunk size (fixed at 18 bytes)
+   // Core Guidelines: we write the COMM chunk size (fixed at 12 bytes)
    // in big-endian byte order. This is 2 (channels) + 4 (samples) + 2
-   // (sampleSize) + 10 (sampleRate as 80-bit extended float) = 18.
-   uint8_t commSizeBytes[4] = {0x00, 0x00, 0x00, 0x12}; // 18 in big-endian
+   // (sampleSize) + 4 (sampleRate as 32-bit integer) = 12.
+   uint8_t commSizeBytes[4] = {0x00, 0x00, 0x00, 0x0C}; // 12 in big-endian
    if (fwrite(commSizeBytes, 4, 1, file_) != 1) {
       return false;
    }
@@ -280,15 +285,23 @@ bool AiffWriter::writeCommChunk(uint32_t numSamples) {
    }
 
    // Core Guidelines: we write the sample size (big-endian int16).
-   // For AIFF, this is always 32 (32-bit float).
-   uint8_t sampleSizeBytes[2] = {0x00, 0x20}; // 32 in big-endian
+   // For AIFF, this is 16 (16-bit signed integer, CDDA standard).
+   uint8_t sampleSizeBytes[2] = {0x00, 0x10}; // 16 in big-endian
    if (fwrite(sampleSizeBytes, 2, 1, file_) != 1) {
       return false;
    }
 
-   // Core Guidelines: we write the sample rate as an 80-bit extended float.
-   // This is the most complex part of the AIFF format.
-   if (!writeExtendedFloat(static_cast<double>(format_.sampleRate))) {
+   // Core Guidelines: we write the sample rate as a 32-bit integer
+   // (big-endian). This is simpler and more compatible than the
+   // 80-bit extended float format. All standard sample rates
+   // (8000–192000 Hz) fit comfortably in a 32-bit integer.
+   uint8_t sampleRateBytes[4] = {
+      static_cast<uint8_t>(format_.sampleRate >> 24),
+      static_cast<uint8_t>((format_.sampleRate >> 16) & 0xFF),
+      static_cast<uint8_t>((format_.sampleRate >> 8) & 0xFF),
+      static_cast<uint8_t>(format_.sampleRate & 0xFF)
+   };
+   if (fwrite(sampleRateBytes, 4, 1, file_) != 1) {
       return false;
    }
 
@@ -339,149 +352,7 @@ bool AiffWriter::writeSsndHeader() {
    return true;
 }
 
-bool AiffWriter::writeExtendedFloat(double value) {
-   // Core Guidelines: we write the sample rate as an 80-bit IEEE 754
-   // extended precision float (80 bits = 10 bytes).
-   //
-   // Format layout (big-endian):
-   //   Byte 0: sign bit (bit 7) + 7 bits of exponent (bits 0-6)
-   //   Byte 1: 8 bits of exponent (bits 7-14)
-   //   Byte 2: 1 bit of exponent (bit 0) + 7 bits of significand (bits 1-7)
-   //   Bytes 3-9: 56 bits of significand
-   //
-   // The 80-bit extended float stores:
-   //   - 1 bit sign (0 = positive, 1 = negative)
-   //   - 15 bits exponent (biased by 16383)
-   //   - 64 bits significand with explicit leading 1
-   //
-   // The value represented is: (-1)^sign × 2^(exponent - 16383) × (1 + frac)
-   // where frac is the 64-bit significand field interpreted as a fraction
-   // in [0, 1). The leading 1 is explicit (unlike IEEE 754 which hides it).
-   //
-   // IMPORTANT: frexp() returns value = sig × 2^exp where sig ∈ [0.5, 1.0).
-   // To convert to 80-bit format (where sig ∈ [1.0, 2.0)):
-   //   80-bit exponent = 16383 + (frexp_exponent - 1)
-   //   64-bit significand = floor((frexp_sig × 2.0) × 2^63)
-   //
-   // NOTE: double only has 53 bits of mantissa, but we need 64 bits.
-   // For integer sample rates (which is all we encounter), we compute
-   // the 64-bit significand exactly using integer arithmetic.
 
-   // Core Guidelines: handle the sign bit.
-   uint8_t sign = (value < 0) ? 0x80 : 0x00;
-   double absValue = (value < 0) ? -value : value;
-
-   // Core Guidelines: handle the special case of zero.
-   if (absValue == 0.0) {
-      uint8_t extendedFloat[10] = {};
-      return fwrite(extendedFloat, 1, 10, file_) == 10;
-   }
-
-   // Core Guidelines: for integer values (sample rates), compute the
-   // 64-bit significand exactly using integer arithmetic. This avoids
-   // the 53-bit precision limit of double.
-   uint64_t intVal = static_cast<uint64_t>(absValue);
-   double absValueDouble = absValue;
-   if (static_cast<double>(intVal) == absValueDouble && intVal > 0) {
-      // The value is an exact integer (like 48000 Hz sample rate).
-      // Find the position of the most significant bit (0-indexed).
-      int msbPos = 63;
-      while (msbPos > 0 && (intVal & (static_cast<uint64_t>(1) << msbPos)) == 0) {
-         --msbPos;
-      }
-
-      // The 64-bit significand field stores the FRACTIONAL part (without the
-      // leading 1 bit). The value is: 2^(biasedExp - 16383) × (1 + frac).
-      //
-      // For an integer value like 48000:
-      //   value = 2^msbPos × (1 + (value - 2^msbPos)/2^msbPos)
-      //   frac = (value - 2^msbPos)/2^msbPos
-      //   64-bit field value = frac × 2^64 = (value - 2^msbPos) × 2^(64 - msbPos)
-      //
-      // NOTE: the 80-bit format's 64-bit significand field stores the
-      // fractional part (NOT including the leading 1 bit). The value
-      // formula is: 2^(exponent - 16383) × (1 + significand/2^64).
-      //
-      // For 48000 (msbPos=15):
-      //   (48000 - 32768) × 2^49 = 15232 × 2^49 = 0x7700000000000000.
-      //   Verify: 2^15 × (1 + 0x7700000000000000/2^64)
-      //          = 32768 × (1 + 30464/65536) = 32768 × 1.46484375 = 48000.
-      uint64_t significandInt =
-         (intVal - (static_cast<uint64_t>(1) << msbPos)) *
-         (static_cast<uint64_t>(1) << (64 - msbPos));
-
-      // The biased exponent is 16383 + msbPos (since the value is
-      // intVal = 2^msbPos × (1 + frac), where frac = (intVal - 2^msbPos)/2^msbPos).
-      int biasedExp = 16383 + msbPos;
-
-      // Build the 10-byte 80-bit extended float.
-      // The 80-bit format stores the 15-bit exponent as 7(high)+8(low) bits
-      // across bytes 0-1, and the 64-bit significand as 8 bytes (indices 2-9).
-      // NOTE: the previous version wrote the exponent as 8(high)+7(low) and
-      // wrote the significand starting at index 3, which caused an out-of-
-      // bounds write to extendedFloat[10], corrupting byte 2.
-      uint8_t extendedFloat[10] = {};
-      extendedFloat[0] = sign | static_cast<uint8_t>((biasedExp >> 8) & 0x7F);
-      extendedFloat[1] = static_cast<uint8_t>(biasedExp & 0xFF);
-      for (int i = 0; i < 8; ++i) {
-         extendedFloat[2 + i] =
-            static_cast<uint8_t>((significandInt >> (56 - i * 8)) & 0xFF);
-      }
-
-      return fwrite(extendedFloat, 1, 10, file_) == 10;
-   }
-
-   // Core Guidelines: for non-integer values, fall back to double-based
-   // computation. This has limited precision (53 bits) but is the best
-   // we can do without arbitrary precision arithmetic.
-   //
-   // frexp(value, &exp) returns: value = sig × 2^exp, where sig ∈ [0.5, 1.0)
-   //
-   // For 80-bit format, we normalize to [1.0, 2.0):
-   //   normalized_sig = sig × 2.0  (now in [1.0, 2.0))
-   //   80-bit exponent = 16383 + (exp - 1)
-   //   64-bit significand = floor(normalized_sig × 2^63)
-   //
-   // The key difference from the integer path:
-   //   - We subtract 1 from frexp's exponent because frexp normalizes to
-   //     [0.5, 1.0) but 80-bit format normalizes to [1.0, 2.0).
-   //   - We multiply by 2^63 (not 2^64) because the 64-bit significand
-   //     field includes the leading 1 bit at position 63.
-
-   int frexpExp = 0;
-   double frexpSig = frexp(absValue, &frexpExp);
-
-   // Core Guidelines: compute the biased exponent.
-   // frexp returns value = frexpSig × 2^frexpExp
-   // where frexpSig ∈ [0.5, 1.0).
-   // For 80-bit format: value = normalizedSig × 2^(biasedExp - 16383)
-   // where normalizedSig = frexpSig × 2.0 ∈ [1.0, 2.0).
-   // So: biasedExp = 16383 + (frexpExp - 1) = 16382 + frexpExp.
-   int biasedExp = 16382 + frexpExp;
-
-   // Core Guidelines: compute the 64-bit significand.
-   // The 64-bit significand field stores the integer representation of
-   // normalizedSig (which is in [1.0, 2.0)), with the leading 1 bit
-   // at position 63.
-   //
-   // NOTE: double has only 53 bits of mantissa, so this loses precision
-   // for values with more than 53 significant bits. For sample rates
-   // (small integers), the integer path above handles them exactly.
-   uint64_t significandInt = static_cast<uint64_t>(frexpSig * 2.0 * 9223372036854775808.0);
-
-   // Build the 10-byte 80-bit extended float (big-endian).
-   // The 15-bit exponent is split as 7(high) + 8(low) bytes 0-1.
-   // The 64-bit significand is written as 8 bytes (indices 2-9).
-   uint8_t extendedFloat[10] = {};
-   extendedFloat[0] = sign | static_cast<uint8_t>((biasedExp >> 8) & 0x7F);
-   extendedFloat[1] = static_cast<uint8_t>(biasedExp & 0xFF);
-   for (int i = 0; i < 8; ++i) {
-      extendedFloat[2 + i] =
-         static_cast<uint8_t>((significandInt >> (56 - i * 8)) & 0xFF);
-   }
-
-   return fwrite(extendedFloat, 1, 10, file_) == 10;
-}
 
 bool AiffWriter::finalizeFile() {
    // Core Guidelines: we patch up the FORM and SSND chunk sizes (which
@@ -494,10 +365,13 @@ bool AiffWriter::finalizeFile() {
 
    // Core Guidelines: we calculate the actual FORM size.
    // The FORM size is the total file size minus 8 (the FORM header itself).
-   // Total file size = FORM header (12 bytes) + COMM chunk (26 bytes) +
+   // Total file size = FORM header (12 bytes) + COMM chunk (20 bytes) +
    //                   SSND header (16 bytes) + SSND data (bytesWritten_).
-   // FORM size = total file size - 8 = 46 + bytesWritten_.
-   uint64_t formSize = 46 + bytesWritten_;
+   // FORM size = total file size - 8 = 40 + bytesWritten_.
+   // NOTE: COMM chunk is 20 bytes (4 ID + 4 size + 2 channels + 4 samples
+   // + 2 sampleSize + 4 sampleRate) vs. the old 26 bytes (10 bytes for
+   // 80-bit extended float replaced by 4 bytes for 32-bit integer).
+   uint64_t formSize = 40 + bytesWritten_;
 
    // Core Guidelines: we also calculate the number of samples from the
    // total bytes written. This is needed to patch the COMM chunk's

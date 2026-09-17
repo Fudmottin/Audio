@@ -132,21 +132,15 @@ class AiffWriter {
    bool writeFormHeader();
 
    // Internal helper: write the COMM chunk.
-   // Core Guidelines: this writes the COMM ID, size (fixed at 18),
-   // number of channels, number of samples, sample size, and sample
-   // rate (as an 80-bit extended float).
+   // Core Guidelines: this writes the COMM ID, size (fixed at 12),
+   // number of channels, number of samples, sample size (16-bit),
+   // and sample rate (32-bit integer).
    bool writeCommChunk(uint32_t numSamples);
 
    // Internal helper: write the SSND chunk header.
    // Core Guidelines: this writes the SSND ID, size (placeholder),
    // offset (0), and block size (0). The size is patched up in close().
    bool writeSsndHeader();
-
-   // Internal helper: write the 80-bit extended float for sample rate.
-   // Core Guidelines: AIFF uses 80-bit extended floats for sample rates,
-   // not IEEE 754 doubles. This function converts a double to the
-   // 80-bit format and writes it to the file.
-   bool writeExtendedFloat(double value);
 
    // Internal helper: finalize the file size (patch up FORM and SSND).
    // Core Guidelines: this patches up the FORM and SSND chunk sizes

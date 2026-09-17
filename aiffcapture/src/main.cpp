@@ -15,6 +15,7 @@
 #include <aiffcapture/audio_types.h>
 #include <aiffcapture/device.h>
 #include <aiffcapture/recorder.h>
+#include <algorithm>
 #include <chrono>
 #include <csignal>
 #include <cstdlib>
@@ -224,6 +225,13 @@ int main(int argc, char* argv[]) {
       std::cerr << "Device format: " << format.toString() << "\n";
    }
 
+   // Core Guidelines: we convert the device format (32-bit float from
+   // Core Audio) to 16-bit signed integer for the AIFF output. This
+   // ensures decoded audio is recognizable instead of noise. The
+   // float-to-int16 conversion happens in the output callback below.
+   format.bitsPerSample = 16;
+   format.bytesPerFrame = format.channels * 2; // 16-bit = 2 bytes per sample
+
    // Open the AIFF file for writing.
    AiffWriter aiffWriter;
    if (!aiffWriter.open(config.outputPath, format)) {
@@ -274,18 +282,55 @@ int main(int argc, char* argv[]) {
    // Core Guidelines: we set the output callback to write data to the
    // AIFF file. The callback is called by the IO proc whenever new
    // input data is available.
-   recorder.setOutputCallback([&aiffWriter](const AudioBufferList* inputData) {
-      // Core Guidelines: we write the input data to the AIFF file.
-      // The input data is an AudioBufferList that contains the raw PCM
-      // samples. We write it to the AIFF file in the SSND chunk.
+   //
+   // IMPORTANT: Core Audio outputs 32-bit float samples, but we write
+   // 16-bit signed integer to the AIFF file. This callback converts
+   // between the two formats. The float-to-int16 conversion clamps
+   // values to [-1.0, 1.0] and maps to [-32768, 32767].
+   std::vector<unsigned char> convertBuffer;
+   recorder.setOutputCallback([&aiffWriter, &format, &convertBuffer](
+         const AudioBufferList* inputData) {
+      // Core Guidelines: we convert 32-bit float samples from Core
+      // Audio to 16-bit signed integer for the AIFF file.
 
       // Core Guidelines: we assume there is only one buffer (stereo devices
       // have two channels interleaved in a single buffer).
       if (inputData->mNumberBuffers > 0) {
          const AudioBuffer& buffer = inputData->mBuffers[0];
-         aiffWriter.writeSamples(reinterpret_cast<const unsigned char*>(
-                                    buffer.mData),
-                                 buffer.mDataByteSize);
+         const float* floatData =
+            static_cast<const float*>(buffer.mData);
+         uint32_t numFrames =
+            buffer.mDataByteSize / format.bytesPerFrame;
+         uint32_t bytesPerFrameOut = format.channels * 2; // 16-bit output
+
+         // Core Guidelines: resize the conversion buffer to hold all
+         // frames of 16-bit output data.
+         convertBuffer.resize(numFrames * bytesPerFrameOut);
+
+         // Core Guidelines: convert each float sample to 16-bit integer.
+         // We clamp to [-1.0, 1.0] before scaling to [-32767, 32767].
+         // Samples are written in native (little-endian) byte order,
+         // which matches AIFF's native byte order on macOS.
+         for (uint32_t i = 0; i < numFrames; ++i) {
+            for (uint32_t ch = 0; ch < format.channels; ++ch) {
+               float sample =
+                  floatData[i * format.channels + ch];
+               // Clamp to [-1.0, 1.0] and convert to 16-bit integer.
+               // Using 32767 (not 32768) avoids the asymmetric minimum
+               // of two's complement int16_t.
+               int16_t intSample = static_cast<int16_t>(
+                  std::max(-1.0f, std::min(1.0f, sample)) *
+                  32767.0f);
+               // Write in little-endian (macOS native byte order).
+               convertBuffer[(i * bytesPerFrameOut + ch) * 2 + 0] =
+                  static_cast<uint8_t>(intSample & 0xFF);
+               convertBuffer[(i * bytesPerFrameOut + ch) * 2 + 1] =
+                  static_cast<uint8_t>((intSample >> 8) & 0xFF);
+            }
+         }
+
+         aiffWriter.writeSamples(convertBuffer.data(),
+            static_cast<uint32_t>(convertBuffer.size()));
       }
    });
 
