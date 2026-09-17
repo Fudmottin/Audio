@@ -7,12 +7,15 @@
 | [summary.md](summary.md) | Project overview, scope, architecture, key decisions |
 | [terminology.md](terminology.md) | Shared glossary: audio formats, Core Audio API, AIFF format, Lode coding terms |
 | [practices.md](practices.md) | Coding style, project structure, Core Audio patterns, documentation standards |
+| [MIDI.md](MIDI.md) | MIDI protocol, General MIDI, SMF file format, piano-specific considerations |
+| [LilyPond.md](LilyPond.md) | LilyPond notation, MIDI-to-LilyPond mapping, Logic Pro integration |
 
 ## Subsystem Files
 
 | Module | Path | Status |
 |--------|------|--------|
-| aiffcapture | [lode/aiffcapture/](aiffcapture/) | Phase 1 — In progress |
+| aiffcapture | [lode/aiffcapture/](aiffcapture/) | Phase 1 — Complete |
+| libaudio | [lode/libaudio/](libaudio/) | Phase 0 — Designed |
 
 ## Subsystem: aiffcapture
 
@@ -22,6 +25,14 @@
 | [decisions.md](aiffcapture/decisions.md) | Key design decisions and rationale |
 | [handoffs.md](aiffcapture/handoffs.md) | Session handoff documents for continuity |
 
+## Subsystem: libaudio
+
+| Document | Purpose |
+|----------|---------|
+| [summary.md](libaudio/summary.md) | Module overview, dependencies, architecture, module-by-module API design |
+| [decisions.md](libaudio/decisions.md) | Library choices (aubio, libsndfile, rubberband), wrapper pattern, default parameters |
+| [hir.md](libaudio/hir.md) | High-level Instrumentation Representation (Note, ControlEvent, Score) |
+
 ## Future Modules (Planned)
 
 | Module | Description |
@@ -29,10 +40,12 @@
 | midicapture | Audio → MIDI transcription (DSP + AI inference) |
 | midisheet | MIDI → sheet music generation |
 | sheetmidi | Sheet music → MIDI file generation |
-| libaudio | Shared portable audio processing library |
 
 ## Cross-Reference
 
 - `.clang-format` — Shared coding style (repository root)
 - `README.md` — Project-level documentation (repository root)
 - `aiffcapture/` — Phase 1 implementation (repository root)
+- `lode/MIDI.md` — MIDI protocol, General MIDI, SMF file format
+- `lode/LilyPond.md` — LilyPond notation, MIDI-to-LilyPond mapping
+- `lode/libaudio/` — Phase 0 DSP library (designed, not yet implemented)

@@ -10,7 +10,7 @@ libaudio provides the **signal processing pipeline** that converts raw PCM audio
 
 - RAII resource management (no manual `new_`/`del_` calls)
 - A clean C++ interface (no C-style function pointers)
-- Integration with the project's **HIR (High-level Instrumentation Representation)**
+- Integration with the project's **HIR (High-level Instrumentation Representation)** — see `hir.md`
 - Optional use of **libsndfile** for audio file I/O
 - Optional use of **rubberband** for time-stretching/pitch-shifting
 
@@ -55,6 +55,10 @@ rubberband provides high-quality time-stretching and pitch-shifting. Use cases:
 - Normalizing recordings to a consistent sample rate
 - Pitch-shifting for analysis (e.g., comparing to piano templates)
 - Optional: adjusting tempo for beat tracking
+
+### Detailed decisions
+
+See `decisions.md` for the full rationale behind each library choice, the wrapper pattern, and the default parameters.
 
 ---
 
@@ -102,54 +106,13 @@ Audio/
 
 The HIR is the **intermediate language** between audio analysis and both MIDI and LilyPond output. It's a pure C++ data structure with no dependencies on aubio, Core Audio, or any file format.
 
-```cpp
-// hir.h
-
-#ifndef LIBAUDIO_HIR_H
-#define LIBAUDIO_HIR_H
-
-#include <cstdint>
-#include <string>
-#include <vector>
-#include <optional>
-
-// A single note event — the atomic unit of musical representation.
-struct Note {
-   double startTime;     // seconds from start of recording
-   double endTime;       // seconds from start of recording
-   uint8_t  pitch;       // MIDI note number (0–127), 21–108 for piano
-   uint8_t  velocity;    // 0–127 (derived from RMS energy of note segment)
-   uint8_t  channel;     // MIDI channel (default 1 for piano)
-   bool     sustain;     // true if this note overlaps with sustain pedal
-};
-
-// Control change events (pedals, tempo changes, etc.)
-struct ControlEvent {
-   double time;          // seconds from start of recording
-   uint8_t  controller;  // CC# (64 = sustain, 66 = soft pedal, etc.)
-   uint8_t  value;       // 0–127
-};
-
-// A complete score — the output of the transcription pipeline.
-struct Score {
-   std::vector<Note>       notes;
-   std::vector<ControlEvent> controls;
-   double tempo = 120.0;       // BPM (quarter notes per minute)
-   std::string title;
-   std::string composer;
-};
-
-#endif
-```
-
-**Key design decisions:**
-
-- `startTime` and `endTime` are in **seconds** (not MIDI ticks). This makes them platform-independent and human-readable. Conversion to MIDI ticks happens in the MIDI writer.
-- `pitch` is a `uint8_t` (MIDI note number 0–127). For piano, valid range is 21–108.
-- `velocity` is a `uint8_t` (0–127). Derived from RMS energy of the note segment during analysis.
-- `channel` defaults to 1 (MIDI channel 0, Acoustic Grand Piano).
-- `sustain` is a boolean flag derived from pedal detection analysis.
-- `Score` owns all notes and controls. It's the single source of truth for both MIDI and LilyPond output.
+See `hir.md` for the complete HIR specification, including:
+- `struct Note` — pitch, velocity, timing, channel, sustain
+- `struct ControlEvent` — pedals, tempo changes
+- `struct Score` — complete score (notes + controls + metadata)
+- From HIR to MIDI (Type 1, 480 ticks per quarter note)
+- From HIR to LilyPond (notation export)
+- Example usage (monophonic piano transcription)
 
 ---
 
@@ -362,6 +325,26 @@ This pattern — `unique_ptr<Impl>` with aubio C API calls inside — is the cor
 3. **Swappability** — if aubio's API changes, only the `Impl` needs updating
 4. **Testability** — the C++ interface is clean and mockable
 
+### Why Pimpl?
+
+| Benefit | Explanation |
+|---|---|
+| **RAII** | aubio resources are automatically freed when the C++ object is destroyed (no manual `new_`/`del_` calls) |
+| **Encapsulation** | The rest of the codebase never sees aubio C types (no `aubio_pitchyin_t*`, `fvec_t*`, etc.) |
+| **Swappability** | If aubio's API changes, only the `Impl` struct needs updating (not every caller) |
+| **Testability** | The C++ interface is clean and mockable (no aubio dependencies in tests) |
+| **Compile-time** | Header files don't need aubio includes (faster compilation, fewer dependencies) |
+
+### Why Not a Direct C++ Wrapper?
+
+| Approach | Why Not? |
+|---|---|
+| **Direct C++ wrapper** (no Pimpl) | Header files expose aubio types, breaking encapsulation. Every change to aubio requires recompiling all callers. |
+| **Smart pointers to aubio objects** | Exposes aubio types in the public API. Callers need to know about aubio internals. |
+| **Function pointers** | Loss of type safety, harder to debug, harder to maintain. |
+
+See `decisions.md` for the full rationale.
+
 ---
 
 ## 6. Module-by-Module Design
@@ -459,7 +442,7 @@ Already designed above (Section 5). Key features:
 - **Returns MIDI pitch**: Pitch is returned as a float in MIDI note numbers (e.g., 60.0 = middle C)
 - **Threshold filtering**: Notes below confidence threshold return 0.0 (no pitch)
 
-**Default**: YINfft (fast, accurate, good for piano).
+**Default**: YINfft (fast, accurate, good for piano). See `decisions.md` for the full rationale.
 
 ### 6.4 Onset Detection (`onset.h`)
 
@@ -1080,7 +1063,7 @@ Build the DSP library with:
 - Spectral analysis (aubio: FFT, MFCC, chroma, spectral features)
 - Time-domain processing (aubio: resampling, filtering)
 - Time-stretching (rubberband, optional)
-- HIR data structures
+- HIR data structures (see `hir.md`)
 
 **Deliverable**: A working library that can transcribe monophonic piano recordings to HIR.
 
@@ -1134,6 +1117,13 @@ libaudio is the **DSP foundation** for the entire audio-to-MIDI transcription pi
 - **Swappability** — if aubio's API changes, only the Impl needs updating
 - **Testability** — clean interface, easy to mock
 
-The output of libaudio feeds into the HIR, which then produces both MIDI files and (optionally) LilyPond source. This is the **single source of truth** for the entire pipeline.
+The output of libaudio feeds into the HIR (see `hir.md`), which then produces both MIDI files and (optionally) LilyPond source. This is the **single source of truth** for the entire pipeline.
 
 **Key insight**: aubio's `aubio_notes_t` (note detection) alone can produce a reasonable monophonic transcription with onset + pitch + velocity + note-off in a single call. This makes Phase 0 achievable with relatively modest effort. Polyphonic transcription and pedal detection are harder problems that can be added in later phases.
+
+### Cross-References
+
+- **libaudio/decisions.md** — Library choices, wrapper pattern, default parameters
+- **libaudio/hir.md** — HIR data structures (Note, ControlEvent, Score)
+- **MIDI.md** — MIDI file format (SMF), MIDI writer design
+- **LilyPond.md** — LilyPond notation, LilyPond exporter design
