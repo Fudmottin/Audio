@@ -78,7 +78,7 @@ headerHex="${headerHex}52494646"  # "RIFF"
 headerHex="${headerHex}$(pack_le32 "$riffSize")"
 headerHex="${headerHex}57415645"  # "WAVE"
 headerHex="${headerHex}666d7420"  # "fmt "
-headerHex="${headerHex}$(printf '%08x' 16)"     # fmt chunk size (always 16)
+headerHex="${headerHex}$(pack_le32 16)"         # fmt chunk size (always 16)
 headerHex="${headerHex}$(pack_le16 1)"          # audio format = PCM
 headerHex="${headerHex}$(pack_le16 "$channels")"
 headerHex="${headerHex}$(pack_le32 "$sampleRate")"
