@@ -1,0 +1,24 @@
+# CMake build directories and artifacts
+build/
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+*.cmake.user
+
+# Compiled binaries
+bin/
+*.o
+*.a
+*.so
+*.dylib
+
+# macOS
+.DS_Store
+
+# Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
