@@ -298,8 +298,12 @@ int main(int argc, char* argv[]) {
          const AudioBuffer& buffer = inputData->mBuffers[0];
          const float* floatData =
             static_cast<const float*>(buffer.mData);
-         uint32_t numFrames =
-            buffer.mDataByteSize / format.bytesPerFrame;
+         // Core Guidelines: calculate input frames from the 32-bit float
+         // input data (8 bytes/frame for stereo), not the 16-bit output
+         // format (4 bytes/frame). Using the output format's bytesPerFrame
+         // would double the frame count and read past the buffer.
+         uint32_t inputBytesPerFrame = format.channels * 4; // 32-bit float
+         uint32_t numFrames = buffer.mDataByteSize / inputBytesPerFrame;
          uint32_t bytesPerFrameOut = format.channels * 2; // 16-bit output
 
          // Core Guidelines: resize the conversion buffer to hold all
