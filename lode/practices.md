@@ -42,13 +42,24 @@ project/
 - Use `kAudioObjectPropertyElementMain` (not deprecated `kAudioObjectPropertyElementMaster`).
 - Use `AudioDeviceCreateIOProcID` + `AudioDeviceDestroyIOProcID` (not deprecated variants).
 - `mIsInterleaved` removed from `AudioStreamBasicDescription` in newer macOS — hardcode `true` for uncompressed AIFF.
+- Core Audio outputs **32-bit float** PCM. Convert to 16-bit signed integer before AIFF writing.
+- Calculate input frame count from the **source** format (32-bit float = 8 bytes/frame stereo),
+  not the output format (16-bit = 4 bytes/frame). Using the wrong bytesPerFrame doubles the
+  frame count, reads past the buffer, and produces half-speed, low-pitched garbage.
+- **Never call destructors explicitly** (e.g., `recorder.~Recorder()`). The RAII destructor
+  runs automatically when the object goes out of scope. Calling it twice is undefined
+  behavior — the first call frees resources, the second call frees them again, causing
+  a crash. Let the compiler handle cleanup.
 
 ## AIFF Writing
 
 - Write all multi-byte integers in **big-endian** byte order (byte-by-byte, not `htonl()`).
 - Record file offsets **before** writing placeholders, so `finalize()` can patch correct positions.
-- The 80-bit extended float in the COMM chunk is **spec-compliant** but macOS tools (`afinfo`, `ffprobe`) misread it as a 32-bit integer. This is a known limitation of those tools, not our code.
-- For integer sample rates, compute the 64-bit significand exactly using integer arithmetic (avoids the 53-bit precision limit of `double`).
+- AIFF output uses 16-bit signed integer PCM (CDDA standard) and 32-bit integer sample
+  rate encoding. Both are spec-compliant and correctly interpreted by all standard tools.
+- Remove the 80-bit extended float encoding — macOS tools (`afinfo`, `ffprobe`) always try
+  to parse it regardless of COMM chunk size, producing garbage values (e.g., 30464 Hz).
+  The 80-bit float is spec-compliant but practically unusable with these tools.
 
 ## Documentation (Lode Coding)
 

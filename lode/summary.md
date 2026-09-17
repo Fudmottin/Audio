@@ -8,7 +8,7 @@ Build a suite of local-first audio processing utilities targeting macOS (later P
 
 | Phase | Status | Description |
 |-------|--------|-------------|
-| **Audio → AIFF** (DRM-free capture) | In progress | Capture audio from BlackHole virtual device to AIFF files. Phase 1: single utility (`aiffcapture`). |
+| **Audio → AIFF** (capture) | Complete | Capture audio from BlackHole 2ch to 16-bit signed integer AIFF files. |
 | **Audio → MIDI** (transcription) | Planned | DSP + AI inference to convert audio recordings to MIDI. Starts with piano-only content. |
 | **MIDI → Sheet Music** | Planned | Generate readable sheet music from MIDI data. |
 | **Sheet Music → MIDI** | Planned | Generate playable audio from sheet music representations. |
@@ -29,7 +29,7 @@ Audio/
 - **Language**: C++20, Core Guidelines compliant
 - **Build system**: CMake (canonical directory structure)
 - **Platform**: macOS first (Core Audio), POSIX later
-- **Audio format**: AIFF output (uncompressed PCM stereo)
+- **Audio format**: AIFF output (16-bit signed integer PCM, 32-bit integer sample rate)
 - **Capture method**: BlackHole 2ch virtual audio device (Phase 1)
 - **DRM handling**: Separate utility to strip DRM from Apple Music content
 - **Style**: 3-space indent, Attach braces, 80-column limit, std::cout/cerr, no void* in our code
@@ -37,7 +37,12 @@ Audio/
 
 ## Known Issues
 
-- macOS tools (`afinfo`, `ffprobe`) misread the 80-bit extended float sample rate in AIFF files as a 32-bit integer, reporting garbage values (e.g., 30464 Hz instead of 48000 Hz). The files are valid per the AIFF spec. QuickTime and VLC should play them correctly.
+- macOS tools (`afinfo`, `ffprobe`) always try to parse 80-bit extended float for sample
+  rate, regardless of COMM chunk size. They will reject valid AIFF files that use 32-bit
+  integer sample rate encoding (our format). Use `aiff2wav.sh` to convert for playback.
+- QuickTime Player cannot open AIFF files with 32-bit integer sample rate encoding
+  (same root cause as above — it always tries to parse 80-bit extended float). Use
+  `aiff2wav.sh` to convert to WAV for playback in QuickTime or any other player.
 
 ## Future Modules (Planned)
 
