@@ -24,7 +24,7 @@ struct AudioFormat {
    // Number of interleaved channels (1 = mono, 2 = stereo).
    uint32_t channels = 0;
 
-   // Bits per sample (32 = 32-bit float, 16 = 16-bit integer).
+   // Bits per sample (16 = 16-bit signed integer, CDDA standard).
    uint32_t bitsPerSample = 0;
 
    // Bytes per frame (channels * bitsPerSample / 8).

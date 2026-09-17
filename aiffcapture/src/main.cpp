@@ -266,7 +266,6 @@ int main(int argc, char* argv[]) {
    if (!recorder.start()) {
       std::cerr << "Error: could not start recording.\n";
       recorder.stop();
-      recorder.~Recorder(); // Explicitly destroy the recorder.
       aiffWriter.close();   // Clean up the AIFF file.
       return 1;
    }
@@ -369,7 +368,6 @@ int main(int argc, char* argv[]) {
 
    // Stop recording and close the device.
    recorder.stop();
-   recorder.~Recorder(); // Explicitly destroy the recorder.
 
    // Core Guidelines: print a summary of IO proc activity.
    // This helps diagnose whether audio data was actually flowing.
