@@ -199,9 +199,15 @@ bool AiffWriter::isOpen() const { return file_ != nullptr; }
 
 bool AiffWriter::writeFormHeader() {
    // Core Guidelines: we write the FORM chunk header:
-   //   - "FORM" (4 bytes, big-endian)
-   //   - file size - 8 (4 bytes, big-endian, placeholder)
-   //   - "AIFF" (4 bytes, big-endian)
+   //   - "FORM" (4 bytes)
+   //   - file size - 8 (4 bytes, big-endian placeholder)
+   //   - "AIFF" (4 bytes)
+   //
+   // IMPORTANT FIX: We record the offset of the FORM size field
+   // BEFORE writing it, so that finalize() can patch the correct
+   // position. Previously, the offset was recorded AFTER writing
+   // the FORM size, causing the patching code to overwrite the
+   // "AIFF" magic bytes instead of the FORM size field.
 
    // Core Guidelines: we write the "FORM" magic bytes.
    const char formId[4] = {'F', 'O', 'R', 'M'};
@@ -209,16 +215,16 @@ bool AiffWriter::writeFormHeader() {
       return false;
    }
 
+   // Core Guidelines: we record the offset of the FORM size field
+   // BEFORE writing the placeholder. This is the key fix.
+   formSizeOffset_ = static_cast<uint64_t>(ftello(file_));
+
    // Core Guidelines: we write the FORM size as a placeholder (0).
    // The actual size is patched up in close().
    uint32_t formSizePlaceholder = 0;
    if (fwrite(&formSizePlaceholder, 4, 1, file_) != 1) {
       return false;
    }
-
-   // Core Guidelines: we record the offset of the FORM size field.
-   // This is used in close() to patch up the file size.
-   formSizeOffset_ = static_cast<uint64_t>(ftello(file_));
 
    // Core Guidelines: we write the "AIFF" magic bytes.
    const char aiffId[4] = {'A', 'I', 'F', 'F'};
@@ -231,12 +237,16 @@ bool AiffWriter::writeFormHeader() {
 
 bool AiffWriter::writeCommChunk(uint32_t numSamples) {
    // Core Guidelines: we write the COMM chunk:
-   //   - "COMM" (4 bytes, big-endian)
-   //   - 18 (4 bytes, fixed size)
+   //   - "COMM" (4 bytes)
+   //   - 18 (4 bytes, big-endian)
    //   - numChannels (2 bytes, big-endian)
    //   - numSamples (4 bytes, big-endian)
    //   - sampleSize (2 bytes, big-endian)
    //   - sampleRate (80-bit extended float, 10 bytes)
+   //
+   // IMPORTANT FIX: All multi-byte integers in AIFF must be written
+   // in big-endian byte order. We write each field byte-by-byte
+   // to ensure correct byte order regardless of platform.
 
    // Core Guidelines: we write the "COMM" magic bytes.
    const char commId[4] = {'C', 'O', 'M', 'M'};
@@ -244,30 +254,35 @@ bool AiffWriter::writeCommChunk(uint32_t numSamples) {
       return false;
    }
 
-   // Core Guidelines: we write the COMM chunk size (fixed at 18 bytes).
-   uint32_t commSize = 18;
-   if (fwrite(&commSize, 4, 1, file_) != 1) {
+   // Core Guidelines: we write the COMM chunk size (fixed at 18 bytes)
+   // in big-endian byte order. This is 2 (channels) + 4 (samples) + 2
+   // (sampleSize) + 10 (sampleRate as 80-bit extended float) = 18.
+   uint8_t commSizeBytes[4] = {0x00, 0x00, 0x00, 0x12}; // 18 in big-endian
+   if (fwrite(commSizeBytes, 4, 1, file_) != 1) {
       return false;
    }
 
    // Core Guidelines: we write the number of channels (big-endian int16).
-   int16_t numChannels = static_cast<int16_t>(format_.channels);
-   if (fwrite(&numChannels, 2, 1, file_) != 1) {
+   uint8_t numChannelsBytes[2] = {
+      static_cast<uint8_t>(format_.channels >> 8),
+      static_cast<uint8_t>(format_.channels & 0xFF)
+   };
+   if (fwrite(numChannelsBytes, 2, 1, file_) != 1) {
       return false;
    }
 
    // Core Guidelines: we write the number of samples (big-endian int32).
-   // Note: we use the placeholder value (0) if numSamples is 0.
-   // The actual value is patched up in close().
-   uint32_t samples = (numSamples == 0) ? 0 : numSamples;
-   if (fwrite(&samples, 4, 1, file_) != 1) {
+   // The actual sample count is calculated from the total bytes written.
+   // We use a placeholder (0) that is patched up in close().
+   uint8_t samplesBytes[4] = {0x00, 0x00, 0x00, 0x00}; // placeholder
+   if (fwrite(samplesBytes, 4, 1, file_) != 1) {
       return false;
    }
 
    // Core Guidelines: we write the sample size (big-endian int16).
    // For AIFF, this is always 32 (32-bit float).
-   int16_t sampleSize = 32;
-   if (fwrite(&sampleSize, 2, 1, file_) != 1) {
+   uint8_t sampleSizeBytes[2] = {0x00, 0x20}; // 32 in big-endian
+   if (fwrite(sampleSizeBytes, 2, 1, file_) != 1) {
       return false;
    }
 
@@ -282,10 +297,16 @@ bool AiffWriter::writeCommChunk(uint32_t numSamples) {
 
 bool AiffWriter::writeSsndHeader() {
    // Core Guidelines: we write the SSND chunk header:
-   //   - "SSND" (4 bytes, big-endian)
-   //   - data size (4 bytes, big-endian, placeholder)
+   //   - "SSND" (4 bytes)
+   //   - data size (4 bytes, big-endian placeholder)
    //   - offset (4 bytes, big-endian, usually 0)
    //   - blockSize (4 bytes, big-endian, usually 0)
+   //
+   // IMPORTANT FIX: We record the offset of the SSND size field
+   // BEFORE writing it, so that finalize() can patch the correct
+   // position. Previously, the offset was recorded AFTER writing
+   // the SSND size, causing the patching code to overwrite the
+   // offset/blockSize fields instead of the SSND size field.
 
    // Core Guidelines: we write the "SSND" magic bytes.
    const char ssndId[4] = {'S', 'S', 'N', 'D'};
@@ -293,25 +314,25 @@ bool AiffWriter::writeSsndHeader() {
       return false;
    }
 
+   // Core Guidelines: we record the offset of the SSND size field
+   // BEFORE writing the placeholder. This is the key fix.
+   ssndSizeOffset_ = static_cast<uint64_t>(ftello(file_));
+
    // Core Guidelines: we write the SSND size as a placeholder (0).
    // The actual size is patched up in close().
-   uint32_t ssndSizePlaceholder = 0;
-   if (fwrite(&ssndSizePlaceholder, 4, 1, file_) != 1) {
+   uint8_t ssndSizePlaceholder[4] = {0x00, 0x00, 0x00, 0x00};
+   if (fwrite(ssndSizePlaceholder, 4, 1, file_) != 1) {
       return false;
    }
-
-   // Core Guidelines: we record the offset of the SSND size field.
-   // This is used in close() to patch up the data size.
-   ssndSizeOffset_ = static_cast<uint64_t>(ftello(file_));
 
    // Core Guidelines: we write the offset (0) and block size (0).
    // For uncompressed AIFF, these are always 0.
-   uint32_t offset = 0;
-   uint32_t blockSize = 0;
-   if (fwrite(&offset, 4, 1, file_) != 1) {
+   uint8_t offsetBytes[4] = {0x00, 0x00, 0x00, 0x00};
+   uint8_t blockSizeBytes[4] = {0x00, 0x00, 0x00, 0x00};
+   if (fwrite(offsetBytes, 4, 1, file_) != 1) {
       return false;
    }
-   if (fwrite(&blockSize, 4, 1, file_) != 1) {
+   if (fwrite(blockSizeBytes, 4, 1, file_) != 1) {
       return false;
    }
 
@@ -319,103 +340,186 @@ bool AiffWriter::writeSsndHeader() {
 }
 
 bool AiffWriter::writeExtendedFloat(double value) {
-   // Core Guidelines: we write the sample rate as an 80-bit extended float.
-   // This is the most complex part of the AIFF format.
+   // Core Guidelines: we write the sample rate as an 80-bit IEEE 754
+   // extended precision float (80 bits = 10 bytes).
    //
-   // The 80-bit extended float format is:
-   //   - 1 bit: sign (0 = positive, 1 = negative)
-   //   - 15 bits: exponent (biased by 16383)
-   //   - 64 bits: significand (implicit leading 1)
+   // Format layout (big-endian):
+   //   Byte 0: sign bit (bit 7) + 7 bits of exponent (bits 0-6)
+   //   Byte 1: 8 bits of exponent (bits 7-14)
+   //   Byte 2: 1 bit of exponent (bit 0) + 7 bits of significand (bits 1-7)
+   //   Bytes 3-9: 56 bits of significand
    //
-   // Total: 10 bytes (80 bits).
+   // The 80-bit extended float stores:
+   //   - 1 bit sign (0 = positive, 1 = negative)
+   //   - 15 bits exponent (biased by 16383)
+   //   - 64 bits significand with explicit leading 1
+   //
+   // The value represented is: (-1)^sign × 2^(exponent - 16383) × (1 + frac)
+   // where frac is the 64-bit significand field interpreted as a fraction
+   // in [0, 1). The leading 1 is explicit (unlike IEEE 754 which hides it).
+   //
+   // IMPORTANT: frexp() returns value = sig × 2^exp where sig ∈ [0.5, 1.0).
+   // To convert to 80-bit format (where sig ∈ [1.0, 2.0)):
+   //   80-bit exponent = 16383 + (frexp_exponent - 1)
+   //   64-bit significand = floor((frexp_sig × 2.0) × 2^63)
+   //
+   // NOTE: double only has 53 bits of mantissa, but we need 64 bits.
+   // For integer sample rates (which is all we encounter), we compute
+   // the 64-bit significand exactly using integer arithmetic.
 
-   // Core Guidelines: we convert the double to an 80-bit extended float.
-   // This is done by manually encoding the sign, exponent, and significand.
-
-   // Core Guidelines: we handle the sign bit.
+   // Core Guidelines: handle the sign bit.
    uint8_t sign = (value < 0) ? 0x80 : 0x00;
-
-   // Core Guidelines: we handle the absolute value.
    double absValue = (value < 0) ? -value : value;
 
-   // Core Guidelines: we handle the special case of zero.
+   // Core Guidelines: handle the special case of zero.
    if (absValue == 0.0) {
-      uint8_t extendedFloat[10] = {0};
-      if (fwrite(extendedFloat, 1, 10, file_) != 10) {
-         return false;
-      }
-      return true;
+      uint8_t extendedFloat[10] = {};
+      return fwrite(extendedFloat, 1, 10, file_) == 10;
    }
 
-   // Core Guidelines: we calculate the exponent and significand.
-   // We use frexp to get the exponent and significand in base 2.
-   int exponent = 0;
-   double significand = frexp(absValue, &exponent);
+   // Core Guidelines: for integer values (sample rates), compute the
+   // 64-bit significand exactly using integer arithmetic. This avoids
+   // the 53-bit precision limit of double.
+   uint64_t intVal = static_cast<uint64_t>(absValue);
+   double absValueDouble = absValue;
+   if (static_cast<double>(intVal) == absValueDouble && intVal > 0) {
+      // The value is an exact integer (like 48000 Hz sample rate).
+      // Find the position of the most significant bit (0-indexed).
+      int msbPos = 63;
+      while (msbPos > 0 && (intVal & (static_cast<uint64_t>(1) << msbPos)) == 0) {
+         --msbPos;
+      }
 
-   // Core Guidelines: we adjust the exponent for the 80-bit format.
-   // The 80-bit format uses a bias of 16383 (not 1023 like IEEE 754).
-   exponent += 16383;
+      // The 64-bit significand field stores the FRACTIONAL part (without the
+      // leading 1 bit). The value is: 2^(biasedExp - 16383) × (1 + frac).
+      //
+      // For an integer value like 48000:
+      //   value = 2^msbPos × (1 + (value - 2^msbPos)/2^msbPos)
+      //   frac = (value - 2^msbPos)/2^msbPos
+      //   64-bit field value = frac × 2^64 = (value - 2^msbPos) × 2^(64 - msbPos)
+      //
+      // NOTE: the 80-bit format's 64-bit significand field stores the
+      // fractional part (NOT including the leading 1 bit). The value
+      // formula is: 2^(exponent - 16383) × (1 + significand/2^64).
+      //
+      // For 48000 (msbPos=15):
+      //   (48000 - 32768) × 2^49 = 15232 × 2^49 = 0x7700000000000000.
+      //   Verify: 2^15 × (1 + 0x7700000000000000/2^64)
+      //          = 32768 × (1 + 30464/65536) = 32768 × 1.46484375 = 48000.
+      uint64_t significandInt =
+         (intVal - (static_cast<uint64_t>(1) << msbPos)) *
+         (static_cast<uint64_t>(1) << (64 - msbPos));
 
-   // Core Guidelines: we encode the 80-bit extended float.
-   // The first byte is the sign bit (high bit).
-   // The next two bytes are the exponent (high byte first).
-   // The remaining 8 bytes are the significand (high byte first).
+      // The biased exponent is 16383 + msbPos (since the value is
+      // intVal = 2^msbPos × (1 + frac), where frac = (intVal - 2^msbPos)/2^msbPos).
+      int biasedExp = 16383 + msbPos;
 
+      // Build the 10-byte 80-bit extended float.
+      // The 80-bit format stores the 15-bit exponent as 7(high)+8(low) bits
+      // across bytes 0-1, and the 64-bit significand as 8 bytes (indices 2-9).
+      // NOTE: the previous version wrote the exponent as 8(high)+7(low) and
+      // wrote the significand starting at index 3, which caused an out-of-
+      // bounds write to extendedFloat[10], corrupting byte 2.
+      uint8_t extendedFloat[10] = {};
+      extendedFloat[0] = sign | static_cast<uint8_t>((biasedExp >> 8) & 0x7F);
+      extendedFloat[1] = static_cast<uint8_t>(biasedExp & 0xFF);
+      for (int i = 0; i < 8; ++i) {
+         extendedFloat[2 + i] =
+            static_cast<uint8_t>((significandInt >> (56 - i * 8)) & 0xFF);
+      }
+
+      return fwrite(extendedFloat, 1, 10, file_) == 10;
+   }
+
+   // Core Guidelines: for non-integer values, fall back to double-based
+   // computation. This has limited precision (53 bits) but is the best
+   // we can do without arbitrary precision arithmetic.
+   //
+   // frexp(value, &exp) returns: value = sig × 2^exp, where sig ∈ [0.5, 1.0)
+   //
+   // For 80-bit format, we normalize to [1.0, 2.0):
+   //   normalized_sig = sig × 2.0  (now in [1.0, 2.0))
+   //   80-bit exponent = 16383 + (exp - 1)
+   //   64-bit significand = floor(normalized_sig × 2^63)
+   //
+   // The key difference from the integer path:
+   //   - We subtract 1 from frexp's exponent because frexp normalizes to
+   //     [0.5, 1.0) but 80-bit format normalizes to [1.0, 2.0).
+   //   - We multiply by 2^63 (not 2^64) because the 64-bit significand
+   //     field includes the leading 1 bit at position 63.
+
+   int frexpExp = 0;
+   double frexpSig = frexp(absValue, &frexpExp);
+
+   // Core Guidelines: compute the biased exponent.
+   // frexp returns value = frexpSig × 2^frexpExp
+   // where frexpSig ∈ [0.5, 1.0).
+   // For 80-bit format: value = normalizedSig × 2^(biasedExp - 16383)
+   // where normalizedSig = frexpSig × 2.0 ∈ [1.0, 2.0).
+   // So: biasedExp = 16383 + (frexpExp - 1) = 16382 + frexpExp.
+   int biasedExp = 16382 + frexpExp;
+
+   // Core Guidelines: compute the 64-bit significand.
+   // The 64-bit significand field stores the integer representation of
+   // normalizedSig (which is in [1.0, 2.0)), with the leading 1 bit
+   // at position 63.
+   //
+   // NOTE: double has only 53 bits of mantissa, so this loses precision
+   // for values with more than 53 significant bits. For sample rates
+   // (small integers), the integer path above handles them exactly.
+   uint64_t significandInt = static_cast<uint64_t>(frexpSig * 2.0 * 9223372036854775808.0);
+
+   // Build the 10-byte 80-bit extended float (big-endian).
+   // The 15-bit exponent is split as 7(high) + 8(low) bytes 0-1.
+   // The 64-bit significand is written as 8 bytes (indices 2-9).
    uint8_t extendedFloat[10] = {};
-
-   // Core Guidelines: we set the sign bit (high bit of the first byte).
-   extendedFloat[0] = sign;
-
-   // Core Guidelines: we set the exponent (15 bits, biased by 16383).
-   // We split the exponent into two bytes (high and low).
-   extendedFloat[1] = static_cast<uint8_t>((exponent >> 8) & 0xFF);
-   extendedFloat[2] = static_cast<uint8_t>(exponent & 0xFF);
-
-   // Core Guidelines: we set the significand (64 bits, implicit leading 1).
-   // The significand is stored as a 64-bit integer (high 64 bits of the 80-bit
-   // float). We normalize the significand to the range [0.5, 1.0) and encode
-   // it.
-   significand *= 2.0; // Normalize to [1.0, 2.0).
-   significand -= 1.0; // Remove the implicit leading 1.
-
-   // Core Guidelines: we encode the significand as 8 bytes (64 bits).
-   // We multiply by 2^64 to get the integer representation.
-   uint64_t significandInt =
-      static_cast<uint64_t>(significand * 18446744073709551616.0);
-
-   // Core Guidelines: we write the significand bytes (high byte first).
+   extendedFloat[0] = sign | static_cast<uint8_t>((biasedExp >> 8) & 0x7F);
+   extendedFloat[1] = static_cast<uint8_t>(biasedExp & 0xFF);
    for (int i = 0; i < 8; ++i) {
-      extendedFloat[3 + i] =
+      extendedFloat[2 + i] =
          static_cast<uint8_t>((significandInt >> (56 - i * 8)) & 0xFF);
    }
 
-   // Core Guidelines: we write the 80-bit extended float to the file.
-   if (fwrite(extendedFloat, 1, 10, file_) != 10) {
-      return false;
-   }
-
-   return true;
+   return fwrite(extendedFloat, 1, 10, file_) == 10;
 }
 
 bool AiffWriter::finalizeFile() {
    // Core Guidelines: we patch up the FORM and SSND chunk sizes (which
    // were written as placeholders during open()) with the actual sizes.
    // This is the final step before closing the file.
+   //
+   // IMPORTANT FIX: All multi-byte integers in AIFF must be written
+   // in big-endian byte order. We write each byte individually to
+   // ensure correct byte order regardless of platform.
 
    // Core Guidelines: we calculate the actual FORM size.
    // The FORM size is the total file size minus 8 (the FORM header itself).
    // Total file size = FORM header (12 bytes) + COMM chunk (26 bytes) +
    //                   SSND header (16 bytes) + SSND data (bytesWritten_).
-   uint64_t formSize = 12 + 26 + 16 + bytesWritten_;
+   // FORM size = total file size - 8 = 46 + bytesWritten_.
+   uint64_t formSize = 46 + bytesWritten_;
+
+   // Core Guidelines: we also calculate the number of samples from the
+   // total bytes written. This is needed to patch the COMM chunk's
+   // numSamples field.
+   uint32_t numSamples = static_cast<uint32_t>(
+      bytesWritten_ / format_.bytesPerFrame);
 
    // Core Guidelines: we seek to the FORM size offset and write the actual
-   // size.
+   // size in big-endian byte order.
    if (fseeko(file_, static_cast<off_t>(formSizeOffset_), SEEK_SET) != 0) {
       return false;
    }
 
+   // Core Guidelines: write the FORM size in big-endian byte order.
    uint32_t formSizeUint32 = static_cast<uint32_t>(formSize);
-   if (fwrite(&formSizeUint32, 4, 1, file_) != 1) {
+   uint8_t formSizeBytes[4] = {
+      static_cast<uint8_t>((formSizeUint32 >> 24) & 0xFF),
+      static_cast<uint8_t>((formSizeUint32 >> 16) & 0xFF),
+      static_cast<uint8_t>((formSizeUint32 >> 8) & 0xFF),
+      static_cast<uint8_t>(formSizeUint32 & 0xFF)
+   };
+   if (fwrite(formSizeBytes, 4, 1, file_) != 1) {
       return false;
    }
 
@@ -424,12 +528,42 @@ bool AiffWriter::finalizeFile() {
    uint32_t ssndSize = static_cast<uint32_t>(bytesWritten_);
 
    // Core Guidelines: we seek to the SSND size offset and write the actual
-   // size.
+   // size in big-endian byte order.
    if (fseeko(file_, static_cast<off_t>(ssndSizeOffset_), SEEK_SET) != 0) {
       return false;
    }
 
-   if (fwrite(&ssndSize, 4, 1, file_) != 1) {
+   // Core Guidelines: write the SSND size in big-endian byte order.
+   uint8_t ssndSizeBytes[4] = {
+      static_cast<uint8_t>((ssndSize >> 24) & 0xFF),
+      static_cast<uint8_t>((ssndSize >> 16) & 0xFF),
+      static_cast<uint8_t>((ssndSize >> 8) & 0xFF),
+      static_cast<uint8_t>(ssndSize & 0xFF)
+   };
+   if (fwrite(ssndSizeBytes, 4, 1, file_) != 1) {
+      return false;
+   }
+
+   // Core Guidelines: we also patch the COMM chunk's numSamples field
+   // with the actual sample count. This is essential for the file to
+   // be recognized as valid by audio applications.
+   // The COMM chunk is at offset 12, and the numSamples field is at
+   // offset 12 + 4 (COMM id) + 4 (COMM size) + 2 (numChannels) = 22.
+   // NOTE: The numSamples field is at the same offset (22) regardless
+   // of whether the sample rate is written as 80-bit extended float or
+   // 32-bit integer, because the sample rate comes after numSamples.
+   if (fseeko(file_, 22, SEEK_SET) != 0) {
+      return false;
+   }
+
+   // Core Guidelines: write the numSamples in big-endian byte order.
+   uint8_t samplesBytes[4] = {
+      static_cast<uint8_t>((numSamples >> 24) & 0xFF),
+      static_cast<uint8_t>((numSamples >> 16) & 0xFF),
+      static_cast<uint8_t>((numSamples >> 8) & 0xFF),
+      static_cast<uint8_t>(numSamples & 0xFF)
+   };
+   if (fwrite(samplesBytes, 4, 1, file_) != 1) {
       return false;
    }
 
