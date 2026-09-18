@@ -1,10 +1,10 @@
 #ifdef LIBAUDIO_HAS_RUBBERBAND
 
 #include <libaudio/rubberband.h>
-#include <rubberband/RubberBandStretcher.h>
-#include <rubberband/RubberBandLiveShifter.h>
-#include <stdexcept>
 #include <memory>
+#include <rubberband/RubberBandLiveShifter.h>
+#include <rubberband/RubberBandStretcher.h>
+#include <stdexcept>
 
 // ============================================================================
 // RubberbandProcessor::Impl — Private implementation (Pimpl pattern).
@@ -33,8 +33,7 @@ struct RubberbandProcessor::Impl {
 // automatically freed when the C++ object is destroyed.
 // ============================================================================
 
-RubberbandProcessor::RubberbandProcessor(uint32_t sampleRate,
-                                        uint32_t channels)
+RubberbandProcessor::RubberbandProcessor(uint32_t sampleRate, uint32_t channels)
    : impl_(std::make_unique<Impl>()) {
    // Create the rubberband stretcher.
    // RubberBand 4.0.0 uses OptionProcessRealTime and
@@ -50,7 +49,7 @@ RubberbandProcessor::RubberbandProcessor(uint32_t sampleRate,
    impl_->stretcher = std::make_unique<RubberBand::RubberBandStretcher>(
       sampleRate, static_cast<size_t>(channels),
       RubberBand::RubberBandStretcher::OptionProcessRealTime |
-      RubberBand::RubberBandStretcher::OptionEngineFaster,
+         RubberBand::RubberBandStretcher::OptionEngineFaster,
       1.0, 1.0);
 }
 
@@ -63,8 +62,8 @@ RubberbandProcessor::RubberbandProcessor(RubberbandProcessor&& other) noexcept
    other.impl_ = std::make_unique<Impl>();
 }
 
-RubberbandProcessor& RubberbandProcessor::operator=(
-   RubberbandProcessor&& other) noexcept {
+RubberbandProcessor&
+RubberbandProcessor::operator=(RubberbandProcessor&& other) noexcept {
    // Move assignment operator. Release current resources
    // and take ownership of the source object's resources.
 
@@ -75,8 +74,8 @@ RubberbandProcessor& RubberbandProcessor::operator=(
    return *this;
 }
 
-std::vector<float> RubberbandProcessor::process(
-   const std::vector<float>& samples) {
+std::vector<float>
+RubberbandProcessor::process(const std::vector<float>& samples) {
    // Process a block of audio samples through the
    // rubberband stretcher.
    // RubberBand 4.0.0 uses process() and retrieve()
@@ -90,8 +89,8 @@ std::vector<float> RubberbandProcessor::process(
    // process() takes (const float *const *input, size_t samples, bool final).
    // For mono, we pass a single-channel pointer array.
    const float* inputPtr = samples.data();
-   impl_->stretcher->process(&inputPtr,
-                             static_cast<size_t>(samples.size()), false);
+   impl_->stretcher->process(&inputPtr, static_cast<size_t>(samples.size()),
+                             false);
 
    // Get processed output using retrieve().
    // retrieve() takes (float *const *output, size_t samples).
@@ -128,8 +127,7 @@ void RubberbandProcessor::setPitchShift(float semitones) {
    if (impl_) {
       impl_->pitchShiftSemitones = semitones;
       if (impl_->stretcher) {
-         impl_->stretcher->setPitchScale(
-            std::pow(2.0, semitones / 12.0));
+         impl_->stretcher->setPitchScale(std::pow(2.0, semitones / 12.0));
       }
    }
 }

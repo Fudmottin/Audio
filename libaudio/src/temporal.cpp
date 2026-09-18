@@ -9,6 +9,7 @@
  */
 
 #include <libaudio/temporal.h>
+// clang-format off
 #include <aubio/types.h>
 #include <aubio/fvec.h>
 #include <aubio/lvec.h>
@@ -17,6 +18,7 @@
 #include <aubio/temporal/biquad.h>
 #include <aubio/temporal/a_weighting.h>
 #include <aubio/temporal/c_weighting.h>
+// clang-format on
 #include <stdexcept>
 
 // Libsamplerate converter type constants.
@@ -95,8 +97,8 @@ TemporalProcessor::TemporalProcessor(TemporalProcessor&& other) noexcept
    other.impl_ = std::make_unique<Impl>();
 }
 
-TemporalProcessor& TemporalProcessor::operator=(
-   TemporalProcessor&& other) noexcept {
+TemporalProcessor&
+TemporalProcessor::operator=(TemporalProcessor&& other) noexcept {
    if (this != &other) {
       impl_ = std::move(other.impl_);
       other.impl_ = std::make_unique<Impl>();
@@ -104,8 +106,9 @@ TemporalProcessor& TemporalProcessor::operator=(
    return *this;
 }
 
-std::vector<float> TemporalProcessor::resample(const std::vector<float>& samples,
-                                               uint32_t targetSampleRate) {
+std::vector<float>
+TemporalProcessor::resample(const std::vector<float>& samples,
+                            uint32_t targetSampleRate) {
    // Resample audio to a different sample rate.
    // Aubio_resampler_do takes 3 args: (resampler, input, output).
 
@@ -116,8 +119,8 @@ std::vector<float> TemporalProcessor::resample(const std::vector<float>& samples
    // Compute the resampling ratio.
    double ratio = static_cast<double>(targetSampleRate) / impl_->sampleRate;
    del_aubio_resampler(impl_->resampler);
-   impl_->resampler = new_aubio_resampler(static_cast<smpl_t>(ratio),
-                                         SRC_SINC_best_quality);
+   impl_->resampler =
+      new_aubio_resampler(static_cast<smpl_t>(ratio), SRC_SINC_best_quality);
 
    // Resample the input.
    // aubio_resampler_do takes (resampler, input, output).
@@ -181,8 +184,8 @@ std::vector<float> TemporalProcessor::lowPass(const std::vector<float>& samples,
    return result;
 }
 
-std::vector<float> TemporalProcessor::highPass(const std::vector<float>& samples,
-                                               float cutoffHz) {
+std::vector<float>
+TemporalProcessor::highPass(const std::vector<float>& samples, float cutoffHz) {
    // Apply a high-pass filter.
    // Compute biquad high-pass coefficients.
 
@@ -220,8 +223,8 @@ std::vector<float> TemporalProcessor::highPass(const std::vector<float>& samples
    return result;
 }
 
-std::vector<float> TemporalProcessor::aWeighting(
-   const std::vector<float>& samples) {
+std::vector<float>
+TemporalProcessor::aWeighting(const std::vector<float>& samples) {
    // Apply an A-weighting filter.
    // Aubio_filter_do_outplace takes (filter, input, output).
 
@@ -245,8 +248,8 @@ std::vector<float> TemporalProcessor::aWeighting(
    return result;
 }
 
-std::vector<float> TemporalProcessor::cWeighting(
-   const std::vector<float>& samples) {
+std::vector<float>
+TemporalProcessor::cWeighting(const std::vector<float>& samples) {
    // Apply a C-weighting filter.
    // Aubio_filter_do_outplace takes (filter, input, output).
 
@@ -270,8 +273,9 @@ std::vector<float> TemporalProcessor::cWeighting(
    return result;
 }
 
-std::vector<std::vector<float>> TemporalProcessor::biquadCoefficients(
-   std::string_view filterType, float cutoffHz, float q) {
+std::vector<std::vector<float>>
+TemporalProcessor::biquadCoefficients(std::string_view filterType,
+                                      float cutoffHz, float q) {
    // Compute the Biquad filter coefficients.
    // Returns [a0, a1, a2] (numerator) and [b0, b1, b2]
    // (denominator).

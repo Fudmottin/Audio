@@ -8,9 +8,11 @@
  */
 
 #include <libaudio/beat.h>
+// clang-format off
 #include <aubio/types.h>
 #include <aubio/fvec.h>
 #include <aubio/tempo/tempo.h>
+// clang-format on
 #include <stdexcept>
 
 // ============================================================================
@@ -84,8 +86,7 @@ bool BeatTracker::detect(const float* samples, uint32_t length) {
    }
 
    if (length != impl_->bufSize) {
-      throw std::invalid_argument(
-         "Sample length must equal buffer size");
+      throw std::invalid_argument("Sample length must equal buffer size");
    }
 
    // Copy samples into aubio's fvec_t.
@@ -104,9 +105,8 @@ bool BeatTracker::detect(const float* samples, uint32_t length) {
 
    if (beatDetected) {
       impl_->beatCount_++;
-      impl_->lastBeatTime =
-         static_cast<double>(impl_->currentFrame) * impl_->hopSize /
-         impl_->sampleRate;
+      impl_->lastBeatTime = static_cast<double>(impl_->currentFrame) *
+                            impl_->hopSize / impl_->sampleRate;
       impl_->estimatedTempo_ = aubio_tempo_get_bpm(impl_->tracker);
       impl_->currentTempo_ = impl_->estimatedTempo_;
    }

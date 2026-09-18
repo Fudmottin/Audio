@@ -15,13 +15,15 @@
  */
 
 #include <libaudio/fft.h>
+// clang-format off
 #include <aubio/types.h>
 #include <aubio/fvec.h>
 #include <aubio/cvec.h>
 #include <aubio/spectral/fft.h>
-#include <stdexcept>
-#include <cmath>
+// clang-format on
 #include <algorithm>
+#include <cmath>
+#include <stdexcept>
 
 // ============================================================================
 // FFT::Impl — Private implementation (Pimpl pattern).

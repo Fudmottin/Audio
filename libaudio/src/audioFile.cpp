@@ -34,10 +34,10 @@
  *
  */
 
+#include <cstring>
 #include <libaudio/audioFile.h>
 #include <sndfile.h>
 #include <stdexcept>
-#include <cstring>
 
 // ============================================================================
 // AudioFileReader::Impl — Private implementation (Pimpl pattern).
@@ -76,8 +76,8 @@ AudioFileReader::AudioFileReader(std::string_view path)
 
    impl_->file = sf_open(path.data(), SFM_READ, &impl_->info);
    if (impl_->file == nullptr) {
-      throw std::runtime_error(
-         std::string("Could not open audio file: ") + path.data());
+      throw std::runtime_error(std::string("Could not open audio file: ") +
+                               path.data());
    }
 
    impl_->filePath = std::string(path);
@@ -133,7 +133,7 @@ uint32_t AudioFileReader::read(float* buffer, uint32_t hopSize) {
       sf_readf_float(impl_->file, buffer, static_cast<sf_count_t>(hopSize)));
 
    if (framesRead < 0) {
-      return 0;  // Error.
+      return 0; // Error.
    }
 
    // If stereo, downmix to mono by averaging.
@@ -158,9 +158,9 @@ uint32_t AudioFileReader::readStereo(float* leftOutput, float* rightOutput,
       return 0;
    }
 
-   int framesRead = static_cast<int>(
-      sf_readf_float(impl_->file, leftOutput,
-                     static_cast<sf_count_t>(hopSize * 2)));
+   int framesRead =
+      static_cast<int>(sf_readf_float(impl_->file, leftOutput,
+                                      static_cast<sf_count_t>(hopSize * 2)));
 
    if (framesRead < 0) {
       return 0;

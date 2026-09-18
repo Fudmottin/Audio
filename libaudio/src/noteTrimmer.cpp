@@ -8,12 +8,12 @@
  *
  */
 
-#include <libaudio/noteTrimmer.h>
-#include <libaudio/hir.h>
-#include <libaudio/audioFile.h>
-#include <libaudio/spectral.h>
-#include <cmath>
 #include <algorithm>
+#include <cmath>
+#include <libaudio/audioFile.h>
+#include <libaudio/hir.h>
+#include <libaudio/noteTrimmer.h>
+#include <libaudio/spectral.h>
 #include <vector>
 
 // ============================================================================
@@ -26,16 +26,16 @@
 struct NoteTrimmer::Impl {
    uint32_t sampleRate;
    float silenceThreshold = -40.0f;
-   double minNoteDuration = 0.05;  // 50 ms default
+   double minNoteDuration = 0.05; // 50 ms default
 
-   Impl(uint32_t sampleRate) : sampleRate(sampleRate) {}
+   Impl(uint32_t sampleRate)
+      : sampleRate(sampleRate) {}
    ~Impl() = default;
 
    // Find the note-off point by looking for a sustained drop in energy
    // below the silence threshold.
-   double findNoteOff(const std::vector<float>& samples,
-                      uint32_t startFrame, uint32_t totalFrames,
-                      float silenceThresholdDb) const {
+   double findNoteOff(const std::vector<float>& samples, uint32_t startFrame,
+                      uint32_t totalFrames, float silenceThresholdDb) const {
       // Find the frame where energy drops below the
       // silence threshold, indicating the note has ended.
 
@@ -87,13 +87,15 @@ NoteTrimmer::~NoteTrimmer() = default;
 
 NoteTrimmer::NoteTrimmer(NoteTrimmer&& other) noexcept
    : impl_(std::move(other.impl_)) {
-   other.impl_ = std::make_unique<Impl>(other.impl_ ? other.impl_->sampleRate : 48000);
+   other.impl_ =
+      std::make_unique<Impl>(other.impl_ ? other.impl_->sampleRate : 48000);
 }
 
 NoteTrimmer& NoteTrimmer::operator=(NoteTrimmer&& other) noexcept {
    if (this != &other) {
       impl_ = std::move(other.impl_);
-      other.impl_ = std::make_unique<Impl>(other.impl_ ? other.impl_->sampleRate : 48000);
+      other.impl_ =
+         std::make_unique<Impl>(other.impl_ ? other.impl_->sampleRate : 48000);
    }
    return *this;
 }
@@ -119,19 +121,21 @@ std::vector<Note> NoteTrimmer::refine(const std::vector<Note>& notes,
 
    // Refine each note's endTime.
    for (auto& note : refined) {
-      uint32_t startFrame = static_cast<uint32_t>(
-         note.startTime * impl_->sampleRate);
-      uint32_t endFrame = static_cast<uint32_t>(
-         note.endTime * impl_->sampleRate);
+      uint32_t startFrame =
+         static_cast<uint32_t>(note.startTime * impl_->sampleRate);
+      uint32_t endFrame =
+         static_cast<uint32_t>(note.endTime * impl_->sampleRate);
 
       // Find the actual note-off point.
-      double actualOffTime = impl_->findNoteOff(
-         audioData, startFrame, totalFrames, impl_->silenceThreshold);
+      double actualOffTime =
+         impl_->findNoteOff(audioData, startFrame, totalFrames,
+                            impl_->silenceThreshold);
 
       // Only refine if the new endTime is before the
       // original endTime (trimming, not extending).
-      double newEndTime = std::min(actualOffTime,
-                                    static_cast<double>(totalFrames) / impl_->sampleRate);
+      double newEndTime =
+         std::min(actualOffTime,
+                  static_cast<double>(totalFrames) / impl_->sampleRate);
 
       // Enforce minimum note duration.
       double duration = newEndTime - note.startTime;
@@ -140,9 +144,11 @@ std::vector<Note> NoteTrimmer::refine(const std::vector<Note>& notes,
          note.startTime = 0.0;
          note.endTime = 0.0;
       } else {
-         note.endTime = static_cast<double>(
-            std::max(startFrame, static_cast<uint32_t>(newEndTime * impl_->sampleRate))) /
-                        impl_->sampleRate;
+         note.endTime =
+            static_cast<double>(
+               std::max(startFrame, static_cast<uint32_t>(newEndTime *
+                                                          impl_->sampleRate))) /
+            impl_->sampleRate;
       }
    }
 

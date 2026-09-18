@@ -34,9 +34,11 @@
  *
  */
 
+// clang-format off
+#include <aubio/types.h>
 #include <aubio/fvec.h>
 #include <aubio/notes/notes.h>
-#include <aubio/types.h>
+// clang-format on
 #include <libaudio/notes.h>
 #include <stdexcept>
 

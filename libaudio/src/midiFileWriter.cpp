@@ -7,15 +7,15 @@
  *
  */
 
-#include <libaudio/midiFileWriter.h>
-#include <libaudio/hir.h>
 #include <algorithm>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <libaudio/hir.h>
+#include <libaudio/midiFileWriter.h>
 #include <numeric>
-#include <vector>
 #include <string>
+#include <vector>
 
 // ============================================================================
 // MidiFileWriter::Impl — Private implementation (Pimpl pattern).
@@ -41,21 +41,17 @@ struct MidiFileWriter::Impl {
 
    // Write a big-endian uint16.
    static bool writeUint16(FILE* f, uint16_t value) {
-      uint8_t bytes[2] = {
-         static_cast<uint8_t>((value >> 8) & 0xFF),
-         static_cast<uint8_t>(value & 0xFF)
-      };
+      uint8_t bytes[2] = {static_cast<uint8_t>((value >> 8) & 0xFF),
+                          static_cast<uint8_t>(value & 0xFF)};
       return fwrite(bytes, 2, 1, f) == 1;
    }
 
    // Write a big-endian uint32.
    static bool writeUint32(FILE* f, uint32_t value) {
-      uint8_t bytes[4] = {
-         static_cast<uint8_t>((value >> 24) & 0xFF),
-         static_cast<uint8_t>((value >> 16) & 0xFF),
-         static_cast<uint8_t>((value >> 8) & 0xFF),
-         static_cast<uint8_t>(value & 0xFF)
-      };
+      uint8_t bytes[4] = {static_cast<uint8_t>((value >> 24) & 0xFF),
+                          static_cast<uint8_t>((value >> 16) & 0xFF),
+                          static_cast<uint8_t>((value >> 8) & 0xFF),
+                          static_cast<uint8_t>(value & 0xFF)};
       return fwrite(bytes, 4, 1, f) == 1;
    }
 
@@ -86,16 +82,14 @@ struct MidiFileWriter::Impl {
    static uint32_t secondsToTicks(double seconds, double tempoBpm) {
       // ticks = seconds × (ticksPerQuarterNote / 60) × (tempoBPM / 60)
       // With 480 ticks/qn and 120 BPM: ticks = seconds × 960
-      uint32_t ticks = static_cast<uint32_t>(
-         std::round(seconds * (TICKS_PER_QUARTER_NOTE / 60.0) *
-                    (tempoBpm / 60.0)));
+      uint32_t ticks = static_cast<uint32_t>(std::round(
+         seconds * (TICKS_PER_QUARTER_NOTE / 60.0) * (tempoBpm / 60.0)));
       return ticks;
    }
 
    // Build MIDI event data for a single note (Note On + Note Off).
-   static void buildNoteEvent(std::vector<uint8_t>& events,
-                              uint32_t deltaTicks, uint8_t note,
-                              uint8_t velocity, uint8_t channel) {
+   static void buildNoteEvent(std::vector<uint8_t>& events, uint32_t deltaTicks,
+                              uint8_t note, uint8_t velocity, uint8_t channel) {
       // Note On event (9n nn vv) — no running status.
       events.push_back(static_cast<uint8_t>(0x90 | (channel & 0x0F)));
       events.push_back(note);
@@ -104,7 +98,7 @@ struct MidiFileWriter::Impl {
       // Note Off event (8n nn) — no running status.
       events.push_back(static_cast<uint8_t>(0x80 | (channel & 0x0F)));
       events.push_back(note);
-      events.push_back(64);  // Default release velocity.
+      events.push_back(64); // Default release velocity.
 
       // Prepend delta-time.
       std::vector<uint8_t> delta;
@@ -131,9 +125,9 @@ struct MidiFileWriter::Impl {
    }
 
    // Build a Control Change event (no running status).
-   static void buildCcEvent(std::vector<uint8_t>& events,
-                            uint32_t deltaTicks, uint8_t controller,
-                            uint8_t value, uint8_t channel) {
+   static void buildCcEvent(std::vector<uint8_t>& events, uint32_t deltaTicks,
+                            uint8_t controller, uint8_t value,
+                            uint8_t channel) {
       // Control Change event (Bn cc vv) — no running status.
       events.push_back(static_cast<uint8_t>(0xB0 | (channel & 0x0F)));
       events.push_back(controller);
@@ -164,8 +158,8 @@ struct MidiFileWriter::Impl {
 
    // Build a Program Change event (no running status).
    static void buildProgramChangeEvent(std::vector<uint8_t>& events,
-                                      uint32_t deltaTicks, uint8_t patch,
-                                      uint8_t channel) {
+                                       uint32_t deltaTicks, uint8_t patch,
+                                       uint8_t channel) {
       // Program Change event (Cn pp) — no running status.
       events.push_back(static_cast<uint8_t>(0xC0 | (channel & 0x0F)));
       events.push_back(patch);
@@ -202,17 +196,16 @@ struct MidiFileWriter::Impl {
 
       events.push_back(0xFF);
       events.push_back(0x51);
-      events.push_back(0x03);  // 3 data bytes.
-      events.push_back(static_cast<uint8_t>(
-         (microsecondsPerQuarterNote >> 16) & 0xFF));
-      events.push_back(static_cast<uint8_t>(
-         (microsecondsPerQuarterNote >> 8) & 0xFF));
-      events.push_back(static_cast<uint8_t>(
-         microsecondsPerQuarterNote & 0xFF));
+      events.push_back(0x03); // 3 data bytes.
+      events.push_back(
+         static_cast<uint8_t>((microsecondsPerQuarterNote >> 16) & 0xFF));
+      events.push_back(
+         static_cast<uint8_t>((microsecondsPerQuarterNote >> 8) & 0xFF));
+      events.push_back(static_cast<uint8_t>(microsecondsPerQuarterNote & 0xFF));
 
       // Prepend delta-time.
       std::vector<uint8_t> delta;
-      delta.push_back(0);  // Delta = 0 (at the start of the track).
+      delta.push_back(0); // Delta = 0 (at the start of the track).
       events.insert(events.begin(), delta.begin(), delta.end());
    }
 
@@ -295,13 +288,13 @@ bool MidiFileWriter::write(const Score& score) {
    if (fwrite(mthdId, 4, 1, f) != 1) {
       goto error;
    }
-   if (!Impl::writeUint32(f, 6)) {  // Header chunk length = 6 bytes.
+   if (!Impl::writeUint32(f, 6)) { // Header chunk length = 6 bytes.
       goto error;
    }
-   if (!Impl::writeUint16(f, 1)) {  // Format: 1 (multi-track).
+   if (!Impl::writeUint16(f, 1)) { // Format: 1 (multi-track).
       goto error;
    }
-   if (!Impl::writeUint16(f, 1)) {  // Number of tracks: 1.
+   if (!Impl::writeUint16(f, 1)) { // Number of tracks: 1.
       goto error;
    }
    if (!Impl::writeUint16(f, Impl::TICKS_PER_QUARTER_NOTE)) {
@@ -333,15 +326,15 @@ bool MidiFileWriter::write(const Score& score) {
          std::max(1u, std::min(127u, static_cast<unsigned>(note.velocity))));
 
       // Compute delta-time (non-negative).
-      uint32_t deltaTicks = std::max(0u,
-         static_cast<unsigned>(noteOnTick - lastTick));
+      uint32_t deltaTicks =
+         std::max(0u, static_cast<unsigned>(noteOnTick - lastTick));
 
       Impl::buildNoteEvent(trackData, deltaTicks, pitch, velocity,
                            note.channel);
 
       // Compute note-off delta-time.
-      uint32_t noteOffDelta = std::max(0u,
-         static_cast<unsigned>(noteOffTick - noteOnTick));
+      uint32_t noteOffDelta =
+         std::max(0u, static_cast<unsigned>(noteOffTick - noteOnTick));
 
       Impl::buildNoteEvent(trackData, noteOffDelta, pitch, velocity,
                            note.channel);
@@ -363,8 +356,8 @@ bool MidiFileWriter::write(const Score& score) {
          std::max(0u, std::min(127u, static_cast<unsigned>(ctrl.value))));
 
       // Compute delta-time (non-negative).
-      uint32_t deltaTicks = std::max(0u,
-         static_cast<unsigned>(ctrlTick - lastTick));
+      uint32_t deltaTicks =
+         std::max(0u, static_cast<unsigned>(ctrlTick - lastTick));
 
       Impl::buildCcEvent(trackData, deltaTicks, controller, value, 0);
 

@@ -9,6 +9,7 @@
  */
 
 #include <libaudio/pitch.h>
+// clang-format off
 #include <aubio/types.h>
 #include <aubio/fvec.h>
 #include <aubio/cvec.h>
@@ -18,10 +19,11 @@
 #include <aubio/pitch/pitchfcomb.h>
 #include <aubio/pitch/pitchmcomb.h>
 #include <aubio/pitch/pitchschmitt.h>
-#include <stdexcept>
-#include <unordered_map>
+// clang-format on
 #include <algorithm>
 #include <cctype>
+#include <stdexcept>
+#include <unordered_map>
 
 // ============================================================================
 // PitchDetector::Impl — Private implementation (Pimpl pattern).
@@ -70,8 +72,8 @@ PitchDetector::PitchDetector(uint32_t bufSize, float tolerance)
    // Create the default (YINfft) pitch detector.
 
    impl_->bufSize = bufSize;
-   impl_->hopSize = bufSize / 4;  // Default: 75% overlap
-   impl_->sampleRate = 48000;  // Default sample rate
+   impl_->hopSize = bufSize / 4; // Default: 75% overlap
+   impl_->sampleRate = 48000;    // Default sample rate
    impl_->currentMethod = "yinfft";
 
    // Create the YINfft detector (default algorithm).
@@ -115,8 +117,7 @@ std::pair<float, float> PitchDetector::detect(const float* samples,
    }
 
    if (length != impl_->bufSize) {
-      throw std::invalid_argument(
-         "Sample length must equal buffer size");
+      throw std::invalid_argument("Sample length must equal buffer size");
    }
 
    // Copy samples into aubio's fvec_t.
@@ -139,9 +140,8 @@ std::pair<float, float> PitchDetector::detect(const float* samples,
       aubio_pitchfcomb_do(static_cast<aubio_pitchfcomb_t*>(impl_->active),
                           impl_->inputBuffer, impl_->candsBuffer);
    } else if (impl_->currentMethod == "schmitt") {
-      aubio_pitchschmitt_do(
-         static_cast<aubio_pitchschmitt_t*>(impl_->active),
-         impl_->inputBuffer, impl_->candsBuffer);
+      aubio_pitchschmitt_do(static_cast<aubio_pitchschmitt_t*>(impl_->active),
+                            impl_->inputBuffer, impl_->candsBuffer);
    } else {
       // Default: YINfft.
       aubio_pitchyinfft_do(static_cast<aubio_pitchyinfft_t*>(impl_->active),
@@ -149,7 +149,7 @@ std::pair<float, float> PitchDetector::detect(const float* samples,
    }
 
    // Extract results.
-   float pitch = impl_->candsBuffer->data[0];  // MIDI note (float)
+   float pitch = impl_->candsBuffer->data[0]; // MIDI note (float)
    float confidence = 0.0f;
 
    // Get confidence from the active detector.
@@ -182,7 +182,8 @@ void PitchDetector::setMethod(std::string_view method) {
    std::string lowerMethod;
    lowerMethod.reserve(method.size());
    for (char c : method) {
-      lowerMethod += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+      lowerMethod +=
+         static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
    }
 
    // Delete current detector.

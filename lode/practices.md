@@ -12,6 +12,11 @@
 - **Brace style**: Attach (K&R style — braces on same line as control statement)
 - **Column limit**: 80 characters
 - **Include sorting**: Standard library → project headers → local headers
+- **Third-party include ordering**: Some third-party libraries (aubio) have
+  implicit ordering dependencies — `types.h` must be included before other
+  headers because it defines `uint_t` and `smpl_t`. Use `// clang-format off`
+  / `// clang-format on` around such includes to prevent `SortIncludes: true`
+  from reordering them. See `lode/libaudio/decisions.md` for details.
 - **Output**: Prefer `std::cout` / `std::cerr` over `fprintf`
 - **Pointers**: No `void*` pointers in our own code. Core Audio's C API may produce them internally, but cast away immediately.
 

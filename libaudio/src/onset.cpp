@@ -9,9 +9,11 @@
  */
 
 #include <libaudio/onset.h>
+// clang-format off
 #include <aubio/types.h>
 #include <aubio/fvec.h>
 #include <aubio/onset/onset.h>
+// clang-format on
 #include <stdexcept>
 
 // ============================================================================
@@ -30,7 +32,7 @@ struct OnsetDetector::Impl {
    uint32_t hopSize;
    uint32_t sampleRate;
    float threshold = 0.2f;
-   double minIoI = 0.02;  // 20 ms default
+   double minIoI = 0.02; // 20 ms default
    double lastOnsetTime = -1.0;
    float lastConfidence = 0.0f;
    uint32_t currentFrame = 0;
@@ -58,8 +60,8 @@ OnsetDetector::OnsetDetector(std::string_view method, uint32_t bufSize,
    impl_->sampleRate = sampleRate;
 
    // Create the onset detector with the specified method.
-   impl_->detector = new_aubio_onset(impl_->method.c_str(), bufSize,
-                                     hopSize, sampleRate);
+   impl_->detector =
+      new_aubio_onset(impl_->method.c_str(), bufSize, hopSize, sampleRate);
 
    // Allocate input buffer.
    impl_->inputBuffer = new_fvec(bufSize);
@@ -94,8 +96,7 @@ bool OnsetDetector::detect(const float* samples, uint32_t length) {
    }
 
    if (length != impl_->bufSize) {
-      throw std::invalid_argument(
-         "Sample length must equal buffer size");
+      throw std::invalid_argument("Sample length must equal buffer size");
    }
 
    // Copy samples into aubio's fvec_t.
@@ -115,9 +116,8 @@ bool OnsetDetector::detect(const float* samples, uint32_t length) {
    del_fvec(output);
 
    if (detected) {
-      impl_->lastOnsetTime =
-         static_cast<double>(impl_->currentFrame) * impl_->hopSize /
-         impl_->sampleRate;
+      impl_->lastOnsetTime = static_cast<double>(impl_->currentFrame) *
+                             impl_->hopSize / impl_->sampleRate;
    } else {
       impl_->lastOnsetTime = -1.0;
    }
@@ -162,7 +162,8 @@ void OnsetDetector::setMinIoI(double minIoI) {
    if (impl_ && impl_->detector) {
       impl_->minIoI = minIoI;
       aubio_onset_set_minioi(impl_->detector,
-                             static_cast<uint_t>(impl_->minIoI * impl_->sampleRate));
+                             static_cast<uint_t>(impl_->minIoI *
+                                                 impl_->sampleRate));
    }
 }
 

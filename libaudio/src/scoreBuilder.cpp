@@ -9,10 +9,10 @@
  *
  */
 
-#include <libaudio/scoreBuilder.h>
-#include <libaudio/hir.h>
 #include <algorithm>
 #include <cmath>
+#include <libaudio/hir.h>
+#include <libaudio/scoreBuilder.h>
 
 // ============================================================================
 // ScoreBuilder::Impl — Private implementation (Pimpl pattern).
@@ -35,7 +35,7 @@ struct ScoreBuilder::Impl {
       // Estimate tempo from the average note duration.
       // If notes are about 0.5 seconds apart, that's roughly 120 BPM.
       if (notes.size() < 2) {
-         return 120.0;  // Default tempo.
+         return 120.0; // Default tempo.
       }
 
       double totalDuration = 0.0;
@@ -43,14 +43,14 @@ struct ScoreBuilder::Impl {
 
       for (const auto& note : notes) {
          double duration = note.endTime - note.startTime;
-         if (duration > 0.01) {  // Ignore very short notes (noise).
+         if (duration > 0.01) { // Ignore very short notes (noise).
             totalDuration += duration;
             noteCount++;
          }
       }
 
       if (noteCount == 0) {
-         return 120.0;  // Default tempo.
+         return 120.0; // Default tempo.
       }
 
       // Average note duration → BPM estimate.

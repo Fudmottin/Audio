@@ -8,12 +8,12 @@
  *
  */
 
+#include <algorithm>
+#include <cmath>
+#include <libaudio/audioFile.h>
 #include <libaudio/controlEventExtractor.h>
 #include <libaudio/hir.h>
-#include <libaudio/audioFile.h>
 #include <libaudio/spectral.h>
-#include <cmath>
-#include <algorithm>
 #include <vector>
 
 // ============================================================================
@@ -28,14 +28,14 @@ struct ControlEventExtractor::Impl {
    static constexpr uint8_t SUSTAIN_PEDAL_CC = 64;
    static constexpr uint8_t SOFT_PEDAL_CC = 66;
 
-   Impl(uint32_t sampleRate) : sampleRate(sampleRate) {}
+   Impl(uint32_t sampleRate)
+      : sampleRate(sampleRate) {}
    ~Impl() = default;
 
    // Detect sustain pedal on/off transitions by analyzing low-frequency
    // energy patterns (below ~200 Hz). When sustain pedal is pressed,
    // low-frequency energy increases significantly.
-   std::vector<ControlEvent> detectSustainPedal(
-      AudioFileReader& reader) {
+   std::vector<ControlEvent> detectSustainPedal(AudioFileReader& reader) {
       // Analyze the audio file for sustain pedal events.
 
       std::vector<ControlEvent> events;
@@ -68,8 +68,7 @@ struct ControlEventExtractor::Impl {
          // When sustain pedal is pressed, low-frequency resonances
          // increase, raising the low-frequency energy.
          float rmsLowFreq = 0.0f;
-         uint32_t lowFreqBins = static_cast<uint32_t>(
-            200.0f * windowSize / sr);
+         uint32_t lowFreqBins = static_cast<uint32_t>(200.0f * windowSize / sr);
 
          for (uint32_t i = 0; i < std::min(lowFreqBins, framesRead); ++i) {
             rmsLowFreq += buffer[i] * buffer[i];
@@ -89,7 +88,7 @@ struct ControlEventExtractor::Impl {
             ControlEvent event;
             event.time = static_cast<double>(currentFrame) / sr;
             event.controller = SUSTAIN_PEDAL_CC;
-            event.value = 127;  // Pedal fully down.
+            event.value = 127; // Pedal fully down.
             events.push_back(event);
             pedalState = true;
          } else if (!isPedalDown && pedalState) {
@@ -97,7 +96,7 @@ struct ControlEventExtractor::Impl {
             ControlEvent event;
             event.time = static_cast<double>(currentFrame) / sr;
             event.controller = SUSTAIN_PEDAL_CC;
-            event.value = 0;  // Pedal fully up.
+            event.value = 0; // Pedal fully up.
             events.push_back(event);
             pedalState = false;
          }
@@ -124,29 +123,32 @@ ControlEventExtractor::ControlEventExtractor(uint32_t sampleRate)
 
 ControlEventExtractor::~ControlEventExtractor() = default;
 
-ControlEventExtractor::ControlEventExtractor(ControlEventExtractor&& other) noexcept
+ControlEventExtractor::ControlEventExtractor(
+   ControlEventExtractor&& other) noexcept
    : impl_(std::move(other.impl_)) {
-   other.impl_ = std::make_unique<Impl>(other.impl_ ? other.impl_->sampleRate : 48000);
+   other.impl_ =
+      std::make_unique<Impl>(other.impl_ ? other.impl_->sampleRate : 48000);
 }
 
-ControlEventExtractor& ControlEventExtractor::operator=(
-   ControlEventExtractor&& other) noexcept {
+ControlEventExtractor&
+ControlEventExtractor::operator=(ControlEventExtractor&& other) noexcept {
    if (this != &other) {
       impl_ = std::move(other.impl_);
-      other.impl_ = std::make_unique<Impl>(other.impl_ ? other.impl_->sampleRate : 48000);
+      other.impl_ =
+         std::make_unique<Impl>(other.impl_ ? other.impl_->sampleRate : 48000);
    }
    return *this;
 }
 
-std::vector<ControlEvent> ControlEventExtractor::extract(
-   AudioFileReader& reader) {
+std::vector<ControlEvent>
+ControlEventExtractor::extract(AudioFileReader& reader) {
    // Extract all control events from the audio file.
 
    return extractSustainPedal(reader);
 }
 
-std::vector<ControlEvent> ControlEventExtractor::extractSustainPedal(
-   AudioFileReader& reader) {
+std::vector<ControlEvent>
+ControlEventExtractor::extractSustainPedal(AudioFileReader& reader) {
    // Extract sustain pedal events (CC#64) from audio.
 
    if (impl_ == nullptr) {

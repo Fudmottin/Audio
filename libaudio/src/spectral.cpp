@@ -9,6 +9,7 @@
  */
 
 #include <libaudio/spectral.h>
+// clang-format off
 #include <aubio/types.h>
 #include <aubio/fvec.h>
 #include <aubio/cvec.h>
@@ -19,9 +20,10 @@
 #include <aubio/spectral/filterbank.h>
 #include <aubio/spectral/filterbank_mel.h>
 #include <aubio/mathutils.h>
-#include <stdexcept>
+// clang-format on
 #include <cmath>
 #include <numeric>
+#include <stdexcept>
 
 // ============================================================================
 // SpectralAnalyzer::Impl — Private implementation (Pimpl pattern).
@@ -98,9 +100,9 @@ SpectralAnalyzer::SpectralAnalyzer(uint32_t bufSize, uint32_t hopSize,
 
    // Allocate output buffers for MFCC, specdesc, and
    // filterbank results.
-   impl_->mfccOutput = new_fvec(13);  // 13 MFCC coefficients.
-   impl_->specdescOutput = new_fvec(1);  // Single value per descriptor.
-   impl_->filterbankOutput = new_fvec(40);  // 40 mel filterbank bands.
+   impl_->mfccOutput = new_fvec(13);       // 13 MFCC coefficients.
+   impl_->specdescOutput = new_fvec(1);    // Single value per descriptor.
+   impl_->filterbankOutput = new_fvec(40); // 40 mel filterbank bands.
 }
 
 SpectralAnalyzer::~SpectralAnalyzer() = default;
@@ -110,8 +112,8 @@ SpectralAnalyzer::SpectralAnalyzer(SpectralAnalyzer&& other) noexcept
    other.impl_ = std::make_unique<Impl>();
 }
 
-SpectralAnalyzer& SpectralAnalyzer::operator=(
-   SpectralAnalyzer&& other) noexcept {
+SpectralAnalyzer&
+SpectralAnalyzer::operator=(SpectralAnalyzer&& other) noexcept {
    if (this != &other) {
       impl_ = std::move(other.impl_);
       other.impl_ = std::make_unique<Impl>();
@@ -157,7 +159,7 @@ float SpectralAnalyzer::spectralFlux(const std::vector<float>& prevSpectrum,
    for (size_t i = 0; i < n; ++i) {
       float diff = currSpectrum[i] - prevSpectrum[i];
       if (diff > 0.0f) {
-         flux += diff;  // Only positive changes (onsets).
+         flux += diff; // Only positive changes (onsets).
       }
    }
 
@@ -181,7 +183,7 @@ float SpectralAnalyzer::rmsEnergy(const float* samples, uint32_t length) {
 }
 
 float SpectralAnalyzer::zeroCrossingRate(const float* samples,
-                                        uint32_t length) {
+                                         uint32_t length) {
    // Compute the zero-crossing rate.
 
    if (samples == nullptr || length == 0) {
@@ -248,9 +250,8 @@ std::vector<float> SpectralAnalyzer::chroma(const float* samples) {
    uint32_t numBins = impl_->filterbankOutput->length;
 
    for (uint32_t i = 0; i < numBins; ++i) {
-      uint32_t bin = static_cast<uint32_t>(
-         static_cast<float>(i) * 12.0f /
-         std::max(1u, numBins / 12u));
+      uint32_t bin = static_cast<uint32_t>(static_cast<float>(i) * 12.0f /
+                                           std::max(1u, numBins / 12u));
       if (bin < 12) {
          result[bin] += impl_->filterbankOutput->data[i];
       }
@@ -260,7 +261,7 @@ std::vector<float> SpectralAnalyzer::chroma(const float* samples) {
 }
 
 float SpectralAnalyzer::spectralRollOff(const float* samples,
-                                       float rollOffRatio) {
+                                        float rollOffRatio) {
    // Compute the spectral roll-off frequency.
    // Create a dedicated specdesc object for "rolloff"
    // method, compute it, and read from the output fvec.
@@ -276,7 +277,8 @@ float SpectralAnalyzer::spectralRollOff(const float* samples,
 
    // Compute spectral roll-off using a dedicated specdesc.
    // aubio_specdesc_do writes a single value to the output fvec.
-   aubio_specdesc_t* rolloffSpecdesc = new_aubio_specdesc("rolloff", impl_->bufSize);
+   aubio_specdesc_t* rolloffSpecdesc =
+      new_aubio_specdesc("rolloff", impl_->bufSize);
    fvec_t* rolloffOutput = new_fvec(1);
    aubio_specdesc_do(rolloffSpecdesc, impl_->spectrum, rolloffOutput);
 

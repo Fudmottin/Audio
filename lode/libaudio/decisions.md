@@ -265,6 +265,34 @@ The implementation targets **rubberband 4.0.0** specifically:
 | `stretcher->setPitchFactor(pow(2, semis/12))` | Function renamed to `setPitchScale(pow(2, semis/12))` |
 | `stretcher->haveActiveStretcher()` | Function renamed to `available()` (returns `size_t`) |
 
+### Build-Time: aubio Include Order
+
+**Critical**: All source files must include `<aubio/types.h>` **before** any other aubio header.
+aubio's type aliases (`uint_t`, `smpl_t`) are defined in `types.h`, and other headers (`fvec.h`,
+`notes.h`, etc.) reference these types but do **not** include `types.h` themselves.
+
+**Correct pattern** (used by all source files):
+```cpp
+#include <aubio/types.h>       // MUST be first
+#include <aubio/fvec.h>
+#include <aubio/notes/notes.h>
+```
+
+**Incorrect** (causes compilation failure):
+```cpp
+#include <aubio/fvec.h>        // Uses uint_t/smpl_t — undefined
+#include <aubio/notes/notes.h> // Uses uint_t/smpl_t — undefined
+#include <aubio/types.h>       // Too late — types already referenced
+```
+
+**clang-format interaction**: The project's `.clang-format` has
+`SortIncludes: true`, which reorders includes alphabetically. Since
+`fvec.h` < `types.h` alphabetically, clang-format would reorder our fix
+back to the broken state. **Solution**: wrap all aubio includes in every
+source file with `// clang-format off` / `// clang-format on` directives.
+This is the standard pattern for third-party headers with ordering
+dependencies.
+
 ### Implementation Notes
 
 - **Piano methods only**: YINfft, YINfast, fcomb, Schmitt are supported. `yin` and `mcomb` were removed because they require pre-computed complex spectra (cvec), which is outside the scope of the simple pitch detector wrapper.

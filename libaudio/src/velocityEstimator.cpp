@@ -8,9 +8,9 @@
  *
  */
 
-#include <libaudio/velocityEstimator.h>
-#include <cmath>
 #include <algorithm>
+#include <cmath>
+#include <libaudio/velocityEstimator.h>
 
 // ============================================================================
 // VelocityEstimator::Impl — Private implementation (Pimpl pattern).
@@ -24,7 +24,8 @@ struct VelocityEstimator::Impl {
    float minDb = -40.0f;
    float maxDb = 0.0f;
 
-   Impl(uint32_t sampleRate) : sampleRate(sampleRate) {}
+   Impl(uint32_t sampleRate)
+      : sampleRate(sampleRate) {}
    ~Impl() = default;
 
    // Compute RMS energy in dB (relative to max).
@@ -32,7 +33,7 @@ struct VelocityEstimator::Impl {
       // Convert RMS energy to dB scale.
       // 0 dB = max RMS (silence = -infinity dB).
       if (rms <= 0.0f) {
-         return -100.0f;  // Minimum dB (silence).
+         return -100.0f; // Minimum dB (silence).
       }
       return 20.0f * std::log10(rms);
    }
@@ -61,14 +62,16 @@ VelocityEstimator::~VelocityEstimator() = default;
 
 VelocityEstimator::VelocityEstimator(VelocityEstimator&& other) noexcept
    : impl_(std::move(other.impl_)) {
-   other.impl_ = std::make_unique<Impl>(other.impl_ ? other.impl_->sampleRate : 48000);
+   other.impl_ =
+      std::make_unique<Impl>(other.impl_ ? other.impl_->sampleRate : 48000);
 }
 
-VelocityEstimator& VelocityEstimator::operator=(
-   VelocityEstimator&& other) noexcept {
+VelocityEstimator&
+VelocityEstimator::operator=(VelocityEstimator&& other) noexcept {
    if (this != &other) {
       impl_ = std::move(other.impl_);
-      other.impl_ = std::make_unique<Impl>(other.impl_ ? other.impl_->sampleRate : 48000);
+      other.impl_ =
+         std::make_unique<Impl>(other.impl_ ? other.impl_->sampleRate : 48000);
    }
    return *this;
 }
