@@ -32,13 +32,12 @@
  *    onset detection to mark rest boundaries, ensuring accurate
  *    timing for the final score.
  *
- * @see lode/libaudio/summary.md — Algorithmic limitations
  */
 
-#include <libaudio/notes.h>
-#include <aubio/types.h>
 #include <aubio/fvec.h>
 #include <aubio/notes/notes.h>
+#include <aubio/types.h>
+#include <libaudio/notes.h>
 #include <stdexcept>
 
 // ============================================================================
@@ -84,8 +83,8 @@ NoteDetector::NoteDetector(std::string_view method, uint32_t bufSize,
    impl_->sampleRate = sampleRate;
 
    // Create the note detector with the specified method.
-   impl_->detector = new_aubio_notes(impl_->method.c_str(), bufSize,
-                                     hopSize, sampleRate);
+   impl_->detector =
+      new_aubio_notes(impl_->method.c_str(), bufSize, hopSize, sampleRate);
 
    // Allocate input buffer.
    impl_->inputBuffer = new_fvec(bufSize);
@@ -124,8 +123,7 @@ std::optional<NoteEvent> NoteDetector::detect(const float* samples,
    }
 
    if (length != impl_->bufSize) {
-      throw std::invalid_argument(
-         "Sample length must equal buffer size");
+      throw std::invalid_argument("Sample length must equal buffer size");
    }
 
    // Copy samples into aubio's fvec_t.
@@ -152,7 +150,7 @@ std::optional<NoteEvent> NoteDetector::detect(const float* samples,
    del_fvec(output);
 
    if (event.pitchMidi <= 0.0f) {
-      return std::nullopt;  // No note detected.
+      return std::nullopt; // No note detected.
    }
 
    impl_->currentFrame += length;

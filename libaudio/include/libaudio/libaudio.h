@@ -25,7 +25,6 @@
  * 5. **Compile-time** — Header files don't need library includes,
  *    giving faster compilation and fewer dependency issues.
  *
- * @see lode/libaudio/summary.md — Wrapper design
  */
 
 #ifndef LIBAUDIO_LIBAUDIO_H

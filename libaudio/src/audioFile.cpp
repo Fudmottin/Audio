@@ -32,7 +32,6 @@
  *    filtering to the piano range (27.5 Hz–4186 Hz, MIDI notes
  *    21–108) before analysis.
  *
- * @see lode/libaudio/summary.md — Audio quality issues
  */
 
 #include <libaudio/audioFile.h>
