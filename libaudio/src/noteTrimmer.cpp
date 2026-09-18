@@ -6,7 +6,6 @@
  * This module refines detected note durations by trimming them to
  * musical boundaries (note off events, silence gaps).
  *
- * @see lode/libaudio/summary.md — Module overview and API design
  */
 
 #include <libaudio/noteTrimmer.h>
@@ -22,7 +21,7 @@
 //
 // Domain context: All note trimming logic is isolated here.
 //
-// Core Guidelines: RAII — no external resources to manage.
+// RAII — no external resources to manage.
 // ============================================================================
 struct NoteTrimmer::Impl {
    uint32_t sampleRate;
@@ -37,20 +36,20 @@ struct NoteTrimmer::Impl {
    double findNoteOff(const std::vector<float>& samples,
                       uint32_t startFrame, uint32_t totalFrames,
                       float silenceThresholdDb) const {
-      // Core Guidelines: find the frame where energy drops below the
+      // Find the frame where energy drops below the
       // silence threshold, indicating the note has ended.
 
       constexpr uint32_t WINDOW_SIZE = 2048;
       constexpr uint32_t HOP_SIZE = WINDOW_SIZE / 4;
 
-      // Core Guidelines: convert dB threshold to RMS amplitude.
+      // Convert dB threshold to RMS amplitude.
       // RMS = 10^(dB/20).
       float rmsThreshold = std::pow(10.0, silenceThresholdDb / 20.0);
 
       uint32_t currentFrame = startFrame;
 
       while (currentFrame + WINDOW_SIZE < totalFrames) {
-         // Core Guidelines: compute RMS energy for the current window.
+         // Compute RMS energy for the current window.
          double sumSquares = 0.0;
          for (uint32_t i = 0; i < WINDOW_SIZE; ++i) {
             sumSquares += static_cast<double>(samples[currentFrame + i]) *
@@ -59,7 +58,7 @@ struct NoteTrimmer::Impl {
 
          float rms = static_cast<float>(std::sqrt(sumSquares / WINDOW_SIZE));
 
-         // Core Guidelines: if RMS drops below threshold, this is the
+         // If RMS drops below threshold, this is the
          // note-off point.
          if (rms < rmsThreshold) {
             return static_cast<double>(currentFrame + WINDOW_SIZE / 2) /
@@ -69,19 +68,19 @@ struct NoteTrimmer::Impl {
          currentFrame += HOP_SIZE;
       }
 
-      // Core Guidelines: if no silence found, return the end of the file.
+      // If no silence found, return the end of the file.
       return static_cast<double>(totalFrames) / sampleRate;
    }
 };
 
 // ============================================================================
 // NoteTrimmer implementation
-// Core Guidelines: RAII resource management — no external resources.
+// RAII resource management — no external resources.
 // ============================================================================
 
 NoteTrimmer::NoteTrimmer(uint32_t sampleRate)
    : impl_(std::make_unique<Impl>(sampleRate)) {
-   // Core Guidelines: constructor.
+   // Constructor.
 }
 
 NoteTrimmer::~NoteTrimmer() = default;
@@ -101,7 +100,7 @@ NoteTrimmer& NoteTrimmer::operator=(NoteTrimmer&& other) noexcept {
 
 std::vector<Note> NoteTrimmer::refine(const std::vector<Note>& notes,
                                       AudioFileReader& reader) {
-   // Core Guidelines: refine note durations by trimming to musical
+   // Refine note durations by trimming to musical
    // boundaries.
 
    if (impl_ == nullptr || reader.totalFrames() == 0) {
@@ -110,31 +109,31 @@ std::vector<Note> NoteTrimmer::refine(const std::vector<Note>& notes,
 
    std::vector<Note> refined = notes;
 
-   // Core Guidelines: read the entire audio file into memory for analysis.
+   // Read the entire audio file into memory for analysis.
    uint32_t totalFrames = reader.totalFrames();
    std::vector<float> audioData(totalFrames);
    reader.readMono(audioData.data(), totalFrames);
 
-   // Core Guidelines: reset the reader to the beginning.
+   // Reset the reader to the beginning.
    reader.reset();
 
-   // Core Guidelines: refine each note's endTime.
+   // Refine each note's endTime.
    for (auto& note : refined) {
       uint32_t startFrame = static_cast<uint32_t>(
          note.startTime * impl_->sampleRate);
       uint32_t endFrame = static_cast<uint32_t>(
          note.endTime * impl_->sampleRate);
 
-      // Core Guidelines: find the actual note-off point.
+      // Find the actual note-off point.
       double actualOffTime = impl_->findNoteOff(
          audioData, startFrame, totalFrames, impl_->silenceThreshold);
 
-      // Core Guidelines: only refine if the new endTime is before the
+      // Only refine if the new endTime is before the
       // original endTime (trimming, not extending).
       double newEndTime = std::min(actualOffTime,
                                     static_cast<double>(totalFrames) / impl_->sampleRate);
 
-      // Core Guidelines: enforce minimum note duration.
+      // Enforce minimum note duration.
       double duration = newEndTime - note.startTime;
       if (duration < impl_->minNoteDuration) {
          // Note is too short — remove it (silence/rest).
@@ -151,7 +150,7 @@ std::vector<Note> NoteTrimmer::refine(const std::vector<Note>& notes,
 }
 
 void NoteTrimmer::setSilenceThreshold(float db) {
-   // Core Guidelines: set the silence threshold (in dB).
+   // Set the silence threshold (in dB).
 
    if (impl_) {
       impl_->silenceThreshold = db;
@@ -159,13 +158,13 @@ void NoteTrimmer::setSilenceThreshold(float db) {
 }
 
 float NoteTrimmer::silenceThreshold() const {
-   // Core Guidelines: return the current silence threshold.
+   // Return the current silence threshold.
 
    return impl_ ? impl_->silenceThreshold : -40.0f;
 }
 
 void NoteTrimmer::setMinNoteDuration(double seconds) {
-   // Core Guidelines: set the minimum note duration (in seconds).
+   // Set the minimum note duration (in seconds).
 
    if (impl_) {
       impl_->minNoteDuration = std::max(0.0, seconds);
@@ -173,7 +172,7 @@ void NoteTrimmer::setMinNoteDuration(double seconds) {
 }
 
 double NoteTrimmer::minNoteDuration() const {
-   // Core Guidelines: return the minimum note duration.
+   // Return the minimum note duration.
 
    return impl_ ? impl_->minNoteDuration : 0.05;
 }

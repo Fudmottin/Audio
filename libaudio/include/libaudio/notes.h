@@ -13,8 +13,6 @@
  * call. For monophonic piano, this alone could produce a reasonable
  * result.
  *
- * @see lode/libaudio/summary.md — Module overview and API design
- * @see lode/libaudio/decisions.md — Default parameters (silence threshold,
  *         release drop, min IoI)
  */
 
@@ -34,7 +32,7 @@
 // for sub-note accuracy), velocity (0–127), and note-off MIDI note
 // (from aubio's internal analysis).
 //
-// Core Guidelines: aggregate type with no hidden state or side effects.
+// Aggregate type with no hidden state or side effects.
 // ============================================================================
 struct NoteEvent {
    /** MIDI note (float), or 0 if no note detected. */
@@ -61,7 +59,7 @@ struct NoteEvent {
 // - Default release drop: 10 dB (aubio default).
 // - Returns std::nullopt when no note is detected.
 //
-// Core Guidelines: RAII resource management — aubio resources are
+// RAII resource management — aubio resources are
 // automatically freed when the C++ object is destroyed.
 // ============================================================================
 class NoteDetector {
@@ -76,14 +74,14 @@ class NoteDetector {
                 uint32_t hopSize, uint32_t sampleRate);
 
    // Destructor. Frees aubio note detection resources.
-   // Core Guidelines: RAII — resources are released automatically.
+   // RAII — resources are released automatically.
    ~NoteDetector();
 
-   // Core Guidelines: non-copyable (aubio handles are non-copyable).
+   // Non-copyable (aubio handles are non-copyable).
    NoteDetector(const NoteDetector&) = delete;
    NoteDetector& operator=(const NoteDetector&) = delete;
 
-   // Core Guidelines: movable (aubio handles can be moved).
+   // Movable (aubio handles can be moved).
    NoteDetector(NoteDetector&& other) noexcept;
    NoteDetector& operator=(NoteDetector&& other) noexcept;
 

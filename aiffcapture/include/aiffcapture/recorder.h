@@ -47,8 +47,6 @@
  * output callback is responsible for converting 32-bit float PCM
  * to 16-bit signed integer and writing it to the AIFF file.
  *
- * @see lode/terminology.md — Core Audio API terms (IO proc)
- * @see lode/practices.md — Core Audio development patterns
  */
 
 #ifndef AIFFCAPTURE_RECORDER_H
@@ -59,7 +57,7 @@
 #include <functional>
 #include <string>
 
-// Core Guidelines: we include Core Audio headers here because AudioDeviceID
+// We include Core Audio headers here because AudioDeviceID
 // is a simple typedef (uint32_t) that is safe to expose in a public header.
 #include <CoreAudio/CoreAudio.h>
 
@@ -101,7 +99,7 @@
 //    - If `totalBytesReceived` is 0 but `ioCallbackCount > 0`, the device
 //      is idle (no audio playing through it).
 //
-// Core Guidelines: this class encapsulates the full recording lifecycle.
+// This class encapsulates the full recording lifecycle.
 // It is a resource acquisition is initialization (RAII) object: it acquires
 // the audio device in the constructor and releases it in the destructor.
 // ============================================================================
@@ -111,14 +109,14 @@ class Recorder {
    Recorder() = default;
 
    // Destructor. Releases the audio device if open.
-   // Core Guidelines: RAII — resources are released automatically.
+   // RAII — resources are released automatically.
    ~Recorder();
 
-   // Core Guidelines: non-copyable (handles are non-copyable).
+   // Non-copyable (handles are non-copyable).
    Recorder(const Recorder&) = delete;
    Recorder& operator=(const Recorder&) = delete;
 
-   // Core Guidelines: movable (handles can be moved).
+   // Movable (handles can be moved).
    Recorder(Recorder&& other) noexcept;
    Recorder& operator=(Recorder&& other) noexcept;
 
@@ -128,7 +126,7 @@ class Recorder {
    // device and prepares it for recording. The device must be valid (from
    // DeviceManager::enumerateDevices).
    //
-   // Core Guidelines: this function is the only place where we create
+   // This function is the only place where we create
    // an AudioDeviceHandle. All error handling is centralized here.
    //
    // @param device The device to open (from DeviceManager::enumerateDevices).
@@ -142,7 +140,7 @@ class Recorder {
    // This starts the audio device's recording stream. The device must be
    // open (open() must have returned true).
    //
-   // Core Guidelines: this function is the only place where we call
+   // This function is the only place where we call
    // AudioDeviceStart. All error handling is centralized here.
    //
    // @return true if recording started successfully, false otherwise.
@@ -153,7 +151,7 @@ class Recorder {
    // This stops the audio device's recording stream. The device must be
    // open (open() must have returned true).
    //
-   // Core Guidelines: this function is the only place where we call
+   // This function is the only place where we call
    // AudioDeviceStop. All error handling is centralized here.
    //
    // @return true if recording stopped successfully, false otherwise.
@@ -165,7 +163,7 @@ class Recorder {
    // pre-allocated in the object (see allocateBuffer()). The caller
    // is responsible for writing the data to disk.
    //
-   // Core Guidelines: this function is the only place where we call
+   // This function is the only place where we call
    // AudioDeviceRead. All error handling is centralized here.
    //
    // @param[out] buffer Pointer to a pointer that will receive the buffer.
@@ -180,7 +178,7 @@ class Recorder {
    // This is the block size reported by the device. It determines how
    // much data is read per call to readBuffer().
    //
-   // Core Guidelines: this function is the only place where we query
+   // This function is the only place where we query
    // the device's block size. It is called once during open().
    //
    // @return The buffer size in bytes, or 0 if the device is not open.
@@ -188,7 +186,7 @@ class Recorder {
 
    // Get the audio format of the recording stream.
    //
-   // Core Guidelines: this function is a simple accessor.
+   // This function is a simple accessor.
    //
    // @return The audio format, or a default-constructed AudioFormat
    //         if the device is not open.
@@ -196,21 +194,21 @@ class Recorder {
 
    // Get the total number of frames recorded so far.
    //
-   // Core Guidelines: this function is a simple accessor.
+   // This function is a simple accessor.
    //
    // @return The total number of frames recorded, or 0 if not recording.
    [[nodiscard]] uint64_t getFrameCount() const;
 
    // Check if the device is currently open.
    //
-   // Core Guidelines: this function is a simple accessor.
+   // This function is a simple accessor.
    //
    // @return true if the device is open, false otherwise.
    [[nodiscard]] bool isOpen() const;
 
    // Process input data from the IO proc.
    //
-   // Core Guidelines: this is called by the IO proc whenever new input
+   // This is called by the IO proc whenever new input
    // data is available. It writes the data to the AIFF file.
    //
    // @param inputData The input data (AudioBufferList).
@@ -219,7 +217,7 @@ class Recorder {
 
    // Set the output callback for the IO proc.
    //
-   // Core Guidelines: this method sets a callback that is called by the
+   // This method sets a callback that is called by the
    // IO proc whenever new input data is available. The callback receives
    // the input data as an AudioBufferList. This allows the caller to
    // process the data (e.g., write it to an AIFF file) without creating
@@ -240,47 +238,47 @@ class Recorder {
 
    // Get the total number of IO proc callbacks received.
    //
-   // Core Guidelines: this is a simple accessor for debugging.
+   // This is a simple accessor for debugging.
    //
    // @return The number of times the IO proc was called.
    [[nodiscard]] uint64_t getIoCallbackCount() const;
 
    // Get the total number of bytes received by the IO proc.
    //
-   // Core Guidelines: this is a simple accessor for debugging.
+   // This is a simple accessor for debugging.
    //
    // @return The total bytes received.
    [[nodiscard]] uint64_t getTotalBytesReceived() const;
 
  private:
    // Device ID of the Core Audio device.
-   // Core Guidelines: AudioDeviceID is a simple uint32_t typedef.
+   // AudioDeviceID is a simple uint32_t typedef.
    // It is safe to expose in a public header.
    AudioDeviceID deviceID_ = 0;
 
    // IO proc ID (function pointer) for the device.
-   // Core Guidelines: AudioDeviceIOProcID is a typedef for the IO proc
+   // AudioDeviceIOProcID is a typedef for the IO proc
    // function pointer. We store it separately from the device ID.
    AudioDeviceIOProcID ioProcID_ = nullptr;
 
    // Buffer size (in bytes) for a single read operation.
-   // Core Guidelines: explicit size, not derived from other values.
+   // Explicit size, not derived from other values.
    uint32_t bufferSize_ = 0;
 
    // Total number of frames recorded so far.
-   // Core Guidelines: explicit counter, not derived from timestamps.
+   // Explicit counter, not derived from timestamps.
    uint64_t frameCount_ = 0;
 
    // Audio format of the recording stream.
-   // Core Guidelines: explicit format, not derived from device.
+   // Explicit format, not derived from device.
    AudioFormat format_;
 
    // Pre-allocated buffer for reading PCM data.
-   // Core Guidelines: explicit ownership, no raw pointers.
+   // Explicit ownership, no raw pointers.
    unsigned char* buffer_ = nullptr;
 
    // Output callback for the IO proc.
-   // Core Guidelines: this is called by the IO proc whenever new input
+   // This is called by the IO proc whenever new input
    // data is available. The callback receives the input data as an
    // AudioBufferList. This allows the caller to process the data
    // (e.g., write it to an AIFF file) without creating a circular
@@ -288,25 +286,25 @@ class Recorder {
    std::function<void(const AudioBufferList*)> outputCallback_;
 
    // Verbose mode flag for debugging IO proc callbacks.
-   // Core Guidelines: when true, prints detailed statistics about each
+   // When true, prints detailed statistics about each
    // IO proc callback to stderr.
    bool verbose_ = false;
 
    // Counter for the number of IO proc callbacks received.
-   // Core Guidelines: used for debugging whether audio data is flowing.
+   // Used for debugging whether audio data is flowing.
    uint64_t ioCallbackCount_ = 0;
 
    // Total bytes received by the IO proc.
-   // Core Guidelines: used for debugging whether audio data is flowing.
+   // Used for debugging whether audio data is flowing.
    uint64_t totalBytesReceived_ = 0;
 
    // Internal helper: allocate the read buffer.
-   // Core Guidelines: this function allocates the buffer based on the
+   // This function allocates the buffer based on the
    // device's block size and format. It is called once during open().
    bool allocateBuffer();
 
    // Internal helper: deallocate the read buffer.
-   // Core Guidelines: this function frees the buffer. It is called
+   // This function frees the buffer. It is called
    // once during close().
    void deallocateBuffer();
 };

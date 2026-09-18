@@ -51,9 +51,6 @@
  *    handling. std::fstream adds layers of buffering and exception
  *    handling that obscure the low-level binary write operations.
  *
- * @see lode/terminology.md — AIFF format chunks
- * @see lode/practices.md — AIFF writing patterns
- * @see lode/aiffcapture/decisions.md — AIFF format design decisions
  */
 
 #ifndef AIFFCAPTURE_AIFF_H
@@ -65,7 +62,7 @@
 #include <string>
 
 // Forward declaration of FILE (C standard library).
-// Core Guidelines: we use FILE* for streaming writes, not std::fstream.
+// We use FILE* for streaming writes, not std::fstream.
 // This is intentional: we want explicit control over the write buffer
 // and error handling.
 
@@ -94,7 +91,7 @@
 //    byte in big-endian order. This ensures the file is portable across
 //    platforms (macOS is little-endian, so the bytes are swapped).
 //
-// Core Guidelines: this class encapsulates the full AIFF file format.
+// This class encapsulates the full AIFF file format.
 // It is a resource acquisition is initialization (RAII) object: it acquires
 // the output file in the constructor and closes it in the destructor.
 // ============================================================================
@@ -104,14 +101,14 @@ class AiffWriter {
    AiffWriter() = default;
 
    // Destructor. Closes the output file if open.
-   // Core Guidelines: RAII — resources are released automatically.
+   // RAII — resources are released automatically.
    ~AiffWriter();
 
-   // Core Guidelines: non-copyable (file handles are non-copyable).
+   // Non-copyable (file handles are non-copyable).
    AiffWriter(const AiffWriter&) = delete;
    AiffWriter& operator=(const AiffWriter&) = delete;
 
-   // Core Guidelines: movable (file handles can be moved).
+   // Movable (file handles can be moved).
    AiffWriter(AiffWriter&& other) noexcept;
    AiffWriter& operator=(AiffWriter&& other) noexcept;
 
@@ -121,7 +118,7 @@ class AiffWriter {
    // in binary mode for writing. The format parameter describes the
    // audio data that will be written.
    //
-   // Core Guidelines: this function is the only place where we write
+   // This function is the only place where we write
    // the AIFF header. All chunk writing is centralized here.
    //
    // @param filePath Path to the output file (e.g., "output.aiff").
@@ -134,7 +131,7 @@ class AiffWriter {
    // This writes raw PCM samples to the SSND chunk. The samples must
    // match the format specified when the file was opened (see open()).
    //
-   // Core Guidelines: this function is the only place where we write
+   // This function is the only place where we write
    // PCM data to the file. All error handling is centralized here.
    //
    // @param data Pointer to the PCM data (interleaved L/R for stereo).
@@ -148,7 +145,7 @@ class AiffWriter {
    // as placeholders during open()) with the actual sizes. The file
    // is then closed.
    //
-   // Core Guidelines: this function is the only place where we finalize
+   // This function is the only place where we finalize
    // the AIFF file. It patches up the chunk sizes and closes the file.
    //
    // @return true if the file was closed successfully, false otherwise.
@@ -156,62 +153,62 @@ class AiffWriter {
 
    // Get the number of bytes written so far (data only, not headers).
    //
-   // Core Guidelines: this function is a simple accessor.
+   // This function is a simple accessor.
    //
    // @return The number of bytes written, or 0 if the file is not open.
    [[nodiscard]] uint64_t getBytesWritten() const;
 
    // Check if the file is currently open.
    //
-   // Core Guidelines: this function is a simple accessor.
+   // This function is a simple accessor.
    //
    // @return true if the file is open, false otherwise.
    [[nodiscard]] bool isOpen() const;
 
  private:
    // File handle for the AIFF file.
-   // Core Guidelines: explicit handle, not a smart pointer (we need
+   // Explicit handle, not a smart pointer (we need
    // explicit control over the file descriptor).
    FILE* file_ = nullptr;
 
    // Output file path.
-   // Core Guidelines: explicit path, not derived from file handle.
+   // Explicit path, not derived from file handle.
    std::string filePath_;
 
    // Audio format of the file.
-   // Core Guidelines: explicit format, not derived from file.
+   // Explicit format, not derived from file.
    AudioFormat format_;
 
    // Total number of bytes written (data only, not headers).
-   // Core Guidelines: explicit counter, not derived from file position.
+   // Explicit counter, not derived from file position.
    uint64_t bytesWritten_ = 0;
 
    // Position of the FORM chunk size field in the file.
-   // Core Guidelines: explicit offset, used to patch up the file size.
+   // Explicit offset, used to patch up the file size.
    uint64_t formSizeOffset_ = 0;
 
    // Position of the SSND chunk size field in the file.
-   // Core Guidelines: explicit offset, used to patch up the data size.
+   // Explicit offset, used to patch up the data size.
    uint64_t ssndSizeOffset_ = 0;
 
    // Internal helper: write the FORM chunk header.
-   // Core Guidelines: this writes the FORM ID, size (placeholder),
+   // This writes the FORM ID, size (placeholder),
    // and "AIFF" magic bytes. The size is patched up in close().
    bool writeFormHeader();
 
    // Internal helper: write the COMM chunk.
-   // Core Guidelines: this writes the COMM ID, size (fixed at 12),
+   // This writes the COMM ID, size (fixed at 12),
    // number of channels, number of samples, sample size (16-bit),
    // and sample rate (32-bit integer).
    bool writeCommChunk(uint32_t numSamples);
 
    // Internal helper: write the SSND chunk header.
-   // Core Guidelines: this writes the SSND ID, size (placeholder),
+   // This writes the SSND ID, size (placeholder),
    // offset (0), and block size (0). The size is patched up in close().
    bool writeSsndHeader();
 
    // Internal helper: finalize the file size (patch up FORM and SSND).
-   // Core Guidelines: this patches up the FORM and SSND chunk sizes
+   // This patches up the FORM and SSND chunk sizes
    // (which were written as placeholders during open()) with the
    // actual sizes. It seeks to the correct positions and overwrites
    // the size fields.

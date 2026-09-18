@@ -6,8 +6,6 @@
  * multiple methods for detecting the start of musical notes (onsets),
  * which is critical for piano transcription.
  *
- * @see lode/libaudio/summary.md — Module overview and API design
- * @see lode/libaudio/decisions.md — Default parameters
  */
 
 #include <libaudio/onset.h>
@@ -21,7 +19,7 @@
 //
 // Domain context: All aubio C API calls are isolated here.
 //
-// Core Guidelines: RAII — aubio resources are automatically freed when
+// RAII — aubio resources are automatically freed when
 // the Impl is destroyed.
 // ============================================================================
 struct OnsetDetector::Impl {
@@ -45,28 +43,28 @@ struct OnsetDetector::Impl {
 
 // ============================================================================
 // OnsetDetector implementation
-// Core Guidelines: RAII resource management — aubio resources are
+// RAII resource management — aubio resources are
 // automatically freed when the C++ object is destroyed.
 // ============================================================================
 
 OnsetDetector::OnsetDetector(std::string_view method, uint32_t bufSize,
                              uint32_t hopSize, uint32_t sampleRate)
    : impl_(std::make_unique<Impl>()) {
-   // Core Guidelines: create the aubio onset detector.
+   // Create the aubio onset detector.
 
    impl_->method = std::string(method);
    impl_->bufSize = bufSize;
    impl_->hopSize = hopSize;
    impl_->sampleRate = sampleRate;
 
-   // Core Guidelines: create the onset detector with the specified method.
+   // Create the onset detector with the specified method.
    impl_->detector = new_aubio_onset(impl_->method.c_str(), bufSize,
                                      hopSize, sampleRate);
 
-   // Core Guidelines: allocate input buffer.
+   // Allocate input buffer.
    impl_->inputBuffer = new_fvec(bufSize);
 
-   // Core Guidelines: set the threshold and minimum IoI.
+   // Set the threshold and minimum IoI.
    // Note: aubio_onset_set_minioi takes uint_t (frame count), not float.
    aubio_onset_set_threshold(impl_->detector, impl_->threshold);
    aubio_onset_set_minioi(impl_->detector,
@@ -89,7 +87,7 @@ OnsetDetector& OnsetDetector::operator=(OnsetDetector&& other) noexcept {
 }
 
 bool OnsetDetector::detect(const float* samples, uint32_t length) {
-   // Core Guidelines: detect onsets in a buffer of audio samples.
+   // Detect onsets in a buffer of audio samples.
 
    if (impl_ == nullptr || impl_->detector == nullptr) {
       return false;
@@ -100,17 +98,17 @@ bool OnsetDetector::detect(const float* samples, uint32_t length) {
          "Sample length must equal buffer size");
    }
 
-   // Core Guidelines: copy samples into aubio's fvec_t.
+   // Copy samples into aubio's fvec_t.
    std::memcpy(impl_->inputBuffer->data, samples,
                impl_->bufSize * sizeof(float));
 
-   // Core Guidelines: run onset detection.
+   // Run onset detection.
    // aubio_onset_do takes 3 args: (detector, input, output_fvec)
    // and returns void. The output fvec holds the onset decision.
    fvec_t* output = new_fvec(impl_->bufSize);
    aubio_onset_do(impl_->detector, impl_->inputBuffer, output);
 
-   // Core Guidelines: extract the onset decision from the output buffer.
+   // Extract the onset decision from the output buffer.
    // aubio_onset_get_silence returns the silence threshold.
    // The output buffer's data[0] is non-zero if an onset was detected.
    bool detected = output->data[0] != 0.0f;
@@ -129,7 +127,7 @@ bool OnsetDetector::detect(const float* samples, uint32_t length) {
 }
 
 std::optional<double> OnsetDetector::lastOnsetTime() const {
-   // Core Guidelines: return the timestamp of the last detected onset.
+   // Return the timestamp of the last detected onset.
 
    if (impl_ && impl_->lastOnsetTime >= 0.0) {
       return impl_->lastOnsetTime;
@@ -138,12 +136,12 @@ std::optional<double> OnsetDetector::lastOnsetTime() const {
 }
 
 float OnsetDetector::lastConfidence() const {
-   // Core Guidelines: simple accessor.
+   // Simple accessor.
    return impl_ ? impl_->lastConfidence : 0.0f;
 }
 
 void OnsetDetector::setThreshold(float threshold) {
-   // Core Guidelines: set the peak picking threshold.
+   // Set the peak picking threshold.
 
    if (impl_ && impl_->detector) {
       impl_->threshold = threshold;
@@ -152,13 +150,13 @@ void OnsetDetector::setThreshold(float threshold) {
 }
 
 float OnsetDetector::threshold() const {
-   // Core Guidelines: simple accessor.
+   // Simple accessor.
    return impl_ ? impl_->threshold : 0.2f;
 }
 
 void OnsetDetector::setMinIoI(double minIoI) {
-   // Core Guidelines: set the minimum time between onsets.
-   // Core Guidelines: aubio_onset_set_minioi takes uint_t (frame count),
+   // Set the minimum time between onsets.
+   // Aubio_onset_set_minioi takes uint_t (frame count),
    // not float — compute the number of frames from the time.
 
    if (impl_ && impl_->detector) {
@@ -169,11 +167,11 @@ void OnsetDetector::setMinIoI(double minIoI) {
 }
 
 double OnsetDetector::minIoI() const {
-   // Core Guidelines: simple accessor.
+   // Simple accessor.
    return impl_ ? impl_->minIoI : 0.02;
 }
 
 std::string OnsetDetector::method() const {
-   // Core Guidelines: simple accessor.
+   // Simple accessor.
    return impl_ ? impl_->method : "specflux";
 }

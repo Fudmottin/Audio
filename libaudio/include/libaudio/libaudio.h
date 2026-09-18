@@ -5,7 +5,6 @@
  * This is the summary header that includes all public module headers.
  * Include this single header to use all libaudio functionality.
  *
- * @see lode/libaudio/summary.md — Module overview and API design
  */
 
 #ifndef LIBAUDIO_LIBAUDIO_H

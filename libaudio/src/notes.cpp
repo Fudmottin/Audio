@@ -6,8 +6,6 @@
  * pitch estimation, velocity analysis, and note-off detection into a
  * single interface.
  *
- * @see lode/libaudio/summary.md — Module overview and API design
- * @see lode/libaudio/decisions.md — Default parameters
  */
 
 #include <libaudio/notes.h>
@@ -21,7 +19,7 @@
 //
 // Domain context: All aubio C API calls are isolated here.
 //
-// Core Guidelines: RAII — aubio resources are automatically freed when
+// RAII — aubio resources are automatically freed when
 // the Impl is destroyed.
 // ============================================================================
 struct NoteDetector::Impl {
@@ -44,30 +42,30 @@ struct NoteDetector::Impl {
 
 // ============================================================================
 // NoteDetector implementation
-// Core Guidelines: RAII resource management — aubio resources are
+// RAII resource management — aubio resources are
 // automatically freed when the C++ object is destroyed.
 // ============================================================================
 
 NoteDetector::NoteDetector(std::string_view method, uint32_t bufSize,
                            uint32_t hopSize, uint32_t sampleRate)
    : impl_(std::make_unique<Impl>()) {
-   // Core Guidelines: create the aubio note detector.
+   // Create the aubio note detector.
 
    impl_->method = std::string(method);
    impl_->bufSize = bufSize;
    impl_->hopSize = hopSize;
    impl_->sampleRate = sampleRate;
 
-   // Core Guidelines: create the note detector with the specified method.
+   // Create the note detector with the specified method.
    impl_->detector = new_aubio_notes(impl_->method.c_str(), bufSize,
                                      hopSize, sampleRate);
 
-   // Core Guidelines: allocate input buffer.
+   // Allocate input buffer.
    impl_->inputBuffer = new_fvec(bufSize);
 
-   // Core Guidelines: set the silence threshold, minimum IoI (in ms),
+   // Set the silence threshold, minimum IoI (in ms),
    // and release drop level.
-   // Core Guidelines: aubio_notes_set_minioi_ms takes milliseconds,
+   // Aubio_notes_set_minioi_ms takes milliseconds,
    // aubio_notes_set_release_drop takes dB.
    aubio_notes_set_silence(impl_->detector, impl_->silenceThreshold);
    aubio_notes_set_minioi_ms(impl_->detector,
@@ -92,7 +90,7 @@ NoteDetector& NoteDetector::operator=(NoteDetector&& other) noexcept {
 
 std::optional<NoteEvent> NoteDetector::detect(const float* samples,
                                               uint32_t length) {
-   // Core Guidelines: detect notes in a buffer of audio samples.
+   // Detect notes in a buffer of audio samples.
 
    if (impl_ == nullptr || impl_->detector == nullptr) {
       return std::nullopt;
@@ -103,11 +101,11 @@ std::optional<NoteEvent> NoteDetector::detect(const float* samples,
          "Sample length must equal buffer size");
    }
 
-   // Core Guidelines: copy samples into aubio's fvec_t.
+   // Copy samples into aubio's fvec_t.
    std::memcpy(impl_->inputBuffer->data, samples,
                impl_->bufSize * sizeof(float));
 
-   // Core Guidelines: run note detection.
+   // Run note detection.
    // aubio_notes_do takes 3 args: (detector, input, output_fvec)
    // and returns void. The output fvec holds:
    //   [0] = MIDI note value (0 if no note)
@@ -117,7 +115,7 @@ std::optional<NoteEvent> NoteDetector::detect(const float* samples,
    fvec_t* output = new_fvec(3);
    aubio_notes_do(impl_->detector, impl_->inputBuffer, output);
 
-   // Core Guidelines: extract note event data from output buffer.
+   // Extract note event data from output buffer.
    // aubio_notes_do writes [pitch (float), velocity (float), noteOff (float)].
    NoteEvent event;
    event.pitchMidi = output->data[0];
@@ -135,12 +133,12 @@ std::optional<NoteEvent> NoteDetector::detect(const float* samples,
 }
 
 float NoteDetector::silenceThreshold() const {
-   // Core Guidelines: simple accessor.
+   // Simple accessor.
    return impl_ ? impl_->silenceThreshold : -40.0f;
 }
 
 void NoteDetector::setSilenceThreshold(float threshold) {
-   // Core Guidelines: set the silence threshold.
+   // Set the silence threshold.
 
    if (impl_ && impl_->detector) {
       impl_->silenceThreshold = threshold;
@@ -149,13 +147,13 @@ void NoteDetector::setSilenceThreshold(float threshold) {
 }
 
 double NoteDetector::minIoIMs() const {
-   // Core Guidelines: simple accessor.
+   // Simple accessor.
    return impl_ ? impl_->minIoIMs_ : 10.0;
 }
 
 void NoteDetector::setMinIoIMs(double ms) {
-   // Core Guidelines: set the minimum time between onsets.
-   // Core Guidelines: aubio_notes_set_minioi_ms takes milliseconds,
+   // Set the minimum time between onsets.
+   // Aubio_notes_set_minioi_ms takes milliseconds,
    // not samples — this is the correct API for millisecond-based IoI.
 
    if (impl_ && impl_->detector) {
@@ -165,13 +163,13 @@ void NoteDetector::setMinIoIMs(double ms) {
 }
 
 float NoteDetector::releaseDropDb() const {
-   // Core Guidelines: simple accessor.
+   // Simple accessor.
    return impl_ ? impl_->releaseDropDb : 10.0f;
 }
 
 void NoteDetector::setReleaseDropDb(float db) {
-   // Core Guidelines: set the note-off release drop level.
-   // Core Guidelines: aubio_notes_set_release_drop takes dB.
+   // Set the note-off release drop level.
+   // Aubio_notes_set_release_drop takes dB.
 
    if (impl_ && impl_->detector) {
       impl_->releaseDropDb = db;

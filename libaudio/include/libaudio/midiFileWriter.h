@@ -35,9 +35,6 @@
  *     00  FF 2F 00              // t=0, End of Track
  * ```
  *
- * @see lode/MIDI.md — Complete MIDI file format specification
- * @see lode/libaudio/hir.md — HIR data structures (Score, Note, ControlEvent)
- * @see lode/libaudio/summary.md — Module overview and API design
  */
 
 #ifndef LIBAUDIO_MIDIFILEWRITER_H
@@ -70,7 +67,7 @@ struct Score;
 // - Big-endian byte order for all multi-byte integers.
 // - Variable-length integers for chunk lengths and delta-times.
 //
-// Core Guidelines: RAII resource management — file handle is released
+// RAII resource management — file handle is released
 // automatically when the C++ object is destroyed.
 // ============================================================================
 class MidiFileWriter {
@@ -81,14 +78,14 @@ class MidiFileWriter {
    explicit MidiFileWriter(std::string_view path);
 
    // Destructor. Closes the file handle.
-   // Core Guidelines: RAII — resources are released automatically.
+   // RAII — resources are released automatically.
    ~MidiFileWriter();
 
-   // Core Guidelines: non-copyable (file handles are non-copyable).
+   // Non-copyable (file handles are non-copyable).
    MidiFileWriter(const MidiFileWriter&) = delete;
    MidiFileWriter& operator=(const MidiFileWriter&) = delete;
 
-   // Core Guidelines: movable (file handles can be moved).
+   // Movable (file handles can be moved).
    MidiFileWriter(MidiFileWriter&& other) noexcept;
    MidiFileWriter& operator=(MidiFileWriter&& other) noexcept;
 

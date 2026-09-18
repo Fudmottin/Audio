@@ -6,9 +6,6 @@
  * multiple algorithms (YIN, YINfft, YINfast, fcomb, mcomb, Schmitt)
  * with configurable confidence scoring and threshold filtering.
  *
- * @see lode/libaudio/summary.md — Module overview and API design
- * @see lode/libaudio/decisions.md — Library choices and default parameters
- * @see lode/MIDI.md — Piano key range (21–108)
  */
 
 #include <libaudio/pitch.h>
@@ -34,7 +31,7 @@
 // etc.). This makes the rest of the codebase framework-free (except
 // for the pitch.h header which only includes pitch.h).
 //
-// Core Guidelines: RAII — aubio resources are automatically freed when
+// RAII — aubio resources are automatically freed when
 // the Impl is destroyed.
 // ============================================================================
 struct PitchDetector::Impl {
@@ -64,28 +61,28 @@ struct PitchDetector::Impl {
 
 // ============================================================================
 // PitchDetector implementation
-// Core Guidelines: RAII resource management — aubio resources are
+// RAII resource management — aubio resources are
 // automatically freed when the C++ object is destroyed.
 // ============================================================================
 
 PitchDetector::PitchDetector(uint32_t bufSize, float tolerance)
    : impl_(std::make_unique<Impl>()) {
-   // Core Guidelines: create the default (YINfft) pitch detector.
+   // Create the default (YINfft) pitch detector.
 
    impl_->bufSize = bufSize;
    impl_->hopSize = bufSize / 4;  // Default: 75% overlap
    impl_->sampleRate = 48000;  // Default sample rate
    impl_->currentMethod = "yinfft";
 
-   // Core Guidelines: create the YINfft detector (default algorithm).
+   // Create the YINfft detector (default algorithm).
    impl_->yinfft = new_aubio_pitchyinfft(impl_->sampleRate, bufSize);
    impl_->active = static_cast<void*>(impl_->yinfft);
 
-   // Core Guidelines: allocate input and candidate buffers.
+   // Allocate input and candidate buffers.
    impl_->inputBuffer = new_fvec(bufSize);
    impl_->candsBuffer = new_fvec(bufSize);
 
-   // Core Guidelines: set the tolerance parameter.
+   // Set the tolerance parameter.
    aubio_pitchyinfft_set_tolerance(impl_->yinfft, tolerance);
 }
 
@@ -93,13 +90,13 @@ PitchDetector::~PitchDetector() = default;
 
 PitchDetector::PitchDetector(PitchDetector&& other) noexcept
    : impl_(std::move(other.impl_)) {
-   // Core Guidelines: move constructor. Transfer ownership of all aubio
+   // Move constructor. Transfer ownership of all aubio
    // resources from the source object.
    other.impl_ = std::make_unique<Impl>();
 }
 
 PitchDetector& PitchDetector::operator=(PitchDetector&& other) noexcept {
-   // Core Guidelines: move assignment operator. Release current resources
+   // Move assignment operator. Release current resources
    // and take ownership of the source object's resources.
 
    if (this != &other) {
@@ -111,7 +108,7 @@ PitchDetector& PitchDetector::operator=(PitchDetector&& other) noexcept {
 
 std::pair<float, float> PitchDetector::detect(const float* samples,
                                               uint32_t length) {
-   // Core Guidelines: detect pitch from a buffer of audio samples.
+   // Detect pitch from a buffer of audio samples.
 
    if (impl_ == nullptr || impl_->active == nullptr) {
       return {0.0f, 0.0f};
@@ -122,11 +119,11 @@ std::pair<float, float> PitchDetector::detect(const float* samples,
          "Sample length must equal buffer size");
    }
 
-   // Core Guidelines: copy samples into aubio's fvec_t.
+   // Copy samples into aubio's fvec_t.
    std::memcpy(impl_->inputBuffer->data, samples,
                impl_->bufSize * sizeof(float));
 
-   // Core Guidelines: run pitch detection based on the active algorithm.
+   // Run pitch detection based on the active algorithm.
    // The active pointer is cast to the appropriate type for each algorithm.
    // Note: only fvec-based detectors are supported (they take time-domain
    // samples and compute FFT internally). Cvec-based detectors (yin, mcomb)
@@ -151,11 +148,11 @@ std::pair<float, float> PitchDetector::detect(const float* samples,
                            impl_->inputBuffer, impl_->candsBuffer);
    }
 
-   // Core Guidelines: extract results.
+   // Extract results.
    float pitch = impl_->candsBuffer->data[0];  // MIDI note (float)
    float confidence = 0.0f;
 
-   // Core Guidelines: get confidence from the active detector.
+   // Get confidence from the active detector.
    // Only yinfft and yinfast provide confidence; fcomb and schmitt
    // (from the tuneit project) do not.
    if (impl_->currentMethod == "yinfft") {
@@ -171,7 +168,7 @@ std::pair<float, float> PitchDetector::detect(const float* samples,
 
    impl_->lastConfidence = confidence;
 
-   // Core Guidelines: return 0.0 pitch if confidence is below threshold.
+   // Return 0.0 pitch if confidence is below threshold.
    if (confidence < impl_->confidenceThreshold) {
       return {0.0f, confidence};
    }
@@ -180,7 +177,7 @@ std::pair<float, float> PitchDetector::detect(const float* samples,
 }
 
 void PitchDetector::setMethod(std::string_view method) {
-   // Core Guidelines: switch to a different detection algorithm.
+   // Switch to a different detection algorithm.
 
    std::string lowerMethod;
    lowerMethod.reserve(method.size());
@@ -196,7 +193,7 @@ void PitchDetector::setMethod(std::string_view method) {
 
    impl_->currentMethod = lowerMethod;
 
-   // Core Guidelines: create the requested detector.
+   // Create the requested detector.
    // Supported methods: yinfft, yinfast, fcomb, schmitt (all fvec-based).
    // Note: yin and mcomb are cvec-based (require pre-computed FFT)
    // and are not supported by this simple wrapper.
@@ -220,17 +217,17 @@ void PitchDetector::setMethod(std::string_view method) {
 }
 
 float PitchDetector::confidence() const {
-   // Core Guidelines: simple accessor.
+   // Simple accessor.
    return impl_ ? impl_->lastConfidence : 0.0f;
 }
 
 float PitchDetector::confidenceThreshold() const {
-   // Core Guidelines: simple accessor.
+   // Simple accessor.
    return impl_ ? impl_->confidenceThreshold : 0.0f;
 }
 
 void PitchDetector::setConfidenceThreshold(float threshold) {
-   // Core Guidelines: set the confidence threshold.
+   // Set the confidence threshold.
 
    if (impl_) {
       impl_->confidenceThreshold = threshold;
@@ -238,22 +235,22 @@ void PitchDetector::setConfidenceThreshold(float threshold) {
 }
 
 std::string PitchDetector::method() const {
-   // Core Guidelines: simple accessor.
+   // Simple accessor.
    return impl_ ? impl_->currentMethod : "yinfft";
 }
 
 uint32_t PitchDetector::bufSize() const {
-   // Core Guidelines: simple accessor.
+   // Simple accessor.
    return impl_ ? impl_->bufSize : 0;
 }
 
 uint32_t PitchDetector::hopSize() const {
-   // Core Guidelines: simple accessor.
+   // Simple accessor.
    return impl_ ? impl_->hopSize : 0;
 }
 
 void PitchDetector::setHopSize(uint32_t hopSize) {
-   // Core Guidelines: set the hop size (requires recreating the detector).
+   // Set the hop size (requires recreating the detector).
 
    if (impl_) {
       impl_->hopSize = hopSize;

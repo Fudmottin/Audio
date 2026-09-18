@@ -12,9 +12,6 @@
  * language between audio analysis and both MIDI file output and
  * LilyPond source output.
  *
- * @see lode/libaudio/hir.md — Complete HIR specification
- * @see lode/MIDI.md — MIDI file format (SMF), tick conversion
- * @see lode/LilyPond.md — LilyPond export
  */
 
 #include <libaudio/hir.h>

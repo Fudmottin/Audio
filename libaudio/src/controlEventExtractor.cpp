@@ -6,9 +6,6 @@
  * This module extracts MIDI control change events from audio recordings.
  * The most important for piano is sustain pedal (CC#64).
  *
- * @see lode/MIDI.md — MIDI control change events
- * @see lode/libaudio/hir.md — ControlEvent data structure
- * @see lode/libaudio/summary.md — Module overview and API design
  */
 
 #include <libaudio/controlEventExtractor.h>
@@ -24,7 +21,7 @@
 //
 // Domain context: All analysis logic is isolated here.
 //
-// Core Guidelines: RAII — no external resources to manage.
+// RAII — no external resources to manage.
 // ============================================================================
 struct ControlEventExtractor::Impl {
    uint32_t sampleRate;
@@ -39,7 +36,7 @@ struct ControlEventExtractor::Impl {
    // low-frequency energy increases significantly.
    std::vector<ControlEvent> detectSustainPedal(
       AudioFileReader& reader) {
-      // Core Guidelines: analyze the audio file for sustain pedal events.
+      // Analyze the audio file for sustain pedal events.
 
       std::vector<ControlEvent> events;
       uint32_t sr = reader.sampleRate();
@@ -49,14 +46,14 @@ struct ControlEventExtractor::Impl {
          return events;
       }
 
-      // Core Guidelines: use a window size of 2048 (consistent with other
+      // Use a window size of 2048 (consistent with other
       // modules) and 75% overlap (hop size = 512).
       uint32_t windowSize = 2048;
       uint32_t hopSize = windowSize / 4;
 
       std::vector<float> buffer(windowSize);
 
-      // Core Guidelines: track the current pedal state.
+      // Track the current pedal state.
       bool pedalState = false;
       uint32_t currentFrame = 0;
 
@@ -66,7 +63,7 @@ struct ControlEventExtractor::Impl {
             break;
          }
 
-         // Core Guidelines: compute the RMS energy in the low-frequency
+         // Compute the RMS energy in the low-frequency
          // range (below 200 Hz) as a proxy for sustain pedal state.
          // When sustain pedal is pressed, low-frequency resonances
          // increase, raising the low-frequency energy.
@@ -79,14 +76,14 @@ struct ControlEventExtractor::Impl {
          }
          rmsLowFreq = std::sqrt(rmsLowFreq / std::max(1u, lowFreqBins));
 
-         // Core Guidelines: threshold-based detection.
+         // Threshold-based detection.
          // A high RMS energy in the low-frequency range suggests the
          // sustain pedal is pressed.
          constexpr float PEDAL_THRESHOLD = 0.3f;
 
          bool isPedalDown = rmsLowFreq > PEDAL_THRESHOLD;
 
-         // Core Guidelines: detect state transitions.
+         // Detect state transitions.
          if (isPedalDown && !pedalState) {
             // Pedal ON transition.
             ControlEvent event;
@@ -108,7 +105,7 @@ struct ControlEventExtractor::Impl {
          currentFrame += framesRead;
       }
 
-      // Core Guidelines: ensure the file is reset to the beginning.
+      // Ensure the file is reset to the beginning.
       reader.reset();
 
       return events;
@@ -117,12 +114,12 @@ struct ControlEventExtractor::Impl {
 
 // ============================================================================
 // ControlEventExtractor implementation
-// Core Guidelines: RAII resource management — no external resources.
+// RAII resource management — no external resources.
 // ============================================================================
 
 ControlEventExtractor::ControlEventExtractor(uint32_t sampleRate)
    : impl_(std::make_unique<Impl>(sampleRate)) {
-   // Core Guidelines: constructor.
+   // Constructor.
 }
 
 ControlEventExtractor::~ControlEventExtractor() = default;
@@ -143,14 +140,14 @@ ControlEventExtractor& ControlEventExtractor::operator=(
 
 std::vector<ControlEvent> ControlEventExtractor::extract(
    AudioFileReader& reader) {
-   // Core Guidelines: extract all control events from the audio file.
+   // Extract all control events from the audio file.
 
    return extractSustainPedal(reader);
 }
 
 std::vector<ControlEvent> ControlEventExtractor::extractSustainPedal(
    AudioFileReader& reader) {
-   // Core Guidelines: extract sustain pedal events (CC#64) from audio.
+   // Extract sustain pedal events (CC#64) from audio.
 
    if (impl_ == nullptr) {
       return {};

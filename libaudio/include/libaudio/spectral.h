@@ -6,7 +6,6 @@
  * various spectral features useful for velocity estimation, pedal
  * detection, and polyphonic separation.
  *
- * @see lode/libaudio/summary.md — Module overview and API design
  */
 
 #ifndef LIBAUDIO_SPECTRAL_H
@@ -29,7 +28,7 @@
 // - Polyphonic separation: Chroma features and harmonic binning help
 //   separate simultaneous notes.
 //
-// Core Guidelines: RAII resource management — aubio resources are
+// RAII resource management — aubio resources are
 // automatically freed when the C++ object is destroyed.
 // ============================================================================
 class SpectralAnalyzer {
@@ -42,14 +41,14 @@ class SpectralAnalyzer {
    SpectralAnalyzer(uint32_t bufSize, uint32_t hopSize, uint32_t sampleRate);
 
    // Destructor. Frees aubio spectral analysis resources.
-   // Core Guidelines: RAII — resources are released automatically.
+   // RAII — resources are released automatically.
    ~SpectralAnalyzer();
 
-   // Core Guidelines: non-copyable (aubio handles are non-copyable).
+   // Non-copyable (aubio handles are non-copyable).
    SpectralAnalyzer(const SpectralAnalyzer&) = delete;
    SpectralAnalyzer& operator=(const SpectralAnalyzer&) = delete;
 
-   // Core Guidelines: movable (aubio handles can be moved).
+   // Movable (aubio handles can be moved).
    SpectralAnalyzer(SpectralAnalyzer&& other) noexcept;
    SpectralAnalyzer& operator=(SpectralAnalyzer&& other) noexcept;
 

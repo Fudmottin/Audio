@@ -6,7 +6,6 @@
  * forward (time-domain → frequency-domain) and inverse
  * (frequency-domain → time-domain) transforms.
  *
- * @see lode/libaudio/summary.md — Module overview and API design
  */
 
 #ifndef LIBAUDIO_FFT_H
@@ -30,7 +29,7 @@
 // - Returns magnitude and phase separately (not complex numbers).
 // - Inverse FFT reconstructs time-domain samples from magnitude + phase.
 //
-// Core Guidelines: RAII resource management — aubio resources are
+// RAII resource management — aubio resources are
 // automatically freed when the C++ object is destroyed.
 // ============================================================================
 class FFT {
@@ -41,14 +40,14 @@ class FFT {
    explicit FFT(uint32_t windowSize);
 
    // Destructor. Frees aubio FFT resources.
-   // Core Guidelines: RAII — resources are released automatically.
+   // RAII — resources are released automatically.
    ~FFT();
 
-   // Core Guidelines: non-copyable (aubio handles are non-copyable).
+   // Non-copyable (aubio handles are non-copyable).
    FFT(const FFT&) = delete;
    FFT& operator=(const FFT&) = delete;
 
-   // Core Guidelines: movable (aubio handles can be moved).
+   // Movable (aubio handles can be moved).
    FFT(FFT&& other) noexcept;
    FFT& operator=(FFT&& other) noexcept;
 

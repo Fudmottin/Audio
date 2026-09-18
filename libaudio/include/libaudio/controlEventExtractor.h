@@ -14,9 +14,6 @@
  * - 11 = Expression
  * - 123 = All Notes Off (safety reset)
  *
- * @see lode/MIDI.md — MIDI control change events
- * @see lode/libaudio/hir.md — ControlEvent data structure
- * @see lode/libaudio/summary.md — Module overview and API design
  */
 
 #ifndef LIBAUDIO_CONTROLEVENTEXTRACTOR_H
@@ -43,7 +40,7 @@ class AudioFileReader;
 // - Returns ControlEvent objects compatible with the HIR.
 // - Supports CC#64 (sustain), CC#66 (soft pedal), CC#67 (sostenuto).
 //
-// Core Guidelines: RAII resource management — no external resources.
+// RAII resource management — no external resources.
 // ============================================================================
 class ControlEventExtractor {
  public:
@@ -53,14 +50,14 @@ class ControlEventExtractor {
    explicit ControlEventExtractor(uint32_t sampleRate);
 
    // Destructor.
-   // Core Guidelines: RAII — no external resources to release.
+   // RAII — no external resources to release.
    ~ControlEventExtractor();
 
-   // Core Guidelines: non-copyable (stateful object).
+   // Non-copyable (stateful object).
    ControlEventExtractor(const ControlEventExtractor&) = delete;
    ControlEventExtractor& operator=(const ControlEventExtractor&) = delete;
 
-   // Core Guidelines: movable.
+   // Movable.
    ControlEventExtractor(ControlEventExtractor&& other) noexcept;
    ControlEventExtractor& operator=(ControlEventExtractor&& other) noexcept;
 

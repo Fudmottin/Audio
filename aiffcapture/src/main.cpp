@@ -50,9 +50,6 @@
  * would double the frame count and read past the buffer, producing
  * half-speed, low-pitched garbage (or a crash).
  *
- * @see lode/terminology.md — 32-bit float PCM, frame concepts
- * @see lode/practices.md — Core Audio development patterns
- * @see lode/aiffcapture/decisions.md — Float-to-int16 conversion
  */
 
 #include <aiffcapture/aiff.h>
@@ -69,7 +66,7 @@
 #include <string>
 #include <vector>
 
-// Core Guidelines: we include Core Audio headers here for AudioBuffer.
+// We include Core Audio headers here for AudioBuffer.
 #include <CoreAudio/CoreAudio.h>
 
 // ============================================================================
@@ -89,7 +86,7 @@
 // variables. It is guaranteed to be read/written atomically,
 // preventing torn reads/writes from racing with the signal handler.
 //
-// Core Guidelines: this is the only global mutable state in the program.
+// This is the only global mutable state in the program.
 // It is set to true when SIGINT (Ctrl-C) is received, causing the
 // recording loop to exit gracefully.
 // ============================================================================
@@ -110,7 +107,7 @@ static volatile sig_atomic_t g_signalReceived = 0;
 // The main loop checks g_signalReceived and exits gracefully when
 // it is set. This is the standard pattern for graceful shutdown.
 //
-// Core Guidelines: this is a signal-safe function. It only sets a flag;
+// This is a signal-safe function. It only sets a flag;
 // it does not call any non-async-signal-safe functions. This is the
 // only safe thing to do in a signal handler.
 // ============================================================================
@@ -118,12 +115,12 @@ static void signalHandler(int /* signal */) { g_signalReceived = 1; }
 
 // ============================================================================
 // printUsage — Print usage information to stderr.
-// Core Guidelines: this function is stateless and has no side effects
+// This function is stateless and has no side effects
 // other than printing to stderr. It is called when the user provides
 // invalid arguments.
 // ============================================================================
 static void printUsage(const char* programName) {
-   // Core Guidelines: usage messages go to stderr, not stdout.
+   // Usage messages go to stderr, not stdout.
    // The format is: programName [options] <output.aiff>
    //
    // Options:
@@ -148,12 +145,12 @@ static void printUsage(const char* programName) {
 
 // ============================================================================
 // parseArguments — Parse command-line arguments into a CaptureConfig.
-// Core Guidelines: this function is stateless and has no side effects
+// This function is stateless and has no side effects
 // other than modifying the output parameter. It returns false if the
 // arguments are invalid.
 // ============================================================================
 static bool parseArguments(int argc, char* argv[], CaptureConfig& config) {
-   // Core Guidelines: we iterate over the arguments (skipping argv[0],
+   // We iterate over the arguments (skipping argv[0],
    // which is the program name). For each argument, we check if it is
    // a flag (starts with "--") or a value (the output file path).
 
@@ -164,17 +161,17 @@ static bool parseArguments(int argc, char* argv[], CaptureConfig& config) {
 
       // Check for flags (arguments starting with "--").
       if (arg.substr(0, 2) == "--") {
-         // Core Guidelines: we check each flag and set the corresponding
+         // We check each flag and set the corresponding
          // field in the config. If a flag requires a value, we check
          // that the next argument exists and is not another flag.
 
          if (arg == "--help") {
-            // Core Guidelines: --help prints usage and exits immediately.
+            // --help prints usage and exits immediately.
             // This is the only flag that does not modify the config.
             printUsage(argv[0]);
             exit(0);
          } else if (arg == "--duration") {
-            // Core Guidelines: --duration takes a double value. We parse
+            // --duration takes a double value. We parse
             // it and set the durationSeconds field in the config.
             if (i + 1 >= argc) {
                std::cerr << "Error: --duration requires a value.\n";
@@ -189,7 +186,7 @@ static bool parseArguments(int argc, char* argv[], CaptureConfig& config) {
             config.durationSeconds = duration;
             ++i; // Skip the value (it was consumed by the previous argument).
          } else if (arg == "--device") {
-            // Core Guidelines: --device takes a string value. We set the
+            // --device takes a string value. We set the
             // deviceName field in the config.
             if (i + 1 >= argc) {
                std::cerr << "Error: --device requires a value.\n";
@@ -198,30 +195,30 @@ static bool parseArguments(int argc, char* argv[], CaptureConfig& config) {
             config.deviceName = argv[i + 1];
             ++i; // Skip the value (it was consumed by the previous argument).
          } else if (arg == "--verbose") {
-            // Core Guidelines: --verbose is a boolean flag. We set the
+            // --verbose is a boolean flag. We set the
             // verbose field in the config.
             config.verbose = true;
          } else {
-            // Core Guidelines: unknown flags are rejected with an error.
+            // Unknown flags are rejected with an error.
             std::cerr << "Error: unknown flag: " << arg << "\n";
             printUsage(argv[0]);
             return false;
          }
       } else if (outputSet) {
-         // Core Guidelines: we only accept one output file path. If the
+         // We only accept one output file path. If the
          // user provides more than one, we reject the command.
          std::cerr << "Error: multiple output files specified.\n";
          printUsage(argv[0]);
          return false;
       } else {
-         // Core Guidelines: the first non-flag argument is the output file
+         // The first non-flag argument is the output file
          // path. We set the outputPath field in the config.
          config.outputPath = arg;
          outputSet = true;
       }
    }
 
-   // Core Guidelines: the output file path is required. If it was not
+   // The output file path is required. If it was not
    // provided, we reject the command.
    if (!outputSet) {
       std::cerr << "Error: output file path is required.\n";
@@ -234,11 +231,11 @@ static bool parseArguments(int argc, char* argv[], CaptureConfig& config) {
 
 // ============================================================================
 // main — Entry point for aiffcapture.
-// Core Guidelines: this function is the single entry point of the program.
+// This function is the single entry point of the program.
 // It parses arguments, orchestrates the recording, and handles errors.
 // ============================================================================
 int main(int argc, char* argv[]) {
-   // Core Guidelines: we set up signal handling for SIGINT (Ctrl-C).
+   // We set up signal handling for SIGINT (Ctrl-C).
    // This allows the program to exit gracefully when the user presses
    // Ctrl-C during recording.
 
@@ -299,7 +296,7 @@ int main(int argc, char* argv[]) {
       std::cerr << "Device format: " << format.toString() << "\n";
    }
 
-   // Core Guidelines: we convert the device format (32-bit float from
+   // We convert the device format (32-bit float from
    // Core Audio) to 16-bit signed integer for the AIFF output. This
    // ensures decoded audio is recognizable instead of noise. The
    // float-to-int16 conversion happens in the output callback below.
@@ -319,7 +316,6 @@ int main(int argc, char* argv[]) {
    // asymmetric minimum issue. This is a well-known gotcha in audio
    // programming.
    //
-   // @see lode/aiffcapture/decisions.md — Float-to-int16 conversion
    format.bitsPerSample = 16;
    format.bytesPerFrame = format.channels * 2; // 16-bit = 2 bytes per sample
 
@@ -348,7 +344,7 @@ int main(int argc, char* argv[]) {
       std::cerr << "Opened recording device: " << targetDevice->name << "\n";
    }
 
-   // Core Guidelines: enable verbose mode on the recorder so that IO
+   // Enable verbose mode on the recorder so that IO
    // proc callbacks are logged to stderr. This helps diagnose whether
    // audio data is actually flowing through the device.
    recorder.setVerbose(config.verbose);
@@ -366,10 +362,10 @@ int main(int argc, char* argv[]) {
    }
 
    // Recording loop: wait for the specified duration or Ctrl-C.
-   // Core Guidelines: the IO proc writes data to the AIFF file via the
+   // The IO proc writes data to the AIFF file via the
    // output callback. This loop just waits for the duration or Ctrl-C.
 
-   // Core Guidelines: we set the output callback to write data to the
+   // We set the output callback to write data to the
    // AIFF file. The callback is called by the IO proc whenever new
    // input data is available.
    //
@@ -387,20 +383,19 @@ int main(int argc, char* argv[]) {
    // would double the frame count and read past the buffer, producing
    // half-speed, low-pitched garbage (or a crash).
    //
-   // @see lode/terminology.md — Frame, 32-bit float PCM
    std::vector<unsigned char> convertBuffer;
    recorder.setOutputCallback([&aiffWriter, &format, &convertBuffer](
          const AudioBufferList* inputData) {
-      // Core Guidelines: we convert 32-bit float samples from Core
+      // We convert 32-bit float samples from Core
       // Audio to 16-bit signed integer for the AIFF file.
 
-      // Core Guidelines: we assume there is only one buffer (stereo devices
+      // We assume there is only one buffer (stereo devices
       // have two channels interleaved in a single buffer).
       if (inputData->mNumberBuffers > 0) {
          const AudioBuffer& buffer = inputData->mBuffers[0];
          const float* floatData =
             static_cast<const float*>(buffer.mData);
-         // Core Guidelines: calculate input frames from the 32-bit float
+         // Calculate input frames from the 32-bit float
          // input data (8 bytes/frame for stereo), not the 16-bit output
          // format (4 bytes/frame). Using the output format's bytesPerFrame
          // would double the frame count and read past the buffer.
@@ -415,11 +410,11 @@ int main(int argc, char* argv[]) {
          uint32_t numFrames = buffer.mDataByteSize / inputBytesPerFrame;
          uint32_t bytesPerFrameOut = format.channels * 2; // 16-bit output
 
-         // Core Guidelines: resize the conversion buffer to hold all
+         // Resize the conversion buffer to hold all
          // frames of 16-bit output data.
          convertBuffer.resize(numFrames * bytesPerFrameOut);
 
-         // Core Guidelines: convert each float sample to 16-bit integer.
+         // Convert each float sample to 16-bit integer.
          // We clamp to [-1.0, 1.0] before scaling to [-32767, 32767].
          // Samples are written in native (little-endian) byte order,
          // which matches AIFF's native byte order on macOS.
@@ -457,7 +452,7 @@ int main(int argc, char* argv[]) {
       }
    });
 
-   // Core Guidelines: we use a timer to track the elapsed time.
+   // We use a timer to track the elapsed time.
    // This is the only place where we check the duration.
    auto startTime = std::chrono::steady_clock::now();
 
@@ -484,7 +479,7 @@ int main(int argc, char* argv[]) {
          break;
       }
 
-      // Core Guidelines: we sleep for a short period to avoid busy-waiting.
+      // We sleep for a short period to avoid busy-waiting.
       // This is the only place where we sleep. We use 10ms intervals.
       struct timespec ts = {0, 10000000}; // 10ms in nanoseconds
       nanosleep(&ts, nullptr);
@@ -493,7 +488,7 @@ int main(int argc, char* argv[]) {
    // Stop recording and close the device.
    recorder.stop();
 
-   // Core Guidelines: print a summary of IO proc activity.
+   // Print a summary of IO proc activity.
    //
    // Domain context: This summary helps diagnose whether audio data was
    // actually flowing through BlackHole. Key diagnostic values:
@@ -511,7 +506,6 @@ int main(int argc, char* argv[]) {
    //   shows how much audio was actually captured (may be less than
    //   the requested duration if the user stopped early).
    //
-   // @see lode/terminology.md — IO proc, BlackHole
    {
       uint64_t ioCallbacks = recorder.getIoCallbackCount();
       uint64_t totalBytes = recorder.getTotalBytesReceived();

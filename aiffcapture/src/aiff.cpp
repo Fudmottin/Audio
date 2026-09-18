@@ -49,8 +49,6 @@
  * 2. **32-bit integer** (4 bytes): Spec-compliant, works with all
  *    standard tools. We use this encoding.
  *
- * @see lode/terminology.md — AIFF format chunks, 80-bit extended float
- * @see lode/practices.md — AIFF writing patterns
  */
 
 #include <aiffcapture/aiff.h>
@@ -61,13 +59,13 @@
 
 // ============================================================================
 // AiffWriter implementation
-// Core Guidelines: this class encapsulates the full AIFF file format.
+// This class encapsulates the full AIFF file format.
 // It is a resource acquisition is initialization (RAII) object: it acquires
 // the output file in the constructor and closes it in the destructor.
 // ============================================================================
 
 AiffWriter::~AiffWriter() {
-   // Core Guidelines: RAII — we close the file in the destructor.
+   // RAII — we close the file in the destructor.
    // This ensures that resources are released even if an exception occurs.
 
    if (file_ != nullptr) {
@@ -82,7 +80,7 @@ AiffWriter::AiffWriter(AiffWriter&& other) noexcept
    , bytesWritten_(other.bytesWritten_)
    , formSizeOffset_(other.formSizeOffset_)
    , ssndSizeOffset_(other.ssndSizeOffset_) {
-   // Core Guidelines: move constructor. We transfer ownership of the
+   // Move constructor. We transfer ownership of the
    // resources from the source object to this object. The source object
    // is left in a valid but unspecified state (all resources are null).
 
@@ -93,17 +91,17 @@ AiffWriter::AiffWriter(AiffWriter&& other) noexcept
 }
 
 AiffWriter& AiffWriter::operator=(AiffWriter&& other) noexcept {
-   // Core Guidelines: move assignment operator. We release our current
+   // Move assignment operator. We release our current
    // resources and take ownership of the source object's resources.
 
    if (this !=
-       &other) { // Self-assignment check (Core Guidelines: always check).
-      // Core Guidelines: we close our current file first.
+       &other) { // Self-assignment check (always check).
+      // We close our current file first.
       if (file_ != nullptr) {
          close();
       }
 
-      // Core Guidelines: we take ownership of the source object's resources.
+      // We take ownership of the source object's resources.
       file_ = other.file_;
       filePath_ = std::move(other.filePath_);
       format_ = std::move(other.format_);
@@ -111,7 +109,7 @@ AiffWriter& AiffWriter::operator=(AiffWriter&& other) noexcept {
       formSizeOffset_ = other.formSizeOffset_;
       ssndSizeOffset_ = other.ssndSizeOffset_;
 
-      // Core Guidelines: we leave the source object in a valid but
+      // We leave the source object in a valid but
       // unspecified state (all resources are null).
       other.file_ = nullptr;
       other.bytesWritten_ = 0;
@@ -123,16 +121,16 @@ AiffWriter& AiffWriter::operator=(AiffWriter&& other) noexcept {
 }
 
 bool AiffWriter::open(const std::string& filePath, const AudioFormat& format) {
-   // Core Guidelines: we open the AIFF file by creating the FORM, COMM,
+   // We open the AIFF file by creating the FORM, COMM,
    // and SSND chunks. The file is opened in binary mode for writing.
 
-   // Core Guidelines: we check if the file is already open. If so,
+   // We check if the file is already open. If so,
    // we return false (we do not support reopening an open file).
    if (file_ != nullptr) {
       return false;
    }
 
-   // Core Guidelines: we open the file in binary mode for writing.
+   // We open the file in binary mode for writing.
    // We use fopen (not std::fstream) because we need explicit control
    // over the file descriptor and error handling.
    file_ = fopen(filePath.c_str(), "wb");
@@ -146,7 +144,7 @@ bool AiffWriter::open(const std::string& filePath, const AudioFormat& format) {
    formSizeOffset_ = 0;
    ssndSizeOffset_ = 0;
 
-   // Core Guidelines: we write the FORM chunk header (with placeholder size).
+   // We write the FORM chunk header (with placeholder size).
    // The actual size is patched up in close().
    if (!writeFormHeader()) {
       fclose(file_);
@@ -154,7 +152,7 @@ bool AiffWriter::open(const std::string& filePath, const AudioFormat& format) {
       return false;
    }
 
-   // Core Guidelines: we write the COMM chunk (metadata).
+   // We write the COMM chunk (metadata).
    // The COMM chunk contains the number of channels, number of samples,
    // sample size (16-bit signed integer), and sample rate (32-bit integer).
    // We need to calculate the number of samples from the total bytes.
@@ -167,7 +165,7 @@ bool AiffWriter::open(const std::string& filePath, const AudioFormat& format) {
       return false;
    }
 
-   // Core Guidelines: we write the SSND chunk header (with placeholder size).
+   // We write the SSND chunk header (with placeholder size).
    // The actual size is patched up in close().
    if (!writeSsndHeader()) {
       fclose(file_);
@@ -179,7 +177,7 @@ bool AiffWriter::open(const std::string& filePath, const AudioFormat& format) {
 }
 
 bool AiffWriter::writeSamples(const unsigned char* data, uint32_t numBytes) {
-   // Core Guidelines: we write raw PCM samples to the SSND chunk.
+   // We write raw PCM samples to the SSND chunk.
    // The samples must match the format specified when the file was opened.
 
    if (file_ == nullptr) {
@@ -190,21 +188,21 @@ bool AiffWriter::writeSamples(const unsigned char* data, uint32_t numBytes) {
       return false; // Invalid input parameters.
    }
 
-   // Core Guidelines: we write the PCM data to the file.
+   // We write the PCM data to the file.
    // This is a raw binary write (no compression, no encoding).
    size_t written = fwrite(data, 1, static_cast<size_t>(numBytes), file_);
    if (written != static_cast<size_t>(numBytes)) {
       return false; // Failed to write all bytes.
    }
 
-   // Core Guidelines: we update the bytes written counter.
+   // We update the bytes written counter.
    bytesWritten_ += numBytes;
 
    return true;
 }
 
 bool AiffWriter::close() {
-   // Core Guidelines: we finalize the AIFF file by patching up the FORM
+   // We finalize the AIFF file by patching up the FORM
    // and SSND chunk sizes (which were written as placeholders during open())
    // with the actual sizes. The file is then closed.
 
@@ -212,14 +210,14 @@ bool AiffWriter::close() {
       return false; // File is not open.
    }
 
-   // Core Guidelines: we flush the file buffer to ensure all data is written.
+   // We flush the file buffer to ensure all data is written.
    if (fflush(file_) != 0) {
       fclose(file_);
       file_ = nullptr;
       return false;
    }
 
-   // Core Guidelines: we patch up the FORM and SSND chunk sizes.
+   // We patch up the FORM and SSND chunk sizes.
    // This is the final step before closing the file.
    if (!finalizeFile()) {
       fclose(file_);
@@ -227,7 +225,7 @@ bool AiffWriter::close() {
       return false;
    }
 
-   // Core Guidelines: we close the file.
+   // We close the file.
    if (fclose(file_) != 0) {
       file_ = nullptr;
       return false;
@@ -243,12 +241,12 @@ bool AiffWriter::isOpen() const { return file_ != nullptr; }
 
 // ============================================================================
 // Private helper implementations
-// Core Guidelines: these are internal helpers that encapsulate AIFF chunk
+// These are internal helpers that encapsulate AIFF chunk
 // writing. They are not exposed to callers.
 // ============================================================================
 
 bool AiffWriter::writeFormHeader() {
-   // Core Guidelines: we write the FORM chunk header:
+   // We write the FORM chunk header:
    //   - "FORM" (4 bytes)
    //   - file size - 8 (4 bytes, big-endian placeholder)
    //   - "AIFF" (4 bytes)
@@ -272,26 +270,25 @@ bool AiffWriter::writeFormHeader() {
    // Later, finalizeFile() seeks to formSizeOffset_ (4) and overwrites
    // the placeholder with the actual file size.
    //
-   // @see lode/practices.md — AIFF writing patterns
 
-   // Core Guidelines: we write the "FORM" magic bytes.
+   // We write the "FORM" magic bytes.
    const char formId[4] = {'F', 'O', 'R', 'M'};
    if (fwrite(formId, 1, 4, file_) != 4) {
       return false;
    }
 
-   // Core Guidelines: we record the offset of the FORM size field
+   // We record the offset of the FORM size field
    // BEFORE writing the placeholder. This is the key fix.
    formSizeOffset_ = static_cast<uint64_t>(ftello(file_));
 
-   // Core Guidelines: we write the FORM size as a placeholder (0).
+   // We write the FORM size as a placeholder (0).
    // The actual size is patched up in close().
    uint32_t formSizePlaceholder = 0;
    if (fwrite(&formSizePlaceholder, 4, 1, file_) != 1) {
       return false;
    }
 
-   // Core Guidelines: we write the "AIFF" magic bytes.
+   // We write the "AIFF" magic bytes.
    const char aiffId[4] = {'A', 'I', 'F', 'F'};
    if (fwrite(aiffId, 1, 4, file_) != 4) {
       return false;
@@ -301,7 +298,7 @@ bool AiffWriter::writeFormHeader() {
 }
 
 bool AiffWriter::writeCommChunk(uint32_t numSamples) {
-   // Core Guidelines: we write the COMM chunk:
+   // We write the COMM chunk:
    //   - "COMM" (4 bytes)
    //   - 12 (4 bytes, big-endian)
    //   - numChannels (2 bytes, big-endian)
@@ -318,13 +315,13 @@ bool AiffWriter::writeCommChunk(uint32_t numSamples) {
    // (afinfo, ffprobe) and all standard AIFF decoders correctly
    // interpret the file format.
 
-   // Core Guidelines: we write the "COMM" magic bytes.
+   // We write the "COMM" magic bytes.
    const char commId[4] = {'C', 'O', 'M', 'M'};
    if (fwrite(commId, 1, 4, file_) != 4) {
       return false;
    }
 
-   // Core Guidelines: we write the COMM chunk size (fixed at 12 bytes)
+   // We write the COMM chunk size (fixed at 12 bytes)
    // in big-endian byte order. This is 2 (channels) + 4 (samples) + 2
    // (sampleSize) + 4 (sampleRate as 32-bit integer) = 12.
    uint8_t commSizeBytes[4] = {0x00, 0x00, 0x00, 0x0C}; // 12 in big-endian
@@ -332,7 +329,7 @@ bool AiffWriter::writeCommChunk(uint32_t numSamples) {
       return false;
    }
 
-   // Core Guidelines: we write the number of channels (big-endian int16).
+   // We write the number of channels (big-endian int16).
    uint8_t numChannelsBytes[2] = {
       static_cast<uint8_t>(format_.channels >> 8),
       static_cast<uint8_t>(format_.channels & 0xFF)
@@ -341,7 +338,7 @@ bool AiffWriter::writeCommChunk(uint32_t numSamples) {
       return false;
    }
 
-   // Core Guidelines: we write the number of samples (big-endian int32).
+   // We write the number of samples (big-endian int32).
    // The actual sample count is calculated from the total bytes written.
    // We use a placeholder (0) that is patched up in close().
    uint8_t samplesBytes[4] = {0x00, 0x00, 0x00, 0x00}; // placeholder
@@ -349,14 +346,14 @@ bool AiffWriter::writeCommChunk(uint32_t numSamples) {
       return false;
    }
 
-   // Core Guidelines: we write the sample size (big-endian int16).
+   // We write the sample size (big-endian int16).
    // For AIFF, this is 16 (16-bit signed integer, CDDA standard).
    uint8_t sampleSizeBytes[2] = {0x00, 0x10}; // 16 in big-endian
    if (fwrite(sampleSizeBytes, 2, 1, file_) != 1) {
       return false;
    }
 
-   // Core Guidelines: we write the sample rate as a 32-bit integer
+   // We write the sample rate as a 32-bit integer
    // (big-endian). This is simpler and more compatible than the
    // 80-bit extended float format. All standard sample rates
    // (8000–192000 Hz) fit comfortably in a 32-bit integer.
@@ -374,7 +371,7 @@ bool AiffWriter::writeCommChunk(uint32_t numSamples) {
 }
 
 bool AiffWriter::writeSsndHeader() {
-   // Core Guidelines: we write the SSND chunk header:
+   // We write the SSND chunk header:
    //   - "SSND" (4 bytes)
    //   - data size (4 bytes, big-endian placeholder)
    //   - offset (4 bytes, big-endian, usually 0)
@@ -386,24 +383,24 @@ bool AiffWriter::writeSsndHeader() {
    // the SSND size, causing the patching code to overwrite the
    // offset/blockSize fields instead of the SSND size field.
 
-   // Core Guidelines: we write the "SSND" magic bytes.
+   // We write the "SSND" magic bytes.
    const char ssndId[4] = {'S', 'S', 'N', 'D'};
    if (fwrite(ssndId, 1, 4, file_) != 4) {
       return false;
    }
 
-   // Core Guidelines: we record the offset of the SSND size field
+   // We record the offset of the SSND size field
    // BEFORE writing the placeholder. This is the key fix.
    ssndSizeOffset_ = static_cast<uint64_t>(ftello(file_));
 
-   // Core Guidelines: we write the SSND size as a placeholder (0).
+   // We write the SSND size as a placeholder (0).
    // The actual size is patched up in close().
    uint8_t ssndSizePlaceholder[4] = {0x00, 0x00, 0x00, 0x00};
    if (fwrite(ssndSizePlaceholder, 4, 1, file_) != 1) {
       return false;
    }
 
-   // Core Guidelines: we write the offset (0) and block size (0).
+   // We write the offset (0) and block size (0).
    // For uncompressed AIFF, these are always 0.
    uint8_t offsetBytes[4] = {0x00, 0x00, 0x00, 0x00};
    uint8_t blockSizeBytes[4] = {0x00, 0x00, 0x00, 0x00};
@@ -420,7 +417,7 @@ bool AiffWriter::writeSsndHeader() {
 
 
 bool AiffWriter::finalizeFile() {
-   // Core Guidelines: we patch up the FORM and SSND chunk sizes (which
+   // We patch up the FORM and SSND chunk sizes (which
    // were written as placeholders during open()) with the actual sizes.
    // This is the final step before closing the file.
    //
@@ -452,10 +449,8 @@ bool AiffWriter::finalizeFile() {
    // individually to ensure correctness regardless of platform
    // (macOS is little-endian, so the bytes are swapped).
    //
-   // @see lode/terminology.md — AIFF format chunks
-   // @see lode/practices.md — AIFF writing patterns
 
-   // Core Guidelines: we calculate the actual FORM size.
+   // We calculate the actual FORM size.
    // The FORM size is the total file size minus 8 (the FORM header itself).
    // Total file size = FORM header (12 bytes) + COMM chunk (20 bytes) +
    //                   SSND header (16 bytes) + SSND data (bytesWritten_).
@@ -465,19 +460,19 @@ bool AiffWriter::finalizeFile() {
    // 80-bit extended float replaced by 4 bytes for 32-bit integer).
    uint64_t formSize = 40 + bytesWritten_;
 
-   // Core Guidelines: we also calculate the number of samples from the
+   // We also calculate the number of samples from the
    // total bytes written. This is needed to patch the COMM chunk's
    // numSamples field.
    uint32_t numSamples = static_cast<uint32_t>(
       bytesWritten_ / format_.bytesPerFrame);
 
-   // Core Guidelines: we seek to the FORM size offset and write the actual
+   // We seek to the FORM size offset and write the actual
    // size in big-endian byte order.
    if (fseeko(file_, static_cast<off_t>(formSizeOffset_), SEEK_SET) != 0) {
       return false;
    }
 
-   // Core Guidelines: write the FORM size in big-endian byte order.
+   // Write the FORM size in big-endian byte order.
    uint32_t formSizeUint32 = static_cast<uint32_t>(formSize);
    uint8_t formSizeBytes[4] = {
       static_cast<uint8_t>((formSizeUint32 >> 24) & 0xFF),
@@ -489,17 +484,17 @@ bool AiffWriter::finalizeFile() {
       return false;
    }
 
-   // Core Guidelines: we calculate the actual SSND size.
+   // We calculate the actual SSND size.
    // The SSND size is the total bytes of PCM data (bytesWritten_).
    uint32_t ssndSize = static_cast<uint32_t>(bytesWritten_);
 
-   // Core Guidelines: we seek to the SSND size offset and write the actual
+   // We seek to the SSND size offset and write the actual
    // size in big-endian byte order.
    if (fseeko(file_, static_cast<off_t>(ssndSizeOffset_), SEEK_SET) != 0) {
       return false;
    }
 
-   // Core Guidelines: write the SSND size in big-endian byte order.
+   // Write the SSND size in big-endian byte order.
    uint8_t ssndSizeBytes[4] = {
       static_cast<uint8_t>((ssndSize >> 24) & 0xFF),
       static_cast<uint8_t>((ssndSize >> 16) & 0xFF),
@@ -510,7 +505,7 @@ bool AiffWriter::finalizeFile() {
       return false;
    }
 
-   // Core Guidelines: we also patch the COMM chunk's numSamples field
+   // We also patch the COMM chunk's numSamples field
    // with the actual sample count. This is essential for the file to
    // be recognized as valid by audio applications.
    // The COMM chunk is at offset 12, and the numSamples field is at
@@ -522,7 +517,7 @@ bool AiffWriter::finalizeFile() {
       return false;
    }
 
-   // Core Guidelines: write the numSamples in big-endian byte order.
+   // Write the numSamples in big-endian byte order.
    uint8_t samplesBytes[4] = {
       static_cast<uint8_t>((numSamples >> 24) & 0xFF),
       static_cast<uint8_t>((numSamples >> 16) & 0xFF),

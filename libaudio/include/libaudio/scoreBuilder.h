@@ -6,8 +6,6 @@
  * complete Score (HIR). It is the final step of the transcription
  * pipeline before MIDI export.
  *
- * @see lode/libaudio/hir.md — Score data structure
- * @see lode/libaudio/summary.md — Module overview and API design
  */
 
 #ifndef LIBAUDIO_SCOREBUILDER_H
@@ -37,7 +35,7 @@ struct Score;
 // - Estimates tempo from note timing if not provided.
 // - Sets default metadata (title, composer).
 //
-// Core Guidelines: RAII resource management — no external resources.
+// RAII resource management — no external resources.
 // ============================================================================
 class ScoreBuilder {
  public:
@@ -45,14 +43,14 @@ class ScoreBuilder {
    ScoreBuilder();
 
    // Destructor.
-   // Core Guidelines: RAII — no external resources to release.
+   // RAII — no external resources to release.
    ~ScoreBuilder();
 
-   // Core Guidelines: non-copyable (stateful object).
+   // Non-copyable (stateful object).
    ScoreBuilder(const ScoreBuilder&) = delete;
    ScoreBuilder& operator=(const ScoreBuilder&) = delete;
 
-   // Core Guidelines: movable.
+   // Movable.
    ScoreBuilder(ScoreBuilder&& other) noexcept;
    ScoreBuilder& operator=(ScoreBuilder&& other) noexcept;
 

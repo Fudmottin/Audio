@@ -5,7 +5,6 @@
  * This module wraps aubio's beat tracking. It provides tempo estimation
  * and beat location detection for audio analysis.
  *
- * @see lode/libaudio/summary.md — Module overview and API design
  */
 
 #include <libaudio/beat.h>
@@ -19,7 +18,7 @@
 //
 // Domain context: All aubio C API calls are isolated here.
 //
-// Core Guidelines: RAII — aubio resources are automatically freed when
+// RAII — aubio resources are automatically freed when
 // the Impl is destroyed.
 // ============================================================================
 struct BeatTracker::Impl {
@@ -42,23 +41,23 @@ struct BeatTracker::Impl {
 
 // ============================================================================
 // BeatTracker implementation
-// Core Guidelines: RAII resource management — aubio resources are
+// RAII resource management — aubio resources are
 // automatically freed when the C++ object is destroyed.
 // ============================================================================
 
 BeatTracker::BeatTracker(uint32_t bufSize, uint32_t hopSize,
                          uint32_t sampleRate)
    : impl_(std::make_unique<Impl>()) {
-   // Core Guidelines: create the aubio beat tracker.
+   // Create the aubio beat tracker.
 
    impl_->bufSize = bufSize;
    impl_->hopSize = hopSize;
    impl_->sampleRate = sampleRate;
 
-   // Core Guidelines: create the tempo (beat) tracker.
+   // Create the tempo (beat) tracker.
    impl_->tracker = new_aubio_tempo("default", bufSize, hopSize, sampleRate);
 
-   // Core Guidelines: allocate input buffer.
+   // Allocate input buffer.
    impl_->inputBuffer = new_fvec(bufSize);
 }
 
@@ -78,7 +77,7 @@ BeatTracker& BeatTracker::operator=(BeatTracker&& other) noexcept {
 }
 
 bool BeatTracker::detect(const float* samples, uint32_t length) {
-   // Core Guidelines: analyze a buffer for beat events.
+   // Analyze a buffer for beat events.
 
    if (impl_ == nullptr || impl_->tracker == nullptr) {
       return false;
@@ -89,17 +88,17 @@ bool BeatTracker::detect(const float* samples, uint32_t length) {
          "Sample length must equal buffer size");
    }
 
-   // Core Guidelines: copy samples into aubio's fvec_t.
+   // Copy samples into aubio's fvec_t.
    std::memcpy(impl_->inputBuffer->data, samples,
                impl_->bufSize * sizeof(float));
 
-   // Core Guidelines: run beat detection.
+   // Run beat detection.
    // aubio_tempo_do takes 3 args: (tracker, input, output_fvec)
    // and returns void. The output fvec holds the beat decision.
    fvec_t* tempoOutput = new_fvec(1);
    aubio_tempo_do(impl_->tracker, impl_->inputBuffer, tempoOutput);
 
-   // Core Guidelines: extract results.
+   // Extract results.
    bool beatDetected = tempoOutput->data[0] != 0.0f;
    del_fvec(tempoOutput);
 
@@ -117,7 +116,7 @@ bool BeatTracker::detect(const float* samples, uint32_t length) {
 }
 
 std::optional<double> BeatTracker::lastBeatTime() const {
-   // Core Guidelines: return the timestamp of the last detected beat.
+   // Return the timestamp of the last detected beat.
 
    if (impl_ && impl_->lastBeatTime >= 0.0) {
       return impl_->lastBeatTime;
@@ -126,16 +125,16 @@ std::optional<double> BeatTracker::lastBeatTime() const {
 }
 
 double BeatTracker::estimatedTempo() const {
-   // Core Guidelines: simple accessor.
+   // Simple accessor.
    return impl_ ? impl_->estimatedTempo_ : 0.0;
 }
 
 double BeatTracker::currentTempo() const {
-   // Core Guidelines: simple accessor.
+   // Simple accessor.
    return impl_ ? impl_->currentTempo_ : 0.0;
 }
 
 uint32_t BeatTracker::beatCount() const {
-   // Core Guidelines: simple accessor.
+   // Simple accessor.
    return impl_ ? impl_->beatCount_ : 0;
 }

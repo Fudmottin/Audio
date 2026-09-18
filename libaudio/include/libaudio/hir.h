@@ -50,9 +50,6 @@
  *
  * This is documented in `lode/MIDI.md`.
  *
- * @see lode/libaudio/hir.md — Complete HIR specification
- * @see lode/MIDI.md — MIDI file format (SMF), tick conversion
- * @see lode/LilyPond.md — LilyPond export
  */
 
 #ifndef LIBAUDIO_HIR_H
@@ -81,45 +78,45 @@
 // - `channel` defaults to 0 (MIDI channel 0, Acoustic Grand Piano).
 // - `sustain` is a boolean flag derived from pedal detection analysis.
 //
-// Core Guidelines: aggregate type with no hidden state or side effects.
+// Aggregate type with no hidden state or side effects.
 // ============================================================================
 struct Note {
    /**
     * Start time in seconds from the beginning of the recording.
-    * Core Guidelines: double precision for sub-sample accuracy.
+    * Double precision for sub-sample accuracy.
     */
    double startTime = 0.0;
 
    /**
     * End time in seconds from the beginning of the recording.
-    * Core Guidelines: double precision for sub-sample accuracy.
+    * Double precision for sub-sample accuracy.
     */
    double endTime = 0.0;
 
    /**
     * MIDI note number (0–127). For piano, valid range is 21 (A0) to
     * 108 (C8).
-    * Core Guidelines: uint8_t because MIDI note numbers fit in 7 bits.
+    * Uint8_t because MIDI note numbers fit in 7 bits.
     */
    uint8_t pitch = 60;  // Default: middle C
 
    /**
     * Note velocity (0–127). Derived from RMS energy of the note segment
     * during analysis.
-    * Core Guidelines: uint8_t because MIDI velocity fits in 7 bits.
+    * Uint8_t because MIDI velocity fits in 7 bits.
     */
    uint8_t velocity = 100;  // Default: medium velocity
 
    /**
     * MIDI channel (0–15). Default is 0 (channel 1, Acoustic Grand Piano).
-    * Core Guidelines: uint8_t because MIDI channels fit in 4 bits.
+    * Uint8_t because MIDI channels fit in 4 bits.
     */
    uint8_t channel = 0;
 
    /**
     * True if this note overlaps with sustain pedal. Derived from pedal
     * detection analysis.
-    * Core Guidelines: explicit boolean semantics.
+    * Explicit boolean semantics.
     */
    bool sustain = false;
 
@@ -145,12 +142,12 @@ struct Note {
 // - `controller` is the CC# (64 = sustain pedal, 66 = soft pedal, etc.).
 // - `value` is 0–127 (pedal position: 0 = up, 127 = down).
 //
-// Core Guidelines: aggregate type with no hidden state or side effects.
+// Aggregate type with no hidden state or side effects.
 // ============================================================================
 struct ControlEvent {
    /**
     * Time in seconds from the beginning of the recording.
-    * Core Guidelines: double precision for sub-sample accuracy.
+    * Double precision for sub-sample accuracy.
     */
    double time = 0.0;
 
@@ -161,14 +158,14 @@ struct ControlEvent {
     * - 67 = Sostenuto Pedal
     * - 11 = Expression
     * - 123 = All Notes Off (safety reset)
-    * Core Guidelines: uint8_t because MIDI CC numbers fit in 7 bits.
+    * Uint8_t because MIDI CC numbers fit in 7 bits.
     */
    uint8_t controller = 0;
 
    /**
     * Controller value (0–127). For sustain pedal: 0 = up, 127 = down.
     * Values 1–63 represent half-pedal.
-    * Core Guidelines: uint8_t because MIDI controller values fit in 7 bits.
+    * Uint8_t because MIDI controller values fit in 7 bits.
     */
    uint8_t value = 0;
 
@@ -192,7 +189,7 @@ struct ControlEvent {
 // - `title` and `composer` are optional metadata fields.
 // - `notes` and `controls` are vectors of Note and ControlEvent.
 //
-// Core Guidelines: aggregate type with no hidden state or side effects.
+// Aggregate type with no hidden state or side effects.
 // ============================================================================
 struct Score {
    /** All detected notes. */

@@ -5,9 +5,6 @@
  * This module writes a Score (HIR) to a Type 1 Standard MIDI File (SMF)
  * with 480 ticks per quarter note, compatible with Apple Logic Pro.
  *
- * @see lode/MIDI.md — Complete MIDI file format specification
- * @see lode/libaudio/hir.md — HIR data structures
- * @see lode/libaudio/summary.md — Module overview and API design
  */
 
 #include <libaudio/midiFileWriter.h>
@@ -26,7 +23,7 @@
 // Domain context: All MIDI file format logic is isolated here. The public
 // interface never exposes FILE* or binary format details.
 //
-// Core Guidelines: RAII — the file handle is automatically closed when
+// RAII — the file handle is automatically closed when
 // the Impl is destroyed.
 // ============================================================================
 struct MidiFileWriter::Impl {
@@ -99,12 +96,12 @@ struct MidiFileWriter::Impl {
    static void buildNoteEvent(std::vector<uint8_t>& events,
                               uint32_t deltaTicks, uint8_t note,
                               uint8_t velocity, uint8_t channel) {
-      // Core Guidelines: Note On event (9n nn vv) — no running status.
+      // Note On event (9n nn vv) — no running status.
       events.push_back(static_cast<uint8_t>(0x90 | (channel & 0x0F)));
       events.push_back(note);
       events.push_back(velocity);
 
-      // Core Guidelines: Note Off event (8n nn) — no running status.
+      // Note Off event (8n nn) — no running status.
       events.push_back(static_cast<uint8_t>(0x80 | (channel & 0x0F)));
       events.push_back(note);
       events.push_back(64);  // Default release velocity.
@@ -137,7 +134,7 @@ struct MidiFileWriter::Impl {
    static void buildCcEvent(std::vector<uint8_t>& events,
                             uint32_t deltaTicks, uint8_t controller,
                             uint8_t value, uint8_t channel) {
-      // Core Guidelines: Control Change event (Bn cc vv) — no running status.
+      // Control Change event (Bn cc vv) — no running status.
       events.push_back(static_cast<uint8_t>(0xB0 | (channel & 0x0F)));
       events.push_back(controller);
       events.push_back(value);
@@ -169,7 +166,7 @@ struct MidiFileWriter::Impl {
    static void buildProgramChangeEvent(std::vector<uint8_t>& events,
                                       uint32_t deltaTicks, uint8_t patch,
                                       uint8_t channel) {
-      // Core Guidelines: Program Change event (Cn pp) — no running status.
+      // Program Change event (Cn pp) — no running status.
       events.push_back(static_cast<uint8_t>(0xC0 | (channel & 0x0F)));
       events.push_back(patch);
 
@@ -199,7 +196,7 @@ struct MidiFileWriter::Impl {
    // Build a Set Tempo meta event (FF 51).
    static void buildSetTempoEvent(std::vector<uint8_t>& events,
                                   uint32_t deltaTicks, double tempoBpm) {
-      // Core Guidelines: Set Tempo meta event (FF 51 03 t1 t2 t3).
+      // Set Tempo meta event (FF 51 03 t1 t2 t3).
       uint32_t microsecondsPerQuarterNote =
          static_cast<uint32_t>(60000000.0 / tempoBpm);
 
@@ -228,7 +225,7 @@ struct MidiFileWriter::Impl {
 
    // Write a track chunk.
    static bool writeTrack(FILE* f, const std::vector<uint8_t>& trackData) {
-      // Core Guidelines: write "MTrk" header + variable-length length + data.
+      // Write "MTrk" header + variable-length length + data.
       const char mtrkId[4] = {'M', 'T', 'r', 'k'};
       if (fwrite(mtrkId, 4, 1, f) != 1) {
          return false;
@@ -242,13 +239,13 @@ struct MidiFileWriter::Impl {
 
 // ============================================================================
 // MidiFileWriter implementation
-// Core Guidelines: RAII resource management — file handle is released
+// RAII resource management — file handle is released
 // automatically when the C++ object is destroyed.
 // ============================================================================
 
 MidiFileWriter::MidiFileWriter(std::string_view path)
    : impl_(std::make_unique<Impl>()) {
-   // Core Guidelines: open the output file for writing.
+   // Open the output file for writing.
 
    impl_->outputPath = std::string(path);
 }
@@ -269,11 +266,11 @@ MidiFileWriter& MidiFileWriter::operator=(MidiFileWriter&& other) noexcept {
 }
 
 bool MidiFileWriter::write(const Score& score) {
-   // Core Guidelines: write a Score (HIR) to a MIDI file.
-   // Core Guidelines: all variables with initializers are declared
-   // before any goto that could skip them (Core Guidelines C.118).
+   // Write a Score (HIR) to a MIDI file.
+   // All variables with initializers are declared
+   // before any goto that could skip them (C.118).
 
-   // Core Guidelines: open the output file.
+   // Open the output file.
    FILE* f = fopen(impl_->outputPath.c_str(), "wb");
    if (f == nullptr) {
       return false;
@@ -281,7 +278,7 @@ bool MidiFileWriter::write(const Score& score) {
 
    impl_->file = f;
 
-   // Core Guidelines: build track 0 data (piano track).
+   // Build track 0 data (piano track).
    // Moved before the header-writing goto points to avoid jumping
    // past variable initializations.
    std::vector<uint8_t> trackData;
@@ -292,7 +289,7 @@ bool MidiFileWriter::write(const Score& score) {
              });
    uint32_t lastTick = 0;
 
-   // Core Guidelines: write the MIDI header (14 bytes).
+   // Write the MIDI header (14 bytes).
    // Format: 1 (Type 1), Num tracks: 1, Division: 480 ticks/qn.
    const char mthdId[4] = {'M', 'T', 'h', 'd'};
    if (fwrite(mthdId, 4, 1, f) != 1) {
@@ -312,37 +309,37 @@ bool MidiFileWriter::write(const Score& score) {
       goto error;
    }
 
-   // Core Guidelines: Set Tempo meta event (at t=0).
+   // Set Tempo meta event (at t=0).
    Impl::buildSetTempoEvent(trackData, 0, score.tempo);
 
-   // Core Guidelines: Program Change to Acoustic Grand Piano (patch 0)
+   // Program Change to Acoustic Grand Piano (patch 0)
    // on channel 0 (at t=0).
    Impl::buildProgramChangeEvent(trackData, 0, 0, 0);
 
-   // Core Guidelines: Sustain pedal ON (CC#64 = 127) at t=0.
+   // Sustain pedal ON (CC#64 = 127) at t=0.
    Impl::buildCcEvent(trackData, 0, 64, 127, 0);
 
-   // Core Guidelines: write all notes as Note On + Note Off events.
+   // Write all notes as Note On + Note Off events.
    for (const auto& note : sortedNotes) {
       uint32_t noteOnTick = Impl::secondsToTicks(note.startTime, score.tempo);
       uint32_t noteOffTick = Impl::secondsToTicks(note.endTime, score.tempo);
 
-      // Core Guidelines: clamp pitch to valid piano range (21–108).
+      // Clamp pitch to valid piano range (21–108).
       uint8_t pitch = static_cast<uint8_t>(
          std::max(21u, std::min(108u, static_cast<unsigned>(note.pitch))));
 
-      // Core Guidelines: clamp velocity to valid range (1–127).
+      // Clamp velocity to valid range (1–127).
       uint8_t velocity = static_cast<uint8_t>(
          std::max(1u, std::min(127u, static_cast<unsigned>(note.velocity))));
 
-      // Core Guidelines: compute delta-time (non-negative).
+      // Compute delta-time (non-negative).
       uint32_t deltaTicks = std::max(0u,
          static_cast<unsigned>(noteOnTick - lastTick));
 
       Impl::buildNoteEvent(trackData, deltaTicks, pitch, velocity,
                            note.channel);
 
-      // Core Guidelines: compute note-off delta-time.
+      // Compute note-off delta-time.
       uint32_t noteOffDelta = std::max(0u,
          static_cast<unsigned>(noteOffTick - noteOnTick));
 
@@ -352,20 +349,20 @@ bool MidiFileWriter::write(const Score& score) {
       lastTick = noteOffTick;
    }
 
-   // Core Guidelines: write sustain pedal OFF (CC#64 = 0) at the end.
+   // Write sustain pedal OFF (CC#64 = 0) at the end.
    Impl::buildCcEvent(trackData, 0, 64, 0, 0);
 
-   // Core Guidelines: write all control events from the Score.
+   // Write all control events from the Score.
    for (const auto& ctrl : score.controls) {
       uint32_t ctrlTick = Impl::secondsToTicks(ctrl.time, score.tempo);
 
-      // Core Guidelines: clamp controller and value to valid ranges.
+      // Clamp controller and value to valid ranges.
       uint8_t controller = static_cast<uint8_t>(
          std::max(0u, std::min(127u, static_cast<unsigned>(ctrl.controller))));
       uint8_t value = static_cast<uint8_t>(
          std::max(0u, std::min(127u, static_cast<unsigned>(ctrl.value))));
 
-      // Core Guidelines: compute delta-time (non-negative).
+      // Compute delta-time (non-negative).
       uint32_t deltaTicks = std::max(0u,
          static_cast<unsigned>(ctrlTick - lastTick));
 
@@ -374,15 +371,15 @@ bool MidiFileWriter::write(const Score& score) {
       lastTick = ctrlTick;
    }
 
-   // Core Guidelines: End of Track marker.
+   // End of Track marker.
    Impl::buildEndOfTrack(trackData);
 
-   // Core Guidelines: write the track chunk.
+   // Write the track chunk.
    if (!Impl::writeTrack(f, trackData)) {
       goto error;
    }
 
-   // Core Guidelines: close the file.
+   // Close the file.
    impl_->bytesWritten_ = static_cast<uint64_t>(ftello(f));
    fclose(f);
    impl_->file = nullptr;
@@ -396,11 +393,11 @@ error:
 }
 
 uint64_t MidiFileWriter::bytesWritten() const {
-   // Core Guidelines: simple accessor.
+   // Simple accessor.
    return impl_ ? impl_->bytesWritten_ : 0;
 }
 
 bool MidiFileWriter::isOpen() const {
-   // Core Guidelines: simple accessor.
+   // Simple accessor.
    return impl_ ? impl_->file != nullptr : false;
 }

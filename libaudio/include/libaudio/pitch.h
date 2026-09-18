@@ -20,9 +20,6 @@
  * Default: YINfft (fast, accurate, good for piano). See
  * `lode/libaudio/decisions.md` for the full rationale.
  *
- * @see lode/libaudio/summary.md — Module overview and API design
- * @see lode/libaudio/decisions.md — Library choices and default parameters
- * @see lode/MIDI.md — Piano key range (21–108)
  */
 
 #ifndef LIBAUDIO_PITCH_H
@@ -48,7 +45,7 @@
 // - Default confidence threshold: 0.5 (moderate sensitivity).
 // - Returns MIDI note numbers (float) — callers round to nearest integer.
 //
-// Core Guidelines: RAII resource management — aubio resources are
+// RAII resource management — aubio resources are
 // automatically freed when the C++ object is destroyed.
 // ============================================================================
 class PitchDetector {
@@ -61,14 +58,14 @@ class PitchDetector {
    PitchDetector(uint32_t bufSize, float tolerance = 0.15f);
 
    // Destructor. Frees aubio pitch detection resources.
-   // Core Guidelines: RAII — resources are released automatically.
+   // RAII — resources are released automatically.
    ~PitchDetector();
 
-   // Core Guidelines: non-copyable (aubio handles are non-copyable).
+   // Non-copyable (aubio handles are non-copyable).
    PitchDetector(const PitchDetector&) = delete;
    PitchDetector& operator=(const PitchDetector&) = delete;
 
-   // Core Guidelines: movable (aubio handles can be moved).
+   // Movable (aubio handles can be moved).
    PitchDetector(PitchDetector&& other) noexcept;
    PitchDetector& operator=(PitchDetector&& other) noexcept;
 

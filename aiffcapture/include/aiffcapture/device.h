@@ -32,8 +32,6 @@
  * - Perfect quality (digital, no analog conversion)
  * - Low latency (no round-trip through speakers → microphone)
  *
- * @see lode/terminology.md — Core Audio API terms
- * @see lode/practices.md — Core Audio development patterns
  */
 
 #ifndef AIFFCAPTURE_DEVICE_H
@@ -43,7 +41,7 @@
 #include <string>
 #include <vector>
 
-// Core Guidelines: we include Core Audio headers here because AudioDeviceID
+// We include Core Audio headers here because AudioDeviceID
 // is a simple typedef (uint32_t) that is safe to expose in a public header.
 // This avoids the complexity of wrapping it in void*.
 #include <CoreAudio/CoreAudio.h>
@@ -61,13 +59,13 @@
 // - The isValid() method checks for a non-zero ID and non-empty name.
 //   This is sufficient validation for our use case.
 //
-// Core Guidelines: aggregate type, no hidden state.
+// Aggregate type, no hidden state.
 // ============================================================================
 struct DeviceInfo {
    /**
     * Unique identifier for this device (Core Audio device ID).
     *
-    * Core Guidelines: AudioDeviceID is a simple uint32_t typedef.
+    * AudioDeviceID is a simple uint32_t typedef.
     * It is safe to expose in a public header.
     */
    AudioDeviceID deviceID = 0;
@@ -112,7 +110,7 @@ struct DeviceInfo {
 //    findDeviceByName() can search them without re-querying Core Audio.
 //    The cache is mutable (const-qualified methods can populate it).
 //
-// Core Guidelines: this class encapsulates all Core Audio device discovery.
+// This class encapsulates all Core Audio device discovery.
 // It is stateless (no persistent state between calls), which makes it easy
 // to reason about and test.
 // ============================================================================
@@ -124,11 +122,11 @@ class DeviceManager {
    // Destructor. No resources to release (handles are managed internally).
    ~DeviceManager() = default;
 
-   // Core Guidelines: non-copyable (handles are non-copyable).
+   // Non-copyable (handles are non-copyable).
    DeviceManager(const DeviceManager&) = delete;
    DeviceManager& operator=(const DeviceManager&) = delete;
 
-   // Core Guidelines: movable (handles can be moved).
+   // Movable (handles can be moved).
    DeviceManager(DeviceManager&&) = default;
    DeviceManager& operator=(DeviceManager&&) = default;
 
@@ -137,7 +135,7 @@ class DeviceManager {
    // Returns a vector of DeviceInfo for each device found.
    // If no devices are found, returns an empty vector.
    //
-   // Core Guidelines: this function is the only place where Core Audio's
+   // This function is the only place where Core Audio's
    // property-based API is used. All error handling is centralized here.
    //
    // @return Vector of device information, or empty vector on failure.
@@ -149,7 +147,7 @@ class DeviceManager {
    // provided string (case-insensitive). Returns the first match, or
    // nullptr if no match is found.
    //
-   // Core Guidelines: this function is case-insensitive because device
+   // This function is case-insensitive because device
    // names can vary (e.g., "BlackHole 2ch" vs "blackhole 2ch").
    //
    // @param deviceName The name to search for (case-insensitive).
@@ -163,7 +161,7 @@ class DeviceManager {
    // This is the only place where we extract the AudioStreamBasicDescription
    // from the device's input stream.
    //
-   // Core Guidelines: this function handles the full lifecycle of the
+   // This function handles the full lifecycle of the
    // AudioBufferList allocation and deallocation. Callers never see
    // raw pointers.
    //
@@ -174,19 +172,19 @@ class DeviceManager {
 
  private:
    // List of all enumerated devices (owned by this instance).
-   // Core Guidelines: mutable because this is a cache that doesn't affect
+   // Mutable because this is a cache that doesn't affect
    // the logical state of the object. It's populated by enumerateDevices()
    // and searched by findDeviceByName(). Making it mutable allows the
    // const-qualified enumerateDevices() to populate this cache.
    mutable std::vector<DeviceInfo> devices_;
 
    // Internal helper: query the name of a device by its device ID.
-   // Core Guidelines: this is a private helper that handles Core Audio's
+   // This is a private helper that handles Core Audio's
    // property-based name query. It returns an empty string on failure.
    [[nodiscard]] std::string getDeviceName(AudioDeviceID deviceID) const;
 
    // Internal helper: query the stream configuration of a device.
-   // Core Guidelines: this handles the full lifecycle of the
+   // This handles the full lifecycle of the
    // AudioBufferList (allocation, extraction, deallocation).
    // It returns a default-constructed AudioFormat on failure.
    // When the device is not active (mData == nullptr), it falls back
@@ -194,14 +192,14 @@ class DeviceManager {
    [[nodiscard]] AudioFormat getStreamConfig(AudioDeviceID deviceID) const;
 
    // Internal helper: query the stream format of a device.
-   // Core Guidelines: this returns the AudioStreamBasicDescription
+   // This returns the AudioStreamBasicDescription
    // directly, without requiring access to the raw audio data.
    // This is used as a fallback when kAudioDevicePropertyStreamConfiguration
    // returns mData == nullptr (e.g., when the device is not active).
    [[nodiscard]] AudioFormat getStreamFormat(AudioDeviceID deviceID) const;
 
    // Internal helper: enumerate all audio device IDs on the system.
-   // Core Guidelines: this is the only place where we call
+   // This is the only place where we call
    // AudioObjectGetPropertyData for device enumeration.
    [[nodiscard]] std::vector<AudioDeviceID> enumerateDeviceIDs() const;
 };

@@ -5,7 +5,6 @@
  * This module wraps aubio's beat tracking. It provides tempo estimation
  * and beat location detection for audio analysis.
  *
- * @see lode/libaudio/summary.md — Module overview and API design
  */
 
 #ifndef LIBAUDIO_BEAT_H
@@ -27,7 +26,7 @@
 // - Returns estimated BPM from the entire analysis so far.
 // - Tracks individual beat positions for tempo refinement.
 //
-// Core Guidelines: RAII resource management — aubio resources are
+// RAII resource management — aubio resources are
 // automatically freed when the C++ object is destroyed.
 // ============================================================================
 class BeatTracker {
@@ -40,14 +39,14 @@ class BeatTracker {
    BeatTracker(uint32_t bufSize, uint32_t hopSize, uint32_t sampleRate);
 
    // Destructor. Frees aubio beat tracking resources.
-   // Core Guidelines: RAII — resources are released automatically.
+   // RAII — resources are released automatically.
    ~BeatTracker();
 
-   // Core Guidelines: non-copyable (aubio handles are non-copyable).
+   // Non-copyable (aubio handles are non-copyable).
    BeatTracker(const BeatTracker&) = delete;
    BeatTracker& operator=(const BeatTracker&) = delete;
 
-   // Core Guidelines: movable (aubio handles can be moved).
+   // Movable (aubio handles can be moved).
    BeatTracker(BeatTracker&& other) noexcept;
    BeatTracker& operator=(BeatTracker&& other) noexcept;
 

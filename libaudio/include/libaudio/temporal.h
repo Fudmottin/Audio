@@ -5,7 +5,6 @@
  * This module wraps aubio's temporal processing (resampling, filtering).
  * It provides pre-processing utilities for audio analysis.
  *
- * @see lode/libaudio/summary.md — Module overview and API design
  */
 
 #ifndef LIBAUDIO_TEMPORAL_H
@@ -24,7 +23,7 @@
 // - Resample to a consistent sample rate (48 kHz).
 // - Mono downmix: average stereo channels for analysis.
 //
-// Core Guidelines: RAII resource management — aubio resources are
+// RAII resource management — aubio resources are
 // automatically freed when the C++ object is destroyed.
 // ============================================================================
 class TemporalProcessor {
@@ -35,14 +34,14 @@ class TemporalProcessor {
    explicit TemporalProcessor(uint32_t sampleRate);
 
    // Destructor. Frees aubio temporal processing resources.
-   // Core Guidelines: RAII — resources are released automatically.
+   // RAII — resources are released automatically.
    ~TemporalProcessor();
 
-   // Core Guidelines: non-copyable (aubio handles are non-copyable).
+   // Non-copyable (aubio handles are non-copyable).
    TemporalProcessor(const TemporalProcessor&) = delete;
    TemporalProcessor& operator=(const TemporalProcessor&) = delete;
 
-   // Core Guidelines: movable (aubio handles can be moved).
+   // Movable (aubio handles can be moved).
    TemporalProcessor(TemporalProcessor&& other) noexcept;
    TemporalProcessor& operator=(TemporalProcessor&& other) noexcept;
 

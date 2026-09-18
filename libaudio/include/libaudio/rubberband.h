@@ -6,8 +6,6 @@
  * It is optional: if rubberband is not found, the module is excluded
  * from the build and the RubberbandProcessor class is not available.
  *
- * @see lode/libaudio/summary.md — Module overview and API design
- * @see lode/libaudio/decisions.md — Why rubberband (optional dependency)
  */
 
 #ifndef LIBAUDIO_RUBBERBAND_H
@@ -30,7 +28,7 @@
 // - This module is only compiled if rubberband is found.
 // - The class is conditionally available via `#ifdef LIBAUDIO_HAS_RUBBERBAND`.
 //
-// Core Guidelines: RAII resource management — rubberband resources are
+// RAII resource management — rubberband resources are
 // automatically freed when the C++ object is destroyed.
 // ============================================================================
 #ifdef LIBAUDIO_HAS_RUBBERBAND
@@ -44,14 +42,14 @@ class RubberbandProcessor {
    RubberbandProcessor(uint32_t sampleRate, uint32_t channels = 1);
 
    // Destructor. Frees rubberband resources.
-   // Core Guidelines: RAII — resources are released automatically.
+   // RAII — resources are released automatically.
    ~RubberbandProcessor();
 
-   // Core Guidelines: non-copyable (rubberband handles are non-copyable).
+   // Non-copyable (rubberband handles are non-copyable).
    RubberbandProcessor(const RubberbandProcessor&) = delete;
    RubberbandProcessor& operator=(const RubberbandProcessor&) = delete;
 
-   // Core Guidelines: movable (rubberband handles can be moved).
+   // Movable (rubberband handles can be moved).
    RubberbandProcessor(RubberbandProcessor&& other) noexcept;
    RubberbandProcessor& operator=(RubberbandProcessor&& other) noexcept;
 

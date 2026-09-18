@@ -16,9 +16,6 @@
  *   single source of truth for how the capture behaves: output path,
  *   duration, device name, and verbose flag.
  *
- * @see lode/terminology.md — Audio concepts and AIFF format definitions
- * @see lode/practices.md — Core Audio development patterns
- * @see lode/aiffcapture/decisions.md — AIFF format design decisions
  */
 
 #ifndef AIFFCAPTURE_AUDIO_TYPES_H
@@ -46,7 +43,7 @@
 //   interleaving flag. These are the fields needed to write a valid AIFF
 //   COMM chunk.
 //
-// Core Guidelines: use explicit types, not implicit conversions.
+// Use explicit types, not implicit conversions.
 // This struct mirrors AudioStreamBasicDescription but only captures the
 // fields we actually need. We avoid the full struct to reduce coupling
 // to Core Audio internals.
@@ -83,7 +80,7 @@ struct AudioFormat {
    /**
     * True if the format is interleaved (stereo: LRLRLR...).
     *
-    * Core Guidelines: explicit boolean semantics.
+    * Explicit boolean semantics.
     *
     * Note: `mIsInterleaved` was removed from `AudioStreamBasicDescription`
     * in macOS 12+. For uncompressed formats (AIFF), we always assume
@@ -97,7 +94,7 @@ struct AudioFormat {
 
 // ============================================================================
 // CaptureConfig — Configuration for a capture session.
-// Core Guidelines: aggregate type with no hidden state or side effects.
+// Aggregate type with no hidden state or side effects.
 // This is the single source of truth for how the capture behaves.
 // ============================================================================
 struct CaptureConfig {
@@ -105,15 +102,15 @@ struct CaptureConfig {
    std::string outputPath;
 
    // Duration of capture in seconds (0 = indefinite, stop on Ctrl-C).
-   // Core Guidelines: explicit 0 means "no limit" rather than "error."
+   // Explicit 0 means "no limit" rather than "error."
    double durationSeconds = 0.0;
 
    // Name of the BlackHole device to capture from.
-   // Core Guidelines: default to the 2-channel variant.
+   // Default to the 2-channel variant.
    std::string deviceName = "BlackHole 2ch";
 
    // True if the program should print verbose progress to stderr.
-   // Core Guidelines: verbose mode is a boolean flag, not a global.
+   // Verbose mode is a boolean flag, not a global.
    bool verbose = false;
 };
 

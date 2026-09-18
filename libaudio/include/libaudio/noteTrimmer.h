@@ -5,7 +5,6 @@
  * This module refines detected note durations by trimming them to
  * musical boundaries (note off events, silence gaps).
  *
- * @see lode/libaudio/summary.md — Module overview and API design
  */
 
 #ifndef LIBAUDIO_NOTETRIMMER_H
@@ -32,7 +31,7 @@ class AudioFileReader;
 // - Configurable minimum note duration (default: 50 ms).
 // - Handles legato passages (overlapping notes).
 //
-// Core Guidelines: RAII resource management — no external resources.
+// RAII resource management — no external resources.
 // ============================================================================
 class NoteTrimmer {
  public:
@@ -42,14 +41,14 @@ class NoteTrimmer {
    explicit NoteTrimmer(uint32_t sampleRate);
 
    // Destructor.
-   // Core Guidelines: RAII — no external resources to release.
+   // RAII — no external resources to release.
    ~NoteTrimmer();
 
-   // Core Guidelines: non-copyable (stateful object).
+   // Non-copyable (stateful object).
    NoteTrimmer(const NoteTrimmer&) = delete;
    NoteTrimmer& operator=(const NoteTrimmer&) = delete;
 
-   // Core Guidelines: movable.
+   // Movable.
    NoteTrimmer(NoteTrimmer&& other) noexcept;
    NoteTrimmer& operator=(NoteTrimmer&& other) noexcept;
 

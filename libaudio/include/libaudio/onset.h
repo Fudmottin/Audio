@@ -18,8 +18,6 @@
  *
  * Default: "specflux" (spectral flux is most reliable for piano).
  *
- * @see lode/libaudio/summary.md — Module overview and API design
- * @see lode/libaudio/decisions.md — Default parameters
  */
 
 #ifndef LIBAUDIO_ONSET_H
@@ -44,7 +42,7 @@
 // - Minimum inter-onset interval (IoI): prevents detecting spurious
 //   onsets during the decay phase of a note.
 //
-// Core Guidelines: RAII resource management — aubio resources are
+// RAII resource management — aubio resources are
 // automatically freed when the C++ object is destroyed.
 // ============================================================================
 class OnsetDetector {
@@ -60,14 +58,14 @@ class OnsetDetector {
                  uint32_t hopSize, uint32_t sampleRate);
 
    // Destructor. Frees aubio onset detection resources.
-   // Core Guidelines: RAII — resources are released automatically.
+   // RAII — resources are released automatically.
    ~OnsetDetector();
 
-   // Core Guidelines: non-copyable (aubio handles are non-copyable).
+   // Non-copyable (aubio handles are non-copyable).
    OnsetDetector(const OnsetDetector&) = delete;
    OnsetDetector& operator=(const OnsetDetector&) = delete;
 
-   // Core Guidelines: movable (aubio handles can be moved).
+   // Movable (aubio handles can be moved).
    OnsetDetector(OnsetDetector&& other) noexcept;
    OnsetDetector& operator=(OnsetDetector&& other) noexcept;
 

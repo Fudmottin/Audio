@@ -5,7 +5,6 @@
  * This module estimates note velocity from audio amplitude (RMS energy).
  * It converts audio amplitude to MIDI velocity (0–127).
  *
- * @see lode/libaudio/summary.md — Module overview and API design
  */
 
 #ifndef LIBAUDIO_VELOCITYESTIMATOR_H
@@ -31,7 +30,7 @@ struct Note;
 // - Maps RMS energy to MIDI velocity (0–127).
 // - Configurable normalization range (default: -40 dB to 0 dB → 0–127).
 //
-// Core Guidelines: RAII resource management — no external resources.
+// RAII resource management — no external resources.
 // ============================================================================
 class VelocityEstimator {
  public:
@@ -41,14 +40,14 @@ class VelocityEstimator {
    explicit VelocityEstimator(uint32_t sampleRate);
 
    // Destructor.
-   // Core Guidelines: RAII — no external resources to release.
+   // RAII — no external resources to release.
    ~VelocityEstimator();
 
-   // Core Guidelines: non-copyable (stateful object).
+   // Non-copyable (stateful object).
    VelocityEstimator(const VelocityEstimator&) = delete;
    VelocityEstimator& operator=(const VelocityEstimator&) = delete;
 
-   // Core Guidelines: movable.
+   // Movable.
    VelocityEstimator(VelocityEstimator&& other) noexcept;
    VelocityEstimator& operator=(VelocityEstimator&& other) noexcept;
 

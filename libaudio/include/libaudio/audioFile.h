@@ -18,9 +18,6 @@
  * - The Pimpl pattern isolates all libsndfile C API calls.
  * - Reading returns float samples in the range [-1.0, 1.0].
  *
- * @see lode/libaudio/summary.md — Module overview and API design
- * @see lode/libaudio/decisions.md — Library choices rationale
- * @see lode/terminology.md — Audio concepts (PCM, frame, interleaved)
  */
 
 #ifndef LIBAUDIO_AUDIOFILE_H
@@ -44,7 +41,7 @@
 // - Supports mono and stereo files. Stereo files can be read as
 //   interleaved (L, R, L, R...) or downmixed to mono.
 //
-// Core Guidelines: RAII resource management — resources are automatically
+// RAII resource management — resources are automatically
 // freed when the C++ object is destroyed (no manual sf_close() calls).
 // ============================================================================
 class AudioFileReader {
@@ -59,14 +56,14 @@ class AudioFileReader {
    AudioFileReader(std::string_view path);
 
    // Destructor. Closes the file handle.
-   // Core Guidelines: RAII — resources are released automatically.
+   // RAII — resources are released automatically.
    ~AudioFileReader();
 
-   // Core Guidelines: non-copyable (file handles are non-copyable).
+   // Non-copyable (file handles are non-copyable).
    AudioFileReader(const AudioFileReader&) = delete;
    AudioFileReader& operator=(const AudioFileReader&) = delete;
 
-   // Core Guidelines: movable (file handles can be moved).
+   // Movable (file handles can be moved).
    AudioFileReader(AudioFileReader&& other) noexcept;
    AudioFileReader& operator=(AudioFileReader&& other) noexcept;
 
