@@ -321,19 +321,6 @@ OSStatus Recorder::processInputData(const AudioBufferList* inputData) {
    }
    totalBytesReceived_ += bytesInThisBuffer;
 
-   // Core Guidelines: if verbose mode is enabled, print detailed
-   // statistics about each IO proc callback. This helps diagnose
-   // whether audio data is actually flowing through the device.
-   if (verbose_) {
-      // Core Guidelines: print IO proc callback statistics.
-      std::cerr << "  [IO proc] Callback #" << ioCallbackCount_
-                << ": frames=" << inputData->mBuffers[0].mDataByteSize
-                << "/" << format_.bytesPerFrame << " (" << bytesInThisBuffer
-                << " bytes), total bytes=" << totalBytesReceived_
-                << ", total frames=" << (totalBytesReceived_ /
-                   format_.bytesPerFrame) << std::endl;
-   }
-
    // Core Guidelines: we update the frame count.
    frameCount_ += bufferSize_;
 
