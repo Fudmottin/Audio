@@ -1,0 +1,113 @@
+/**
+ * @file velocityEstimator.cpp
+ * @brief Implementation of VelocityEstimator — estimate note velocity
+ *        from audio amplitude.
+ *
+ * This module estimates note velocity from audio amplitude (RMS energy).
+ * It converts audio amplitude to MIDI velocity (0–127).
+ *
+ * @see lode/libaudio/summary.md — Module overview and API design
+ */
+
+#include <libaudio/velocityEstimator.h>
+#include <cmath>
+#include <algorithm>
+
+// ============================================================================
+// VelocityEstimator::Impl — Private implementation (Pimpl pattern).
+//
+// Domain context: All velocity estimation logic is isolated here.
+//
+// Core Guidelines: RAII — no external resources to manage.
+// ============================================================================
+struct VelocityEstimator::Impl {
+   uint32_t sampleRate;
+   float minDb = -40.0f;
+   float maxDb = 0.0f;
+
+   Impl(uint32_t sampleRate) : sampleRate(sampleRate) {}
+   ~Impl() = default;
+
+   // Compute RMS energy in dB (relative to max).
+   float rmsToDb(float rms) const {
+      // Core Guidelines: convert RMS energy to dB scale.
+      // 0 dB = max RMS (silence = -infinity dB).
+      if (rms <= 0.0f) {
+         return -100.0f;  // Minimum dB (silence).
+      }
+      return 20.0f * std::log10(rms);
+   }
+
+   // Map dB value to MIDI velocity (0–127).
+   uint8_t dbToVelocity(float db) const {
+      // Core Guidelines: map dB to MIDI velocity (0–127).
+      // Linear mapping: velocity = (db - minDb) / (maxDb - minDb) * 127.
+      float normalized = (db - minDb) / (maxDb - minDb);
+      normalized = std::max(0.0f, std::min(1.0f, normalized));
+      return static_cast<uint8_t>(std::round(normalized * 127.0f));
+   }
+};
+
+// ============================================================================
+// VelocityEstimator implementation
+// Core Guidelines: RAII resource management — no external resources.
+// ============================================================================
+
+VelocityEstimator::VelocityEstimator(uint32_t sampleRate)
+   : impl_(std::make_unique<Impl>(sampleRate)) {
+   // Core Guidelines: constructor.
+}
+
+VelocityEstimator::~VelocityEstimator() = default;
+
+VelocityEstimator::VelocityEstimator(VelocityEstimator&& other) noexcept
+   : impl_(std::move(other.impl_)) {
+   other.impl_ = std::make_unique<Impl>(other.impl_ ? other.impl_->sampleRate : 48000);
+}
+
+VelocityEstimator& VelocityEstimator::operator=(
+   VelocityEstimator&& other) noexcept {
+   if (this != &other) {
+      impl_ = std::move(other.impl_);
+      other.impl_ = std::make_unique<Impl>(other.impl_ ? other.impl_->sampleRate : 48000);
+   }
+   return *this;
+}
+
+uint8_t VelocityEstimator::estimate(const float* samples, uint32_t length) {
+   // Core Guidelines: estimate velocity from a buffer of audio samples.
+
+   if (samples == nullptr || length == 0 || impl_ == nullptr) {
+      return 0;
+   }
+
+   // Core Guidelines: compute RMS energy.
+   double sumSquares = 0.0;
+   for (uint32_t i = 0; i < length; ++i) {
+      sumSquares += static_cast<double>(samples[i]) * samples[i];
+   }
+
+   float rms = static_cast<float>(std::sqrt(sumSquares / length));
+
+   // Core Guidelines: convert RMS to dB and then to MIDI velocity.
+   float db = impl_->rmsToDb(rms);
+   return impl_->dbToVelocity(db);
+}
+
+void VelocityEstimator::setNormalizationRange(float minDb, float maxDb) {
+   // Core Guidelines: set the normalization range (in dB).
+
+   if (impl_) {
+      impl_->minDb = std::min(minDb, maxDb);
+      impl_->maxDb = std::max(minDb, maxDb);
+   }
+}
+
+std::pair<float, float> VelocityEstimator::normalizationRange() const {
+   // Core Guidelines: return the current normalization range.
+
+   if (impl_) {
+      return {impl_->minDb, impl_->maxDb};
+   }
+   return {-40.0f, 0.0f};
+}

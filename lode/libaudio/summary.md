@@ -162,8 +162,10 @@ public:
 
    // Configure the detection method.
    //
-   // Available methods: "yin", "yinfft", "yinfast", "fcomb", "mcomb",
-   // "schmitt", "default". See aubio documentation for details.
+   // Available methods: "yinfft", "yinfast", "fcomb", "schmitt",
+   // "default". (Note: "yin" and "mcomb" are cvec-based and not
+   // supported by this wrapper — they require pre-computed complex spectra.)
+   // See aubio documentation for details.
    void setMethod(std::string_view method);
 
    // Get the current confidence of the last detection.
@@ -235,7 +237,8 @@ PitchDetector::PitchDetector(uint32_t bufSize, float tolerance)
    impl_->currentMethod = "yinfft";
 
    // Create the default (yinfft) detector.
-   impl_->yinfft = new_aubio_pitchyinfft(bufSize, impl_->hopSize, 0);
+   // Core Guidelines: aubio 0.4.9 signature: (samplerate, bufSize)
+   impl_->yinfft = new_aubio_pitchyinfft(48000, bufSize);
    impl_->active = impl_->yinfft;
 
    // Allocate buffers.
@@ -300,19 +303,17 @@ void PitchDetector::setMethod(std::string_view method) {
       impl_->yinfft = new_aubio_pitchyinfft(impl_->bufSize, impl_->hopSize, 0);
       impl_->active = impl_->yinfft;
    } else if (method == "yinfast") {
-      impl_->yinfft = new_aubio_pitchyinfast(impl_->bufSize, impl_->hopSize);
-      impl_->active = impl_->yinfft;
+      impl_->yinfast = new_aubio_pitchyinfast(impl_->bufSize);
+      impl_->active = impl_->yinfast;
    } else if (method == "fcomb") {
-      impl_->fcomb = new_aubio_pitchfcomb(impl_->bufSize, impl_->hopSize, 0);
+      impl_->fcomb = new_aubio_pitchfcomb(impl_->bufSize, impl_->hopSize);
       impl_->active = impl_->fcomb;
-   } else if (method == "mcomb") {
-      impl_->mcomb = new_aubio_pitchmcomb(impl_->bufSize, impl_->hopSize, 0);
-      impl_->active = impl_->mcomb;
    } else if (method == "schmitt") {
       impl_->schmitt = new_aubio_pitchschmitt(impl_->bufSize);
       impl_->active = impl_->schmitt;
    } else {
-      impl_->yinfft = new_aubio_pitchyinfft(impl_->bufSize, impl_->hopSize, 0);
+      // Default: YINfft.
+      impl_->yinfft = new_aubio_pitchyinfft(48000, impl_->bufSize);
       impl_->active = impl_->yinfft;
    }
 }

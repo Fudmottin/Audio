@@ -216,3 +216,58 @@ private:
 | **Confidence threshold** | 0.5 | Good balance for piano |
 | **Silence threshold** | -40 dB | Good for piano recordings |
 | **Release drop** | 10 dB | Reasonable default (aubio default) |
+
+---
+
+## 7. API Compatibility Notes
+
+### aubio 0.4.9 API Corrections
+
+The implementation targets **aubio 0.4.9** specifically. Key API differences from the design document:
+
+| Module | Design Assumption | Actual API (0.4.9) |
+|---|---|---|
+| **Pitch** | `new_aubio_pitchyinfft(bufSize, hopSize, 0)` | `new_aubio_pitchyinfft(samplerate, bufSize)` — no 3rd arg |
+| **Pitch** | `yin` and `mcomb` methods supported | Removed — cvec-based, require pre-computed FFT |
+| **Onset** | `aubio_onset_do` returns `int` | Takes 3 args (detector, input, **output_fvec**), returns `void` |
+| **Onset** | `aubio_onset_set_minioi(float)` | Takes `uint_t` (frame count), not float |
+| **Beat** | `aubio_tempo_do` returns `int` | Takes 3 args (tracker, input, **output_fvec**), returns `void` |
+| **Beat** | `aubio_tempo_get_tempo()` | Function renamed to `aubio_tempo_get_bpm()` |
+| **Notes** | `aubio_notes_do` returns `int` | Takes 3 args (detector, input, **output_fvec** of length 3), returns `void` |
+| **Notes** | `aubio_notes_set_minioi(float)` | Function renamed to `aubio_notes_set_minioi_ms(float)` — takes milliseconds |
+| **Notes** | `aubio_notes_set_releasedrop(float)` | Function renamed to `aubio_notes_set_release_drop(float)` |
+| **FFT** | `aubio/fft/fft.h` | Header at `aubio/spectral/fft.h` |
+| **FFT** | `cvec_t->data[]` (interleaved) | `cvec_t->norm[]` and `cvec_t->phas[]` (polar coordinates) |
+| **Spectral** | `new_aubio_mfcc(bufSize)` | Takes 4 args: `(bufSize, n_filters, n_coeffs, samplerate)` |
+| **Spectral** | `new_aubio_filterbank_mel(bufSize, sr)` | Use `new_aubio_filterbank(n_filters, win_s)` + `aubio_filterbank_set_mel_coeffs_slaney()` |
+| **Spectral** | `aubio_filterbank_mel_do()` | Function renamed to `aubio_filterbank_do()` |
+| **Spectral** | `aubio_specdesc_get_centroid()` | Use `aubio_specdesc_do()` + read from output fvec |
+| **Temporal** | `new_aubio_resampler(channels, channels, hopSize)` | Takes `(ratio, type)` — libsamplerate converter type |
+| **Temporal** | `aubio_resampler_process(input, output, &inLen, &outLen)` | Function renamed to `aubio_resampler_do(input, output)` |
+| **Temporal** | `new_aubio_filter(type, channels, channels, cutoff, q)` | Takes 1 arg (order), use `aubio_filter_set_biquad()` for coefficients |
+| **Temporal** | `new_aubio_a_weighting(sr)` | Function renamed to `new_aubio_filter_a_weighting(sr)` |
+| **Temporal** | `new_aubio_c_weighting(sr)` | Function renamed to `new_aubio_filter_c_weighting(sr)` |
+| **Temporal** | `aubio_filter_do(filter, input, output, numSamples)` | Function renamed to `aubio_filter_do(filter, input)` (in-place) |
+| **Libsndfile** | `SF_SEEK_FRAME` | Not available; use `SEEK_SET` instead |
+| **Libsndfile** | `info.samplerate` is `uint32_t` | Is `int`; cast to `uint32_t` |
+
+### rubberband 4.0.0 API Corrections
+
+The implementation targets **rubberband 4.0.0** specifically:
+
+| Design Assumption | Actual API (4.0.0) |
+|---|---|
+| Namespace: `rubberband::` | Namespace: `RubberBand::` (capitalized) |
+| `RubberBandStretcher(sr, ch, INTERPOLATION_TIMESTRETCH, QUALITY_REALTIME, 1, 128)` | Takes `(sr, ch, Options, initialTimeRatio, initialPitchScale)` — flags are `OptionProcessRealTime \| OptionEngineFaster` |
+| `stretcher->feed(samples, n)` | Function renamed to `process(&inputPtr, n, false)` |
+| `stretcher->getOutput(numOutput)` | Function renamed to `retrieve(&outputPtr, samples)` |
+| `stretcher->setTimeFactor(factor)` | Function renamed to `setTimeRatio(double)` |
+| `stretcher->setPitchFactor(pow(2, semis/12))` | Function renamed to `setPitchScale(pow(2, semis/12))` |
+| `stretcher->haveActiveStretcher()` | Function renamed to `available()` (returns `size_t`) |
+
+### Implementation Notes
+
+- **Piano methods only**: YINfft, YINfast, fcomb, Schmitt are supported. `yin` and `mcomb` were removed because they require pre-computed complex spectra (cvec), which is outside the scope of the simple pitch detector wrapper.
+- **Confidence for fcomb/schmitt**: These methods (from the tuneit project) do not provide confidence scores. The implementation returns 0.0 confidence for these methods.
+- **Cvec polar coordinates**: aubio stores complex data as separate `norm[]` and `phas[]` arrays, not interleaved real/imag. The FFT module reads `.norm[i]` and `.phas[i]` directly.
+- **Libsndfile compatibility**: `SF_SEEK_FRAME` is not available in all libsndfile versions. The implementation uses standard `SEEK_SET` instead.
