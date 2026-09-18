@@ -5,6 +5,27 @@
  * This is the summary header that includes all public module headers.
  * Include this single header to use all libaudio functionality.
  *
+ * @section pimpl-design Pimpl Pattern
+ *
+ * All libaudio classes use `std::unique_ptr<Impl>` to hide C library
+ * internals. The benefits:
+ *
+ * 1. **RAII** — Resources (aubio handles, file descriptors) are
+ *    automatically freed when the C++ object is destroyed.
+ *
+ * 2. **Encapsulation** — The rest of the codebase never sees C
+ *    library types (no `aubio_pitchyin_t*`, `fvec_t*`, `SNDFILE*`).
+ *
+ * 3. **Swappability** — If a library's API changes, only the `Impl`
+ *    struct needs updating (not every caller).
+ *
+ * 4. **Testability** — The C++ interface is clean and mockable
+ *    (no library dependencies in tests).
+ *
+ * 5. **Compile-time** — Header files don't need library includes,
+ *    giving faster compilation and fewer dependency issues.
+ *
+ * @see lode/libaudio/summary.md — Wrapper design
  */
 
 #ifndef LIBAUDIO_LIBAUDIO_H

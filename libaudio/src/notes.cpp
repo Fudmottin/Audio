@@ -6,6 +6,33 @@
  * pitch estimation, velocity analysis, and note-off detection into a
  * single interface.
  *
+ * @section algorithmic-limitations Algorithmic Limitations
+ *
+ * These are the known limitations of aubio's note detection that
+ * affect transcription quality:
+ *
+ * 1. **Monophonic assumption** — aubio's default note detector
+ *    assumes one note at a time. For polyphonic content, use
+ *    harmonic binning (spectral analysis) for multi-note separation.
+ *
+ * 2. **Harmonic overlap** — Piano harmonics from multiple notes blur
+ *    frequency analysis. Mitigate with template matching or NMF
+ *    (future enhancement).
+ *
+ * 3. **Pedal + polyphony** — Resonating harmonics from sustained
+ *    notes blur pitch detection. Detect the pedal separately
+ *    (low-frequency energy analysis) to improve note separation.
+ *
+ * 4. **Note overlap (legato)** — When note A is held while note B
+ *    starts, determining when A ends is ambiguous. Use aubio's
+ *    note-off detection (release drop level) to refine note
+ *    boundaries.
+ *
+ * 5. **Silent passages** — No notes detected during rests. Use
+ *    onset detection to mark rest boundaries, ensuring accurate
+ *    timing for the final score.
+ *
+ * @see lode/libaudio/summary.md — Algorithmic limitations
  */
 
 #include <libaudio/notes.h>

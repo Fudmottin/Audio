@@ -7,6 +7,32 @@
  * a clean C++ interface for reading mono and stereo audio data, with
  * support for seeking and resetting.
  *
+ * @section audio-quality Audio Quality Issues
+ *
+ * These are the common audio quality problems that affect downstream
+ * analysis (pitch detection, onset detection, note detection):
+ *
+ * 1. **Low signal-to-noise ratio** — False pitch detections. Mitigate
+ *    by increasing the confidence threshold or using a higher window
+ *    size (4096 over 2048).
+ *
+ * 2. **Room reverb** — Smears transients, making onset detection
+ *    unreliable. Mitigate with a pre-emphasis filter or by increasing
+ *    the window size.
+ *
+ * 3. **Stereo recordings** — Phase cancellation when summing stereo
+ *    to mono. Mitigate by downmixing (average L+R) or by analyzing
+ *    each channel separately.
+ *
+ * 4. **Dynamic range** — Soft notes near the noise floor are hard to
+ *    detect. Mitigate by normalizing to [-1.0, 1.0] and using an
+ *    adaptive threshold (lower silence threshold).
+ *
+ * 5. **Non-piano content** — Confuses pitch detection. Mitigate by
+ *    filtering to the piano range (27.5 Hz–4186 Hz, MIDI notes
+ *    21–108) before analysis.
+ *
+ * @see lode/libaudio/summary.md — Audio quality issues
  */
 
 #include <libaudio/audioFile.h>
