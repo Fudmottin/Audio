@@ -16,6 +16,9 @@ bin/
 # macOS
 .DS_Store
 
+# Lode Coding
+lode/tmp
+
 # Editor
 .idea/
 .vscode/
