@@ -83,7 +83,7 @@ The binary will be at `build/bin/aiffcapture`.
    - Or wait for the specified duration to elapse.
 
 5. **Use the AIFF file**:
-   - The output is a standard AIFF file (uncompressed, stereo, 32-bit float PCM).
+   - The output is a standard AIFF file (uncompressed, stereo, 16-bit signed integer PCM, 32-bit integer sample rate).
    - Convert it to other formats using `afconvert`, `ffmpeg`, or similar tools.
 
 ## Project Structure
@@ -108,7 +108,6 @@ aiffcapture/
 
 ## Design Principles
 
-- **Core Guidelines compliant**: Explicit types, no implicit conversions, RAII resource management.
 - **macOS-specific**: Uses Core Audio, AudioToolbox, and CoreFoundation frameworks.
 - **Simple**: No DSP, no signal processing, no model inference. Just records PCM and writes AIFF.
 - **Extensible**: The AIFF output can be converted to WAV, MP3, FLAC, etc. using standard tools.

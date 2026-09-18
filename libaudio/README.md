@@ -88,7 +88,7 @@ writer.write(score);
 
 ## Design Principles
 
-- **Core Guidelines compliant**: C++20, explicit types, RAII.
+- **C++20**: Explicit types, RAII resource management.
 - **Pimpl pattern**: All public classes use `std::unique_ptr<Impl>` for
   encapsulation of C library internals.
 - **HIR as single source of truth**: `Score` containing `Note` and
