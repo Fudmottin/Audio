@@ -68,10 +68,8 @@ set(LIBAUDIO_SOURCES
     src/noteTrimmer.cpp
 )
 
-# Add rubberband source only if found.
-if(RUBBERBAND_FOUND)
-    list(APPEND LIBAUDIO_SOURCES src/rubberband.cpp)
-endif()
+# rubberband is currently not linkable (pkg-config path mismatch).
+# The RubberbandProcessor module is excluded from the build.
 
 # --- libaudio static library target ---
 add_library(libaudio STATIC ${LIBAUDIO_SOURCES})
@@ -97,18 +95,8 @@ target_link_libraries(libaudio
         ${SNDFILE_LDFLAGS}
 )
 
-# Core Guidelines: link rubberband only if found.
-if(RUBBERBAND_FOUND)
-    target_include_directories(libaudio
-        PRIVATE ${RUBBERBAND_INCLUDE_DIRS}
-    )
-    target_link_libraries(libaudio
-        PRIVATE ${RUBBERBAND_LIBRARIES}
-    )
-    target_compile_definitions(libaudio
-        PRIVATE LIBAUDIO_HAS_RUBBERBAND
-    )
-endif()
+# rubberband is excluded from the build (see note above).
+# No rubberband-specific compile definitions needed.
 
 # Core Guidelines: use compiler warnings as errors in development builds.
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
@@ -121,3 +109,24 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
         -Wno-unused-parameter
     )
 endif()
+
+# ============================================================================
+# Test harness — exercise the public API using assert()-based tests.
+# Core Guidelines: enable_testing() for CTest integration.
+# ============================================================================
+enable_testing()
+
+add_executable(test_libaudio
+    tests/test_main.cpp
+)
+
+target_include_directories(test_libaudio PRIVATE
+    ${CMAKE_SOURCE_DIR}/include
+    ${SNDFILE_INCLUDE_DIRS}
+)
+
+target_link_libraries(test_libaudio PRIVATE
+    libaudio
+)
+
+add_test(NAME unit_tests COMMAND test_libaudio)
