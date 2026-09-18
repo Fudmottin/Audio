@@ -198,6 +198,26 @@ This comment explains the *why* (asymmetric two's complement range),
 the *what* (clamping and scaling steps), and the *gotcha* (32767 vs
 32768) that a beginner would need to know.
 
+### Reference Implementation
+
+The `aiffcapture` module (commit `79998b0`) is the reference implementation
+for literate programming comments. Every source file in that module
+(4 headers, 4 implementations) follows this pattern. Use it as a template
+when creating new modules.
+
+### Verification Checklist
+
+When reviewing new code for literate programming compliance, check:
+
+- [ ] File has a `@file` / `@brief` narrative explaining what it does and why
+- [ ] Header files have `@section` blocks for domain-specific decisions
+- [ ] Every public method in header files has `@param` and `@return`
+- [ ] Critical decisions have `@note` explaining gotchas and pitfalls
+- [ ] Cross-references (`@see`) link to relevant lode documentation
+- [ ] Existing `// Core Guidelines:` annotations are preserved
+- [ ] No trivial self-explanatory code is commented (e.g., `i++`)
+- [ ] No duplication between code comments and lode markdown files
+
 ## Build & Testing
 
 - CMake project with `bin/` output directory.
