@@ -1,13 +1,40 @@
-// device.h — Core Audio device enumeration and BlackHole detection
-// Core Guidelines: this module encapsulates all Core Audio API calls for
-// device discovery. The rest of the program never calls Core Audio directly,
-// which makes this module easy to test and replace.
-//
-// Why this abstraction? Core Audio uses property-based queries and opaque
-// handles. By isolating these calls here, we:
-// 1. Keep the rest of the codebase framework-free (except for AudioDeviceID).
-// 2. Make it easy to swap in a different capture target (e.g., a microphone).
-// 3. Centralize error handling for device enumeration.
+/**
+ * @file device.h
+ * @brief Core Audio device enumeration and BlackHole detection.
+ *
+ * This module encapsulates all Core Audio API calls for device discovery.
+ * The rest of the program never calls Core Audio directly, which makes
+ * this module easy to test and replace.
+ *
+ * @section device-architecture Architecture
+ *
+ * Core Audio uses a property-based query model rather than a function-based
+ * one. Instead of calling `get_device_name(device)`, you call
+ * `AudioObjectGetPropertyData(device, &property_address, ...)`. This is
+ * powerful but verbose and error-prone. By isolating these calls here,
+ * we:
+ *
+ * 1. Keep the rest of the codebase framework-free (except for AudioDeviceID).
+ * 2. Make it easy to swap in a different capture target (e.g., a microphone).
+ * 3. Centralize error handling for device enumeration.
+ * 4. Hide the Core Audio property query pattern (get size → allocate → read → free).
+ *
+ * @section device-blackhole Why BlackHole?
+ *
+ * BlackHole is an open-source virtual audio device for macOS. It creates
+ * a virtual output device that routes audio from any application to any
+ * other application. For our use case, we route audio from a piano
+ * application (Logic Pro, a web player, etc.) through BlackHole 2ch
+ * and capture it directly as PCM data.
+ *
+ * This is preferred over microphone capture because:
+ * - No acoustic environment issues (room reverb, background noise)
+ * - Perfect quality (digital, no analog conversion)
+ * - Low latency (no round-trip through speakers → microphone)
+ *
+ * @see lode/terminology.md — Core Audio API terms
+ * @see lode/practices.md — Core Audio development patterns
+ */
 
 #ifndef AIFFCAPTURE_DEVICE_H
 #define AIFFCAPTURE_DEVICE_H
@@ -23,26 +50,68 @@
 
 // ============================================================================
 // DeviceInfo — Describes a single audio device found during enumeration.
+//
+// Domain context: Core Audio represents devices as opaque handles
+// (AudioDeviceID, which is a uint32_t). To get meaningful information
+// about a device, you must query it using property addresses.
+//
+// Key design decisions:
+// - We store the device ID, name, and format. This is all that is needed
+//   to open a recording session.
+// - The isValid() method checks for a non-zero ID and non-empty name.
+//   This is sufficient validation for our use case.
+//
 // Core Guidelines: aggregate type, no hidden state.
 // ============================================================================
 struct DeviceInfo {
-   // Unique identifier for this device (Core Audio device ID).
-   // Core Guidelines: AudioDeviceID is a simple uint32_t typedef.
-   // It is safe to expose in a public header.
+   /**
+    * Unique identifier for this device (Core Audio device ID).
+    *
+    * Core Guidelines: AudioDeviceID is a simple uint32_t typedef.
+    * It is safe to expose in a public header.
+    */
    AudioDeviceID deviceID = 0;
 
-   // Human-readable device name (e.g., "BlackHole 2ch").
+   /** Human-readable device name (e.g., "BlackHole 2ch"). */
    std::string name;
 
-   // The audio format this device supports for recording.
+   /** The audio format this device supports for recording. */
    AudioFormat format;
 
-   // True if this device is a valid recording target.
+   /** True if this device is a valid recording target. */
    [[nodiscard]] bool isValid() const;
 };
 
 // ============================================================================
 // DeviceManager — Enumerate and locate Core Audio devices.
+//
+// Domain context: Core Audio device enumeration uses a property-based
+// query model. There is no single "get all devices" function. Instead,
+// you query the system object for the list of device IDs, then query
+// each device for its name and format.
+//
+// Key design decisions:
+//
+// 1. IO proc pattern (not deprecated synchronous API):
+//    The modern Core Audio pattern uses an IO proc (input/output callback)
+//    that is called whenever audio data is available. The deprecated
+//    synchronous API (AudioDeviceRead) blocks the calling thread and
+//    is unreliable. By using the IO proc pattern, we get real-time
+//    audio delivery without blocking.
+//
+// 2. Fallback strategy for inactive devices:
+//    When a device is not active (e.g., BlackHole before any audio
+//    is routed through it), Core Audio returns a buffer list with
+//    mData == nullptr. In that case, we fall back to
+//    kAudioDevicePropertyStreamFormat, which returns the
+//    AudioStreamBasicDescription directly without requiring access
+//    to the raw audio data. This ensures we can still get the format
+//    even when the device is idle.
+//
+// 3. Caching: enumerateDevices() caches results in devices_ so that
+//    findDeviceByName() can search them without re-querying Core Audio.
+//    The cache is mutable (const-qualified methods can populate it).
+//
 // Core Guidelines: this class encapsulates all Core Audio device discovery.
 // It is stateless (no persistent state between calls), which makes it easy
 // to reason about and test.

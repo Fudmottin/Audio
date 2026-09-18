@@ -1,15 +1,59 @@
-// main.cpp — Entry point for aiffcapture
-// Core Guidelines: this is the single entry point of the program.
-// It parses command-line arguments, creates a capture configuration,
-// and orchestrates the recording and AIFF writing.
-//
-// The program flow is:
-// 1. Parse command-line arguments (duration, output file, device name).
-// 2. Create a CaptureConfig from the parsed arguments.
-// 3. Use DeviceManager to find the BlackHole device.
-// 4. Use Recorder to open the device and start recording.
-// 5. Use AiffWriter to write PCM data to an AIFF file.
-// 6. Stop recording and close the file.
+/**
+ * @file main.cpp
+ * @brief Entry point for aiffcapture — captures audio from BlackHole
+ *        and writes to AIFF files.
+ *
+ * This is the single entry point of the program. It parses command-line
+ * arguments, orchestrates the recording session, and writes the captured
+ * audio to an AIFF file.
+ *
+ * @section main-flow Program Flow
+ *
+ * 1. Parse command-line arguments (duration, output file, device name).
+ * 2. Create a CaptureConfig from the parsed arguments.
+ * 3. Use DeviceManager to find the BlackHole device.
+ * 4. Use Recorder to open the device and start recording.
+ * 5. Use AiffWriter to write PCM data to an AIFF file.
+ * 6. Stop recording and close the file.
+ *
+ * @section main-signal Why Signal Handling?
+ *
+ * We install a signal handler for SIGINT (Ctrl-C) to allow graceful
+ * shutdown. The signal handler only sets a flag (`g_signalReceived`)
+ * — this is the ONLY safe thing to do in a signal handler. We cannot
+ * call std::cout, std::cerr, or any non-async-signal-safe function
+ * from within the handler. The main loop checks this flag and exits
+ * gracefully when it is set.
+ *
+ * @section main-float-to-int16 Why 32-bit Float → 16-bit Integer?
+ *
+ * Core Audio always outputs 32-bit float PCM samples in the range
+ * [-1.0, 1.0]. AIFF files use 16-bit signed integer PCM (CDDA
+ * standard). The conversion in the output callback:
+ *
+ * 1. Clamps the float to [-1.0, 1.0] (handles any clipping).
+ * 2. Scales to [-32767, 32767] (note: 32767, NOT 32768).
+ * 3. Casts to int16_t.
+ *
+ * Why 32767 and not 32768? Because int16_t is asymmetric in two's
+ * complement: it ranges from -32768 to +32767. If we scaled to
+ * 32768, a float of 1.0 would produce 32768, which overflows to
+ * -32768 (a loud, distorted sample). Using 32767 avoids this
+ * asymmetric minimum issue.
+ *
+ * @section main-frame-count Why Input Frame Calculation?
+ *
+ * Core Audio outputs 32-bit float samples (8 bytes/frame for stereo).
+ * We write 16-bit integer samples (4 bytes/frame for stereo). We MUST
+ * calculate the input frame count from the SOURCE format (32-bit float),
+ * not the output format (16-bit). Using the output format's bytesPerFrame
+ * would double the frame count and read past the buffer, producing
+ * half-speed, low-pitched garbage (or a crash).
+ *
+ * @see lode/terminology.md — 32-bit float PCM, frame concepts
+ * @see lode/practices.md — Core Audio development patterns
+ * @see lode/aiffcapture/decisions.md — Float-to-int16 conversion
+ */
 
 #include <aiffcapture/aiff.h>
 #include <aiffcapture/audio_types.h>
@@ -30,6 +74,21 @@
 
 // ============================================================================
 // Global flag for signal handling (Ctrl-C).
+//
+// Domain context: This is the only global mutable state in the program.
+// It is set to true when SIGINT (Ctrl-C) is received, causing the
+// recording loop to exit gracefully.
+//
+// Why volatile? The `volatile` keyword tells the compiler not to
+// optimize away reads of this variable. Without `volatile`, the
+// compiler might cache the value in a register and never see the
+// signal handler's write. This is the standard pattern for signal
+// flags in C/C++.
+//
+// Why sig_atomic_t? This is the standard type for signal-safe
+// variables. It is guaranteed to be read/written atomically,
+// preventing torn reads/writes from racing with the signal handler.
+//
 // Core Guidelines: this is the only global mutable state in the program.
 // It is set to true when SIGINT (Ctrl-C) is received, causing the
 // recording loop to exit gracefully.
@@ -37,9 +96,24 @@
 static volatile sig_atomic_t g_signalReceived = 0;
 
 // Signal handler for SIGINT (Ctrl-C).
+//
+// Domain context: This is a signal-safe function. It only sets a flag;
+// it does not call any non-async-signal-safe functions. This is the
+// only safe thing to do in a signal handler.
+//
+// Why only set a flag? Signal handlers have severe restrictions:
+// - Cannot call std::cout, std::cerr (not async-signal-safe)
+// - Cannot call malloc, free (not async-signal-safe)
+// - Cannot call std::string, std::vector (not async-signal-safe)
+// - Cannot throw exceptions (undefined behavior in signal handlers)
+//
+// The main loop checks g_signalReceived and exits gracefully when
+// it is set. This is the standard pattern for graceful shutdown.
+//
 // Core Guidelines: this is a signal-safe function. It only sets a flag;
 // it does not call any non-async-signal-safe functions. This is the
 // only safe thing to do in a signal handler.
+// ============================================================================
 static void signalHandler(int /* signal */) { g_signalReceived = 1; }
 
 // ============================================================================
@@ -229,6 +303,23 @@ int main(int argc, char* argv[]) {
    // Core Audio) to 16-bit signed integer for the AIFF output. This
    // ensures decoded audio is recognizable instead of noise. The
    // float-to-int16 conversion happens in the output callback below.
+   //
+   // Domain context: Core Audio always outputs 32-bit float PCM samples
+   // in the range [-1.0, 1.0]. AIFF files use 16-bit signed integer PCM
+   // (CDDA standard). The conversion in the output callback:
+   //
+   // 1. Clamps the float to [-1.0, 1.0] (handles any clipping).
+   // 2. Scales to [-32767, 32767] (note: 32767, NOT 32768).
+   // 3. Casts to int16_t.
+   //
+   // Why 32767 and not 32768? Because int16_t is asymmetric in two's
+   // complement: it ranges from -32768 to +32767. If we scaled to
+   // 32768, a float of 1.0 would produce 32768, which overflows to
+   // -32768 (a loud, distorted sample). Using 32767 avoids this
+   // asymmetric minimum issue. This is a well-known gotcha in audio
+   // programming.
+   //
+   // @see lode/aiffcapture/decisions.md — Float-to-int16 conversion
    format.bitsPerSample = 16;
    format.bytesPerFrame = format.channels * 2; // 16-bit = 2 bytes per sample
 
@@ -285,7 +376,18 @@ int main(int argc, char* argv[]) {
    // IMPORTANT: Core Audio outputs 32-bit float samples, but we write
    // 16-bit signed integer to the AIFF file. This callback converts
    // between the two formats. The float-to-int16 conversion clamps
-   // values to [-1.0, 1.0] and maps to [-32768, 32767].
+   // values to [-1.0, 1.0] and maps to [-32767, 32767] (note 32767,
+   // not 32768 — see domain comment above).
+   //
+   // Domain context: Frame calculation is critical. Core Audio outputs
+   // 32-bit float samples (8 bytes/frame for stereo). We write 16-bit
+   // integer samples (4 bytes/frame for stereo). We MUST calculate the
+   // input frame count from the SOURCE format (32-bit float), not the
+   // output format (16-bit). Using the output format's bytesPerFrame
+   // would double the frame count and read past the buffer, producing
+   // half-speed, low-pitched garbage (or a crash).
+   //
+   // @see lode/terminology.md — Frame, 32-bit float PCM
    std::vector<unsigned char> convertBuffer;
    recorder.setOutputCallback([&aiffWriter, &format, &convertBuffer](
          const AudioBufferList* inputData) {
@@ -302,6 +404,13 @@ int main(int argc, char* argv[]) {
          // input data (8 bytes/frame for stereo), not the 16-bit output
          // format (4 bytes/frame). Using the output format's bytesPerFrame
          // would double the frame count and read past the buffer.
+         //
+         // Domain context: This is a critical calculation. If we used
+         // format.bytesPerFrame (which is 4 for stereo 16-bit) instead of
+         // format.channels * 4 (which is 8 for stereo 32-bit float), we
+         // would calculate TWICE as many frames and read past the buffer.
+         // This was a critical bug in the original implementation that
+         // produced half-speed, low-pitched garbage.
          uint32_t inputBytesPerFrame = format.channels * 4; // 32-bit float
          uint32_t numFrames = buffer.mDataByteSize / inputBytesPerFrame;
          uint32_t bytesPerFrameOut = format.channels * 2; // 16-bit output
@@ -314,6 +423,17 @@ int main(int argc, char* argv[]) {
          // We clamp to [-1.0, 1.0] before scaling to [-32767, 32767].
          // Samples are written in native (little-endian) byte order,
          // which matches AIFF's native byte order on macOS.
+         //
+         // Domain context: The clamping and scaling process:
+         // 1. std::max(-1.0f, ...) clamps negative values (handles no overflow).
+         // 2. std::min(1.0f, ...) clamps positive values (prevents overflow).
+         // 3. Multiply by 32767.0f (not 32768.0f) — this is critical.
+         // 4. Cast to int16_t — this truncates the float to integer.
+         //
+         // Why 32767? int16_t ranges from -32768 to +32767 (asymmetric
+         // in two's complement). If we scaled to 32768, a float of 1.0
+         // would produce 32768, which overflows to -32768 (a loud,
+         // distorted sample). Using 32767 avoids this well-known gotcha.
          for (uint32_t i = 0; i < numFrames; ++i) {
             for (uint32_t ch = 0; ch < format.channels; ++ch) {
                float sample =
@@ -374,9 +494,24 @@ int main(int argc, char* argv[]) {
    recorder.stop();
 
    // Core Guidelines: print a summary of IO proc activity.
-   // This helps diagnose whether audio data was actually flowing.
-   // If ioCallbackCount is 0, no audio was playing through the device.
-   // If totalBytesReceived is 0, the device was idle (no audio data).
+   //
+   // Domain context: This summary helps diagnose whether audio data was
+   // actually flowing through BlackHole. Key diagnostic values:
+   //
+   // - ioCallbackCount == 0: The IO proc was never called. This means
+   //   BlackHole is not set as your system output, or no audio is
+   //   playing through it. Check macOS System Settings → Sound → Output.
+   //
+   // - totalBytesReceived == 0 but ioCallbackCount > 0: The device was
+   //   idle (no audio data). The IO proc was called but with empty
+   //   buffers. This can happen when BlackHole is set as output but
+   //   no application is playing audio.
+   //
+   // - totalDuration: Calculated from totalFrames / sampleRate. This
+   //   shows how much audio was actually captured (may be less than
+   //   the requested duration if the user stopped early).
+   //
+   // @see lode/terminology.md — IO proc, BlackHole
    {
       uint64_t ioCallbacks = recorder.getIoCallbackCount();
       uint64_t totalBytes = recorder.getTotalBytesReceived();

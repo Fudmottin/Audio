@@ -1,7 +1,28 @@
-// device.cpp — Core Audio device enumeration and BlackHole detection
-// Core Guidelines: this file implements the DeviceManager class.
-// It encapsulates all Core Audio API calls for device discovery,
-// making the rest of the codebase framework-free.
+/**
+ * @file device.cpp
+ * @brief Core Audio device enumeration implementation.
+ *
+ * This file implements the DeviceManager class. It encapsulates all
+ * Core Audio API calls for device discovery, making the rest of the
+ * codebase framework-free.
+ *
+ * @section device-implementation Core Audio Property Query Pattern
+ *
+ * Core Audio uses a property-based query model. To get information
+ * about a device, you must:
+ *
+ * 1. Define an `AudioObjectPropertyAddress` (property ID, scope, element).
+ * 2. Call `AudioObjectGetPropertyDataSize()` to get the buffer size.
+ * 3. Allocate a buffer of that size.
+ * 4. Call `AudioObjectGetPropertyData()` to read the data.
+ * 5. Free the buffer.
+ *
+ * This pattern is repeated for every property query. By encapsulating
+ * it here, we avoid repeating this boilerplate throughout the codebase.
+ *
+ * @see lode/terminology.md — Core Audio API terms
+ * @see lode/practices.md — Core Audio development patterns
+ */
 
 #include <aiffcapture/device.h>
 
@@ -158,11 +179,32 @@ AudioFormat DeviceManager::getStreamConfig(AudioDeviceID deviceID) const {
    // property. This returns an AudioBufferList that describes the
    // audio format (sample rate, channels, bits per sample, etc.).
    //
-   // IMPORTANT FIX: When a device is not active (e.g., BlackHole before
-   // reboot), Core Audio returns a buffer list with mData == nullptr.
-   // In that case, we fall back to kAudioDevicePropertyStreamFormat,
-   // which returns the AudioStreamBasicDescription directly without
-   // requiring access to the raw audio data.
+   // Domain context — fallback strategy for inactive devices:
+   //
+   // When a device is not active (e.g., BlackHole before any audio is
+   // routed through it, or before reboot after installation), Core Audio
+   // returns a buffer list with mData == nullptr. This is because the
+   // device has no active audio stream.
+   //
+   // We use a two-tier fallback strategy:
+   //
+   // 1. Try kAudioDevicePropertyStreamConfiguration first. This returns
+   //    an AudioBufferList with the actual audio buffer layout. If the
+   //    device is active, this gives us the format we need.
+   //
+   // 2. If mData == nullptr (device not active), fall back to
+   //    kAudioDevicePropertyStreamFormat, which returns the
+   //    AudioStreamBasicDescription directly without requiring access
+   //    to the raw audio data. This always works because the format
+   //    is a property of the device, not the active stream.
+   //
+   // Why two properties? StreamConfiguration gives us the ACTUAL format
+   // of the active stream (which may differ from the device's default
+   // format). StreamFormat gives us the DEFAULT format of the device.
+   // For BlackHole, these are usually the same, but StreamConfiguration
+   // is more accurate when the device is active.
+   //
+   // @see lode/practices.md — Core Audio development patterns
 
    // Strategy: First try kAudioDevicePropertyStreamConfiguration.
    // If mData is nullptr (device not active), fall back to
@@ -205,10 +247,14 @@ AudioFormat DeviceManager::getStreamConfig(AudioDeviceID deviceID) const {
    // one buffer (mono or stereo). For multi-channel devices, there
    // may be multiple buffers, but we only use the first one.
    //
-   // IMPORTANT FIX: Core Audio may return a buffer list with
-   // mNumberBuffers > 0 but mData == nullptr for devices that are
-   // not active. Dereferencing nullptr causes a segfault.
-   // We now check for nullptr and fall back to kAudioDevicePropertyStreamFormat.
+   // Domain context — nullptr check for inactive devices:
+   // Core Audio may return a buffer list with mNumberBuffers > 0 but
+   // mData == nullptr for devices that are not active. Dereferencing
+   // nullptr causes a segfault. We now check for nullptr and fall back
+   // to kAudioDevicePropertyStreamFormat.
+   //
+   // This was a critical bug fix. The original code did not check for
+   // nullptr and would crash when BlackHole was not active.
 
    // Core Guidelines: mData is void*, so we cast it to the correct type.
    // But first, we check that mData is not nullptr.

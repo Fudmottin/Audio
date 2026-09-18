@@ -1,18 +1,55 @@
-// recorder.h — Audio recording session management
-// Core Guidelines: this module encapsulates the Core Audio recording lifecycle:
-// opening a device, starting/stopping recording, and reading PCM data.
-//
-// Why this abstraction? Core Audio's recording API has several steps:
-// 1. Open the device (AudioDeviceCreate).
-// 2. Start recording (AudioDeviceStart).
-// 3. Read PCM data in a loop (AudioDeviceRead).
-// 4. Stop recording (AudioDeviceStop).
-// 5. Close the device (AudioDeviceDestroy).
-//
-// By encapsulating these steps here, we:
-// 1. Keep the rest of the codebase framework-free (except for AudioDeviceID).
-// 2. Centralize error handling for recording.
-// 3. Make it easy to test with mock devices.
+/**
+ * @file recorder.h
+ * @brief Audio recording session management via Core Audio IO proc.
+ *
+ * This module encapsulates the Core Audio recording lifecycle: opening
+ * a device, starting/stopping recording, and reading PCM data via the
+ * IO proc callback pattern.
+ *
+ * @section recorder-architecture Why the IO Proc Pattern?
+ *
+ * Core Audio's recording API has two patterns:
+ *
+ * 1. **Deprecated synchronous** (`AudioDeviceRead`): Blocks the calling
+ *    thread until data is available. Unreliable, prone to dropouts.
+ *
+ * 2. **Modern IO proc** (`AudioDeviceCreateIOProcID`): Registers a
+ *    callback that Core Audio invokes whenever audio data is available.
+ *    This is the only reliable way to capture real-time audio on macOS.
+ *
+ * The IO proc pattern has several steps:
+ * 1. Open the device and register an IO proc (`AudioDeviceCreateIOProcID`).
+ * 2. Start the device (`AudioDeviceStart`).
+ * 3. Core Audio calls the IO proc whenever audio data is available.
+ * 4. The IO proc callback writes data to the AIFF file via an output
+ *    callback (set via `setOutputCallback()`).
+ * 5. Stop the device (`AudioDeviceStop`).
+ * 6. Destroy the IO proc (`AudioDeviceDestroyIOProcID`).
+ *
+ * By encapsulating these steps here, we:
+ * 1. Keep the rest of the codebase framework-free (except for AudioDeviceID).
+ * 2. Centralize error handling for recording.
+ * 3. Make it easy to test with mock devices.
+ *
+ * @section recorder-io-proc Why an IO Proc Callback?
+ *
+ * The IO proc is a function pointer that Core Audio calls from an
+ * internal thread whenever audio data is available. We register our
+ * IO proc with `AudioDeviceCreateIOProcID()`, which returns an
+ * `AudioDeviceIOProcID` handle. We then start the device with
+ * `AudioDeviceStart(deviceID, ioProcID)` — note that we pass the
+ * ioProcID, NOT nullptr. Passing nullptr means the device starts
+ * without our IO proc, so no audio data flows through the callback.
+ * This was a critical bug fix in the original implementation.
+ *
+ * The IO proc callback calls `processInputData()`, which in turn
+ * calls the output callback (set via `setOutputCallback()`). The
+ * output callback is responsible for converting 32-bit float PCM
+ * to 16-bit signed integer and writing it to the AIFF file.
+ *
+ * @see lode/terminology.md — Core Audio API terms (IO proc)
+ * @see lode/practices.md — Core Audio development patterns
+ */
 
 #ifndef AIFFCAPTURE_RECORDER_H
 #define AIFFCAPTURE_RECORDER_H
@@ -28,6 +65,42 @@
 
 // ============================================================================
 // Recorder — Manages a Core Audio recording session.
+//
+// Domain context: The Recorder class manages the full lifecycle of a
+// Core Audio recording session. It is a resource acquisition is
+// initialization (RAII) object: it acquires the audio device in the
+// constructor (via `open()`) and releases it in the destructor.
+//
+// Key design decisions:
+//
+// 1. IO proc lifecycle:
+//    - `open()` registers the IO proc and allocates the read buffer.
+//    - `start()` starts the device with the registered IO proc.
+//    - `stop()` stops the device.
+//    - Destructor calls `stop()` and `AudioDeviceDestroyIOProcID()`.
+//
+// 2. Buffer management:
+//    - The buffer is allocated in `allocateBuffer()` based on the
+//      device's block size (frames) and the format's bytes per frame.
+//    - The buffer is reused for all read operations (no per-frame
+//      allocation). This avoids allocation overhead during real-time
+//      audio processing.
+//
+// 3. Output callback pattern:
+//    - The IO proc calls `processInputData()`, which calls the output
+//      callback (set via `setOutputCallback()`). The output callback
+//      is responsible for converting 32-bit float PCM to 16-bit
+//      signed integer and writing it to the AIFF file.
+//    - This indirection avoids a circular dependency between Recorder
+//      and AiffWriter.
+//
+// 4. Debugging hooks:
+//    - `ioCallbackCount_` counts how many times the IO proc was called.
+//    - `totalBytesReceived_` counts total bytes received by the IO proc.
+//    - If `ioCallbackCount` is 0, no audio is flowing through the device.
+//    - If `totalBytesReceived` is 0 but `ioCallbackCount > 0`, the device
+//      is idle (no audio playing through it).
+//
 // Core Guidelines: this class encapsulates the full recording lifecycle.
 // It is a resource acquisition is initialization (RAII) object: it acquires
 // the audio device in the constructor and releases it in the destructor.

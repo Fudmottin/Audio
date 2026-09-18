@@ -1,15 +1,60 @@
-// aiff.h — AIFF file format writing
-// Core Guidelines: this module encapsulates all AIFF file format logic.
-// It writes AIFF files (uncompressed PCM) from raw PCM data.
-//
-// Why this abstraction? AIFF is a chunk-based binary format with a specific
-// structure:
-//   FORM (header) → COMM (metadata) → SSND (data)
-//
-// By encapsulating this here, we:
-// 1. Keep the rest of the codebase format-free.
-// 2. Centralize the AIFF specification compliance.
-// 3. Make it easy to swap in other formats (WAV, FLAC, etc.) later.
+/**
+ * @file aiff.h
+ * @brief AIFF file format writing — writes chunk-based binary audio files.
+ *
+ * This module encapsulates all AIFF file format logic. It writes AIFF
+ * files (uncompressed PCM) from raw PCM data captured via Core Audio.
+ *
+ * @section aiff-structure AIFF File Structure
+ *
+ * AIFF (Audio Interchange File Format) is a chunk-based binary format
+ * developed by Apple. The structure is:
+ *
+ * ```
+ * FORM (header)
+ *   └─ AIFF (magic bytes)
+ *   └─ COMM (common metadata)
+ *   │     └─ numChannels (2 bytes)
+ *   │     └─ numSamples (4 bytes)
+ *   │     └─ sampleSize (2 bytes)
+ *   │     └─ sampleRate (32-bit integer, see below)
+ *   └─ SSND (sound data)
+ *         └─ offset (4 bytes, usually 0)
+ *         └─ blockSize (4 bytes, usually 0)
+ *         └─ PCM data (variable length)
+ * ```
+ *
+ * Key design decisions:
+ *
+ * 1. **Chunk-based patching**: We write FORM and SSND chunk sizes as
+ *    placeholders (0) during `open()`, then patch them with actual
+ *    values in `close()` via `finalizeFile()`. This requires recording
+ *    file offsets BEFORE writing placeholders — a critical fix.
+ *
+ * 2. **Big-endian byte order**: All multi-byte integers in AIFF must be
+ *    written in big-endian (network) byte order. We write each byte
+ *    individually to ensure correctness regardless of platform
+ *    (macOS is little-endian, so the bytes are swapped).
+ *
+ * 3. **16-bit signed integer PCM**: We write 16-bit signed integer
+ *    samples (CDDA standard). Core Audio outputs 32-bit float, so
+ *    main.cpp converts between the two formats.
+ *
+ * 4. **32-bit integer sample rate**: We use 32-bit integer encoding
+ *    for sample rate (not 80-bit extended float). The 80-bit extended
+ *    float is spec-compliant but breaks macOS tools (afinfo, ffprobe)
+ *    which always try to parse it regardless of COMM chunk size,
+ *    producing garbage values (e.g., 30464 Hz instead of 44100 Hz).
+ *
+ * 5. **FILE* over std::fstream**: We use C FILE* for streaming writes
+ *    because we need explicit control over the write buffer and error
+ *    handling. std::fstream adds layers of buffering and exception
+ *    handling that obscure the low-level binary write operations.
+ *
+ * @see lode/terminology.md — AIFF format chunks
+ * @see lode/practices.md — AIFF writing patterns
+ * @see lode/aiffcapture/decisions.md — AIFF format design decisions
+ */
 
 #ifndef AIFFCAPTURE_AIFF_H
 #define AIFFCAPTURE_AIFF_H
@@ -26,6 +71,29 @@
 
 // ============================================================================
 // AiffWriter — Writes AIFF files from raw PCM data.
+//
+// Domain context: The AiffWriter class manages the full lifecycle of
+// an AIFF file: creating the FORM/COMM/SSND chunks, writing PCM data,
+// and finalizing the file by patching up chunk sizes.
+//
+// Key design decisions:
+//
+// 1. Offset recording: We record file offsets BEFORE writing placeholder
+//    sizes. This is critical — if we record the offset AFTER writing,
+//    we patch the wrong position (e.g., the "AIFF" magic bytes instead
+//    of the FORM size field). This was a critical bug fix.
+//
+// 2. COMM chunk sample rate: We write sample rate as a 32-bit integer
+//    (4 bytes) instead of 80-bit extended float (10 bytes). The 80-bit
+//    format is spec-compliant but macOS tools (afinfo, ffprobe) always
+//    try to parse 80-bit extended float regardless of COMM chunk size,
+//    producing garbage values. The 32-bit integer encoding is spec-
+//    compliant and works with all standard tools.
+//
+// 3. Big-endian byte order: All multi-byte integers are written byte-by-
+//    byte in big-endian order. This ensures the file is portable across
+//    platforms (macOS is little-endian, so the bytes are swapped).
+//
 // Core Guidelines: this class encapsulates the full AIFF file format.
 // It is a resource acquisition is initialization (RAII) object: it acquires
 // the output file in the constructor and closes it in the destructor.

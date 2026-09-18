@@ -1,7 +1,57 @@
-// aiff.cpp — AIFF file format writing
-// Core Guidelines: this file implements the AiffWriter class.
-// It encapsulates all AIFF file format logic, writing AIFF files
-// (uncompressed PCM) from raw PCM data.
+/**
+ * @file aiff.cpp
+ * @brief AIFF file format writing implementation.
+ *
+ * This file implements the AiffWriter class. It encapsulates all AIFF
+ * file format logic, writing AIFF files (uncompressed PCM) from raw
+ * PCM data.
+ *
+ * @section aiff-chunk-structure AIFF Chunk Structure
+ *
+ * AIFF is a chunk-based binary format. The structure is:
+ *
+ * ```
+ * FORM (8-byte header + 4-byte ID)
+ *   └─ "FORM" (4 bytes)
+ *   └─ size (4 bytes, big-endian, placeholder during open)
+ *   └─ "AIFF" (4 bytes)
+ *   └─ COMM chunk (metadata)
+ *   │     └─ "COMM" (4 bytes)
+ *   │     └─ size (4 bytes, always 12)
+ *   │     └─ numChannels (2 bytes, big-endian)
+ *   │     └─ numSamples (4 bytes, big-endian, patched in close)
+ *   │     └─ sampleSize (2 bytes, always 16)
+ *   │     └─ sampleRate (4 bytes, 32-bit integer, big-endian)
+ *   └─ SSND chunk (sound data)
+ *         └─ "SSND" (4 bytes)
+ *         └─ size (4 bytes, big-endian, patched in close)
+ *         └─ offset (4 bytes, always 0)
+ *         └─ blockSize (4 bytes, always 0)
+ *         └─ PCM data (variable length)
+ * ```
+ *
+ * @section aiff-byte-order Big-Endian Byte Order
+ *
+ * All multi-byte integers in AIFF must be written in big-endian
+ * (network) byte order. macOS is little-endian, so we must swap
+ * the bytes. We write each byte individually to ensure correctness
+ * regardless of platform.
+ *
+ * @section aiff-sample-rate 32-bit Integer vs 80-bit Extended Float
+ *
+ * The AIFF spec allows two encodings for sample rate:
+ *
+ * 1. **80-bit extended float** (10 bytes): Spec-compliant but broken
+ *    with macOS tools (afinfo, ffprobe) which always try to parse
+ *    80-bit extended float regardless of COMM chunk size, producing
+ *    garbage values (e.g., 30464 Hz instead of 44100 Hz).
+ *
+ * 2. **32-bit integer** (4 bytes): Spec-compliant, works with all
+ *    standard tools. We use this encoding.
+ *
+ * @see lode/terminology.md — AIFF format chunks, 80-bit extended float
+ * @see lode/practices.md — AIFF writing patterns
+ */
 
 #include <aiffcapture/aiff.h>
 #include <algorithm>
@@ -203,11 +253,26 @@ bool AiffWriter::writeFormHeader() {
    //   - file size - 8 (4 bytes, big-endian placeholder)
    //   - "AIFF" (4 bytes)
    //
-   // IMPORTANT FIX: We record the offset of the FORM size field
-   // BEFORE writing it, so that finalize() can patch the correct
-   // position. Previously, the offset was recorded AFTER writing
-   // the FORM size, causing the patching code to overwrite the
-   // "AIFF" magic bytes instead of the FORM size field.
+   // Domain context — offset recording FIX:
+   //
+   // We record the offset of the FORM size field BEFORE writing the
+   // placeholder. This is the key fix.
+   //
+   // Previously, the offset was recorded AFTER writing the FORM size,
+   // causing the patching code to overwrite the "AIFF" magic bytes
+   // (bytes 8-11) instead of the FORM size field (bytes 4-7). This
+   // produced invalid AIFF files that tools like afinfo rejected.
+   //
+   // The sequence is:
+   // 1. Write "FORM" (bytes 0-3) → ftello() returns 4
+   // 2. Record formSizeOffset_ = 4 (THIS IS THE KEY FIX)
+   // 3. Write placeholder 0 (bytes 4-7)
+   // 4. Write "AIFF" (bytes 8-11)
+   //
+   // Later, finalizeFile() seeks to formSizeOffset_ (4) and overwrites
+   // the placeholder with the actual file size.
+   //
+   // @see lode/practices.md — AIFF writing patterns
 
    // Core Guidelines: we write the "FORM" magic bytes.
    const char formId[4] = {'F', 'O', 'R', 'M'};
@@ -359,9 +424,36 @@ bool AiffWriter::finalizeFile() {
    // were written as placeholders during open()) with the actual sizes.
    // This is the final step before closing the file.
    //
-   // IMPORTANT FIX: All multi-byte integers in AIFF must be written
-   // in big-endian byte order. We write each byte individually to
-   // ensure correct byte order regardless of platform.
+   // Domain context — patching process:
+   //
+   // During open(), we write FORM and SSND chunk sizes as placeholders
+   // (0). During close(), we patch them with actual values. This requires
+   // recording file offsets BEFORE writing placeholders — a critical fix.
+   //
+   // The patching sequence:
+   // 1. Calculate FORM size = 40 + bytesWritten_ (see formula below)
+   // 2. Seek to formSizeOffset_ and write actual FORM size (big-endian)
+   // 3. Calculate SSND size = bytesWritten_
+   // 4. Seek to ssndSizeOffset_ and write actual SSND size (big-endian)
+   // 5. Seek to offset 22 and write actual numSamples (big-endian)
+   //
+   // FORM size formula:
+   //   FORM header: 4 ("FORM") + 4 (size) + 4 ("AIFF") = 12 bytes
+   //   COMM chunk: 4 ("COMM") + 4 (size=12) + 2 (channels) + 4 (samples)
+   //              + 2 (sampleSize) + 4 (sampleRate) = 20 bytes
+   //   SSND header: 4 ("SSND") + 4 (size) + 4 (offset) + 4 (blockSize)
+   //               = 16 bytes
+   //   SSND data: bytesWritten_
+   //   FORM size = 12 + 20 + 16 + bytesWritten_ - 8 = 40 + bytesWritten_
+   //   (minus 8 because FORM size is "file size minus 8")
+   //
+   // Big-endian byte order: All multi-byte integers in AIFF must be
+   // written in big-endian (network) byte order. We write each byte
+   // individually to ensure correctness regardless of platform
+   // (macOS is little-endian, so the bytes are swapped).
+   //
+   // @see lode/terminology.md — AIFF format chunks
+   // @see lode/practices.md — AIFF writing patterns
 
    // Core Guidelines: we calculate the actual FORM size.
    // The FORM size is the total file size minus 8 (the FORM header itself).

@@ -1,7 +1,49 @@
-// recorder.cpp — Audio recording session management
-// Core Guidelines: this file implements the Recorder class.
-// It encapsulates all Core Audio API calls for recording,
-// making the rest of the codebase framework-free.
+/**
+ * @file recorder.cpp
+ * @brief Core Audio recording session implementation.
+ *
+ * This file implements the Recorder class. It encapsulates all Core
+ * Audio API calls for recording, making the rest of the codebase
+ * framework-free.
+ *
+ * @section recorder-io-proc The IO Proc Pattern
+ *
+ * The IO proc (Input/Output callback) is the modern way to do Core
+ * Audio recording. It is called by the device whenever new input
+ * data is available. The IO proc receives the input data as an
+ * AudioBufferList and writes it to the AIFF file.
+ *
+ * The IO proc lifecycle:
+ * 1. `open()` registers the IO proc via `AudioDeviceCreateIOProcID()`.
+ * 2. `start()` starts the device with the registered IO proc.
+ * 3. Core Audio calls the IO proc whenever audio data is available.
+ * 4. The IO proc calls `processInputData()`, which calls the output
+ *    callback (set via `setOutputCallback()`).
+ * 5. `stop()` stops the device.
+ * 6. Destructor calls `AudioDeviceDestroyIOProcID()`.
+ *
+ * @section recorder-io-proc-signature Why this signature?
+ *
+ * The IO proc signature is fixed by Core Audio:
+ *
+ * ```c
+ * OSStatus ioProc(AudioObjectID inDevice,
+ *                 const AudioTimeStamp* inNow,
+ *                 const AudioBufferList* inInputData,
+ *                 const AudioTimeStamp* inInputTime,
+ *                 AudioBufferList* outOutputData,
+ *                 const AudioTimeStamp* inOutputTime,
+ *                 void* inClientData);
+ * ```
+ *
+ * Most parameters are unused (marked with (inDevice) in the source).
+ * The only useful parameter is `inInputData` (the audio data) and
+ * `inClientData` (a pointer to the Recorder object, used to call
+ * `processInputData()`).
+ *
+ * @see lode/terminology.md — IO proc
+ * @see lode/practices.md — Core Audio development patterns
+ */
 
 #include <aiffcapture/recorder.h>
 #include <chrono>
@@ -20,6 +62,21 @@ class AiffWriter;
 
 // ============================================================================
 // IO Proc — Core Audio callback for recording.
+//
+// Domain context: The IO proc is a static function that is called by
+// Core Audio whenever new input data is available. It writes the data
+// to the AIFF file via the output callback.
+//
+// The IO proc is the modern way to do Core Audio recording. It is
+// called by the device whenever new input data is available. The IO
+// proc receives the input data as an AudioBufferList and writes it
+// to the AIFF file via the output callback.
+//
+// The ioProcId_ parameter to AudioDeviceStart() is critical. We pass
+// the ioProcID returned by AudioDeviceCreateIOProcID(), NOT nullptr.
+// Passing nullptr means the device starts without our IO proc, so no
+// audio data flows through the callback. This was a critical bug fix.
+//
 // Core Guidelines: this is a static function that is called by Core Audio
 // whenever new input data is available. It writes the data to the AIFF
 // file.
@@ -186,6 +243,21 @@ bool Recorder::start() {
    // starts without the IO proc we registered, so no audio data
    // flows through the callback. This was the root cause of the
    // "zero callbacks" problem.
+   //
+   // Domain context — why ioProcID_ not nullptr:
+   //
+   // AudioDeviceStart(deviceID, ioProcID) starts the device's recording
+   // stream with the specified IO proc. If we pass nullptr, Core Audio
+   // starts the device WITHOUT our IO proc. This means:
+   // - Our ioProc() callback is never called.
+   // - processInputData() is never called.
+   // - outputCallback_ is never called.
+   // - No audio data is written to the AIFF file.
+   //
+   // The result is a valid AIFF file with zero bytes of audio data.
+   // This was the original bug that produced "silent" AIFF files.
+   //
+   // @see lode/practices.md — Core Audio development patterns
    OSStatus status = AudioDeviceStart(deviceID_, ioProcID_);
 
    if (status != noErr) {
@@ -216,10 +288,23 @@ OSStatus Recorder::processInputData(const AudioBufferList* inputData) {
    // Core Guidelines: this is called by the IO proc whenever new input
    // data is available. It writes the data to the AIFF file.
    //
-   // IMPORTANT: This is the key debugging point. If this function is
-   // never called, it means no audio is flowing through the device.
-   // If it is called with mData == nullptr or mDataByteSize == 0,
-   // it means the device is idle (no audio playing through it).
+   // Domain context — debugging this function:
+   //
+   // This is the key debugging point. If this function is never called,
+   // it means no audio is flowing through the device. If it is called
+   // with mData == nullptr or mDataByteSize == 0, it means the device
+   // is idle (no audio playing through it).
+   //
+   // Diagnostic values to check:
+   // - ioCallbackCount: If 0, the IO proc was never called (check
+   //   that BlackHole is set as system output).
+   // - totalBytesReceived: If 0 but ioCallbackCount > 0, the device
+   //   was idle (no audio playing through BlackHole).
+   // - inputData->mDataByteSize: If 0, the device produced no audio
+   //   data for this callback (idle state).
+   //
+   // @see lode/terminology.md — IO proc
+   // @see lode/practices.md — Core Audio development patterns
 
    // Core Guidelines: we check if the input data is valid.
    if (inputData == nullptr || inputData->mNumberBuffers == 0) {
