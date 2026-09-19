@@ -62,7 +62,7 @@ AiffWriter (AIFF file format writing)
 - AIFF file created with correct headers (FORM, COMM, SSND chunks)
 - `file` command recognizes output as "AIFF audio"
 - **Float-to-int16 conversion**: Verified correct via frame-by-frame comparison of `long-test.aiff` vs `long-test.wav` — all 5,473,278 stereo frames match (0 mismatches)
-- **aiff2wav.sh byte-swap**: Verified correct — WAV output is identical to AIFF PCM data after proper byte-swap
+- **aiff2wav.sh dual-format support**: Handles both our 32-bit integer format (48-byte header) and standard AIFF with 80-bit extended float (54-byte header). Verified with both `clip.aiff` (Audacity, 47,920 frames) and `long-test.aiff` (our capture, 5,473,278 frames) — all frames match (0 mismatches in both)
 - **BlackHole 2ch attenuation**: Diagnosed — ~3 dB fixed attenuation, adjustable via System Settings volume slider
 
 ### Known Issues

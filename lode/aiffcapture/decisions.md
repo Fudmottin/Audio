@@ -28,7 +28,9 @@
 
 7. **10ms `nanosleep` polling loop** in the recording main loop.
 
-8. **32-bit integer sample rate** in COMM chunk (12-byte COMM, not 18-byte). Standard AIFF uses 80-bit extended float, but macOS tools (`afinfo`, `ffprobe`, QuickTime) always try to parse 80-bit extended float regardless of COMM size, rejecting valid files. Using 32-bit integer bypasses this bug. The `aiff2wav.sh` script reads the 4-byte integer directly from offset 28.
+8. **32-bit integer sample rate** in COMM chunk (12-byte COMM, not 18-byte). Standard AIFF uses 80-bit extended float, but macOS tools (`afinfo`, `ffprobe`, QuickTime) always try to parse 80-bit extended float regardless of COMM size, rejecting valid files. Using 32-bit integer bypasses this bug.
+
+9. **aiff2wav.sh dual-format detection**: The conversion script detects COMM chunk size at offset 16 to determine sample rate encoding. For 80-bit extended float (≥18 bytes, Audacity/standard AIFF), it uses Python to parse the IEEE 754 extended float and sets header offset to 54. For 32-bit integer (<18 bytes, our format), it reads the 4-byte integer directly and uses header offset 48. Verified with both `clip.aiff` (Audacity, 47,920 frames) and `long-test.aiff` (our capture, 5,473,278 frames) — 0 mismatches in both.
 
 ## Third-Party Behavior: BlackHole 2ch Attenuation
 
