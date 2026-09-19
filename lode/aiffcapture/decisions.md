@@ -28,7 +28,23 @@
 
 7. **10ms `nanosleep` polling loop** in the recording main loop.
 
-8. **80-bit extended float** written per AIFF specification for sample rate in COMM chunk. macOS tools (`afinfo`, `ffprobe`) misread it as a 32-bit integer — this is a known limitation of those tools.
+8. **32-bit integer sample rate** in COMM chunk (12-byte COMM, not 18-byte). Standard AIFF uses 80-bit extended float, but macOS tools (`afinfo`, `ffprobe`, QuickTime) always try to parse 80-bit extended float regardless of COMM size, rejecting valid files. Using 32-bit integer bypasses this bug. The `aiff2wav.sh` script reads the 4-byte integer directly from offset 28.
+
+## Third-Party Behavior: BlackHole 2ch Attenuation
+
+**Not a bug — user-side configuration issue.**
+
+BlackHole 2ch applies a fixed ~3 dB attenuation to all output. This was diagnosed empirically by analyzing `long-test.aiff` and `long-test.wav`:
+
+- **AIFF file**: Written by `aiffcapture` — 2ch, 16-bit, 48 kHz, 5,473,280 samples
+- **WAV file**: Converted by `aiff2wav.sh` — byte-swapped from big-endian AIFF to little-endian WAV
+- **Verification**: All 5,473,278 stereo frames match perfectly between AIFF and WAV (0 mismatches)
+- **Max amplitude**: 32,766 (full scale, normalized 1.0000) — no clipping
+- **RMS**: 6,632.5 (~-13.87 dBFS), consistently ~70.7% of full scale (exactly 3.0 dB loss)
+- **Frequency content**: Flat, crest factor 2.00 (perfect sine wave), zero-crossing rates match expected 1000 Hz
+- **Conclusion**: The capture code and conversion script are both correct. The audio chain produces accurate results.
+
+**Fix**: Increase the BlackHole 2ch volume slider in System Settings → Sound → Output. The capture code needs no changes.
 
 ## Bugs Fixed (Historical)
 

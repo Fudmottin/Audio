@@ -91,8 +91,12 @@ headerHex="${headerHex}$(pack_le32 "$pcmSize")"
 # Convert hex string to binary and write header
 printf "%s" "$headerHex" | xxd -r -p > "$output"
 
-# Append PCM data (skip 48-byte AIFF header)
-dd if="$input" bs=48 skip=1 >> "$output" 2>/dev/null
+# Append PCM data (skip 48-byte AIFF header), byte-swapping
+# from big-endian (AIFF) to little-endian (WAV).
+dd if="$input" bs=48 skip=1 2>/dev/null \
+   | xxd -p \
+   | sed 's/\(..\)\(..\)/\2\1/g' \
+   | xxd -r -p >> "$output"
 
 echo "Converted: $input -> $output"
 echo "  Channels: $channels"

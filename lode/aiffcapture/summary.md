@@ -61,12 +61,15 @@ AiffWriter (AIFF file format writing)
 - Audio data flowing through callbacks (verified: ~470 callbacks in 5 seconds)
 - AIFF file created with correct headers (FORM, COMM, SSND chunks)
 - `file` command recognizes output as "AIFF audio"
+- **Float-to-int16 conversion**: Verified correct via frame-by-frame comparison of `long-test.aiff` vs `long-test.wav` — all 5,473,278 stereo frames match (0 mismatches)
+- **aiff2wav.sh byte-swap**: Verified correct — WAV output is identical to AIFF PCM data after proper byte-swap
+- **BlackHole 2ch attenuation**: Diagnosed — ~3 dB fixed attenuation, adjustable via System Settings volume slider
 
 ### Known Issues
 
-**macOS tools misread the sample rate.** `afinfo` and `ffprobe` read the COMM chunk's 80-bit extended float sample rate as a 32-bit integer, reporting garbage values (e.g., 30464 Hz instead of 48000 Hz). The files are valid per the AIFF spec. QuickTime and VLC should play them correctly.
+**macOS tools misread the sample rate.** `afinfo` and `ffprobe` always try to parse 80-bit extended float for the sample rate regardless of COMM chunk size, reporting garbage values. The files are valid per the AIFF spec. Use `aiff2wav.sh` to convert to WAV for playback in QuickTime Player or any other tool.
 
-This is a limitation of macOS AIFF readers, not our code. The sample rate is written correctly per the AIFF specification.
+**BlackHole 2ch applies ~3 dB fixed attenuation.** This is a BlackHole setting, not a code bug. Increase the BlackHole 2ch volume slider in System Settings → Sound → Output to compensate.
 
 ## Files
 

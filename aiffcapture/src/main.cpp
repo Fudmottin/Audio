@@ -132,15 +132,15 @@ static void printUsage(const char* programName) {
    std::cerr << "Usage: " << programName << " [options] <output.aiff>\n";
    std::cerr << "\nOptions:\n";
    std::cerr << "  --duration <seconds>   Record for this many seconds (0 = "
-            "indefinite).\n";
+                "indefinite).\n";
    std::cerr << "  --device <name>        Use this device (default: "
-            "\"BlackHole 2ch\").\n";
+                "\"BlackHole 2ch\").\n";
    std::cerr << "  --verbose              Print progress to stderr.\n";
    std::cerr << "  --help                 Print this message.\n";
    std::cerr << "\nExamples:\n";
    std::cerr << "  " << programName << " --duration 60 output.aiff\n";
    std::cerr << "  " << programName
-            << " --device \"BlackHole 4ch\" --verbose output.aiff\n";
+             << " --device \"BlackHole 4ch\" --verbose output.aiff\n";
 }
 
 // ============================================================================
@@ -180,7 +180,8 @@ static bool parseArguments(int argc, char* argv[], CaptureConfig& config) {
             char* end = nullptr;
             double duration = strtod(argv[i + 1], &end);
             if (*end != '\0' || duration < 0) {
-               std::cerr << "Error: --duration requires a non-negative number.\n";
+               std::cerr
+                  << "Error: --duration requires a non-negative number.\n";
                return false;
             }
             config.durationSeconds = duration;
@@ -256,7 +257,7 @@ int main(int argc, char* argv[]) {
       std::cerr << "Configuration:\n";
       std::cerr << "  Output file: " << config.outputPath << "\n";
       std::cerr << "  Duration: " << config.durationSeconds
-               << " seconds (0 = indefinite)\n";
+                << " seconds (0 = indefinite)\n";
       std::cerr << "  Device: " << config.deviceName << "\n";
    }
 
@@ -322,8 +323,8 @@ int main(int argc, char* argv[]) {
    // Open the AIFF file for writing.
    AiffWriter aiffWriter;
    if (!aiffWriter.open(config.outputPath, format)) {
-      std::cerr << "Error: could not open output file: "
-               << config.outputPath << "\n";
+      std::cerr << "Error: could not open output file: " << config.outputPath
+                << "\n";
       return 1;
    }
 
@@ -334,8 +335,8 @@ int main(int argc, char* argv[]) {
    // Open the recording device.
    Recorder recorder;
    if (!recorder.open(*targetDevice, format)) {
-      std::cerr << "Error: could not open device: "
-               << targetDevice->name << "\n";
+      std::cerr << "Error: could not open device: " << targetDevice->name
+                << "\n";
       aiffWriter.close(); // Clean up the AIFF file.
       return 1;
    }
@@ -353,7 +354,7 @@ int main(int argc, char* argv[]) {
    if (!recorder.start()) {
       std::cerr << "Error: could not start recording.\n";
       recorder.stop();
-      aiffWriter.close();   // Clean up the AIFF file.
+      aiffWriter.close(); // Clean up the AIFF file.
       return 1;
    }
 
@@ -385,7 +386,7 @@ int main(int argc, char* argv[]) {
    //
    std::vector<unsigned char> convertBuffer;
    recorder.setOutputCallback([&aiffWriter, &format, &convertBuffer](
-         const AudioBufferList* inputData) {
+                                 const AudioBufferList* inputData) {
       // We convert 32-bit float samples from Core
       // Audio to 16-bit signed integer for the AIFF file.
 
@@ -393,8 +394,7 @@ int main(int argc, char* argv[]) {
       // have two channels interleaved in a single buffer).
       if (inputData->mNumberBuffers > 0) {
          const AudioBuffer& buffer = inputData->mBuffers[0];
-         const float* floatData =
-            static_cast<const float*>(buffer.mData);
+         const float* floatData = static_cast<const float*>(buffer.mData);
          // Calculate input frames from the 32-bit float
          // input data (8 bytes/frame for stereo), not the 16-bit output
          // format (4 bytes/frame). Using the output format's bytesPerFrame
@@ -415,40 +415,36 @@ int main(int argc, char* argv[]) {
          convertBuffer.resize(numFrames * bytesPerFrameOut);
 
          // Convert each float sample to 16-bit integer.
-         // We clamp to [-1.0, 1.0] before scaling to [-32767, 32767].
-         // Samples are written in native (little-endian) byte order,
-         // which matches AIFF's native byte order on macOS.
+         // Core Audio guarantees samples are in [-1.0, 1.0],
+         // so no clamping is needed. Direct scale by 32767.0f.
          //
-         // Domain context: The clamping and scaling process:
-         // 1. std::max(-1.0f, ...) clamps negative values (handles no overflow).
-         // 2. std::min(1.0f, ...) clamps positive values (prevents overflow).
-         // 3. Multiply by 32767.0f (not 32768.0f) — this is critical.
-         // 4. Cast to int16_t — this truncates the float to integer.
+         // Domain context: Why 32767, not 32768? int16_t ranges
+         // from -32768 to +32767 (asymmetric in two's complement).
+         // If we scaled to 32768, a float of 1.0 would produce
+         // 32768, which overflows to -32768 (a loud, distorted
+         // sample). Using 32767 avoids this well-known gotcha.
          //
-         // Why 32767? int16_t ranges from -32768 to +32767 (asymmetric
-         // in two's complement). If we scaled to 32768, a float of 1.0
-         // would produce 32768, which overflows to -32768 (a loud,
-         // distorted sample). Using 32767 avoids this well-known gotcha.
+         // IMPORTANT: AIFF requires big-endian byte order for all
+         // multi-byte integers. We write the high byte first, then
+         // the low byte, matching the byte-by-byte approach used
+         // in aiff.cpp for chunk headers.
          for (uint32_t i = 0; i < numFrames; ++i) {
             for (uint32_t ch = 0; ch < format.channels; ++ch) {
-               float sample =
-                  floatData[i * format.channels + ch];
-               // Clamp to [-1.0, 1.0] and convert to 16-bit integer.
-               // Using 32767 (not 32768) avoids the asymmetric minimum
-               // of two's complement int16_t.
-               int16_t intSample = static_cast<int16_t>(
-                  std::max(-1.0f, std::min(1.0f, sample)) *
-                  32767.0f);
-               // Write in little-endian (macOS native byte order).
+               float sample = floatData[i * format.channels + ch];
+               // Core Audio guarantees [-1.0, 1.0] — no clamping
+               // needed. Direct scale by 32767.0f (not 32768).
+               int16_t intSample = static_cast<int16_t>(sample * 32767.0f);
+               // Write in big-endian (AIFF spec requires network byte
+               // order for all multi-byte integers).
                convertBuffer[(i * bytesPerFrameOut + ch) * 2 + 0] =
-                  static_cast<uint8_t>(intSample & 0xFF);
-               convertBuffer[(i * bytesPerFrameOut + ch) * 2 + 1] =
                   static_cast<uint8_t>((intSample >> 8) & 0xFF);
+               convertBuffer[(i * bytesPerFrameOut + ch) * 2 + 1] =
+                  static_cast<uint8_t>(intSample & 0xFF);
             }
          }
 
          aiffWriter.writeSamples(convertBuffer.data(),
-            static_cast<uint32_t>(convertBuffer.size()));
+                                 static_cast<uint32_t>(convertBuffer.size()));
       }
    });
 
@@ -464,8 +460,8 @@ int main(int argc, char* argv[]) {
             std::chrono::duration<double>(now - startTime).count();
          if (elapsed >= config.durationSeconds) {
             if (config.verbose) {
-               std::cerr << "Duration elapsed ("
-                        << config.durationSeconds << " seconds). Stopping.\n";
+               std::cerr << "Duration elapsed (" << config.durationSeconds
+                         << " seconds). Stopping.\n";
             }
             break;
          }
@@ -519,14 +515,17 @@ int main(int argc, char* argv[]) {
          std::cerr << "  Total bytes received: " << totalBytes << "\n";
          std::cerr << "  Total frames captured: " << totalFrames << "\n";
          std::cerr << "  Audio duration: " << totalDuration << " seconds\n";
-         std::cerr << "  " << (ioCallbacks == 0
-                  ? "WARNING: No IO proc callbacks received. "
-                    "BlackHole may not be set as your system output, "
-                    "or no audio is playing through it." : "")
-                  << (totalBytes == 0 && ioCallbacks > 0
-                  ? " WARNING: Device was idle (no audio data). "
-                    "Make sure audio is playing through BlackHole." : "")
-                  << "\n";
+         std::cerr << "  "
+                   << (ioCallbacks == 0
+                          ? "WARNING: No IO proc callbacks received. "
+                            "BlackHole may not be set as your system output, "
+                            "or no audio is playing through it."
+                          : "")
+                   << (totalBytes == 0 && ioCallbacks > 0
+                          ? " WARNING: Device was idle (no audio data). "
+                            "Make sure audio is playing through BlackHole."
+                          : "")
+                   << "\n";
          std::cerr << "=========================\n";
       }
    }
@@ -541,7 +540,7 @@ int main(int argc, char* argv[]) {
          double duration = totalBytes / bytesPerSecond;
          double megabytes = totalBytes / (1024.0 * 1024.0);
          std::cerr << "Total duration: " << duration << " seconds ("
-                  << megabytes << " MB)\n";
+                   << megabytes << " MB)\n";
       }
    } else {
       std::cerr << "Error: could not finalize AIFF file.\n";

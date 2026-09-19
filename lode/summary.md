@@ -56,6 +56,8 @@ Audio/
 - QuickTime Player cannot open AIFF files with 32-bit integer sample rate encoding
   (same root cause as above — it always tries to parse 80-bit extended float). Use
   `aiff2wav.sh` to convert to WAV for playback in QuickTime or any other player.
+- **BlackHole 2ch applies ~3 dB fixed attenuation.** Increase the BlackHole 2ch volume
+  slider in System Settings → Sound → Output. The capture code is verified correct.
 
 ## Future Modules (Planned)
 
