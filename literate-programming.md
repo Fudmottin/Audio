@@ -292,12 +292,13 @@ programming, here are verified references:
 
 1. **"Literate Programming"** (1984) — *The Computer Journal*, Vol. 27, No. 2,
    pp. 97–111. This is the original paper that introduced the concept.
-   - PDF: https://cm.bell-labs.com/cm/cs/cikk/lp.pdf
+   - PDF: https://www.cs.tufts.edu/~nr/cs257/archive/literate-programming/01-knuth-lp.pdf
 
 2. **"Literate Programming"** (1992) — CSLI Lecture Notes, Stanford.
    The expanded book-length treatment, published by Stanford's Center for
    the Study of Language and Information.
    - ISBN: 978-0-937073-82-4
+   - https://www.amazon.com/Literate-Programming-Lecture-Notes-Donald/dp/0937073806/
 
 ### Academic and Historical References
 
@@ -311,7 +312,7 @@ programming, here are verified references:
 
 5. **"Noweb: A Literate Programming System for Unix Tools"** — Ken Williams.
    The nowweb documentation and source.
-   - http://noweb.sourceforge.net/
+   - **URL**: https://github.com/nrnrnr/noweb
 
 ### Modern Approaches
 
