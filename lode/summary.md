@@ -50,13 +50,6 @@ Audio/
 
 ## Known Issues
 
-- macOS tools (`afinfo`, `ffprobe`) always try to parse 80-bit extended float for sample
-  rate, regardless of COMM chunk size. They will reject valid AIFF files that use 32-bit
-  integer sample rate encoding (our format). Use `aiff2wav.sh` to convert for playback.
-  The script handles both our format and standard AIFF (Audacity, etc.) automatically.
-- QuickTime Player cannot open AIFF files with 32-bit integer sample rate encoding
-  (same root cause as above — it always tries to parse 80-bit extended float). Use
-  `aiff2wav.sh` to convert to WAV for playback in QuickTime or any other player.
 - **BlackHole 2ch applies ~3 dB fixed attenuation.** Increase the BlackHole 2ch volume
   slider in System Settings → Sound → Output. The capture code is verified correct.
 

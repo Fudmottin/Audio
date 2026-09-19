@@ -30,7 +30,9 @@
 
 8. **32-bit integer sample rate** in COMM chunk (12-byte COMM, not 18-byte). Standard AIFF uses 80-bit extended float, but macOS tools (`afinfo`, `ffprobe`, QuickTime) always try to parse 80-bit extended float regardless of COMM size, rejecting valid files. Using 32-bit integer bypasses this bug.
 
-9. **aiff2wav.sh dual-format detection**: The conversion script detects COMM chunk size at offset 16 to determine sample rate encoding. For 80-bit extended float (≥18 bytes, Audacity/standard AIFF), it uses Python to parse the IEEE 754 extended float and sets header offset to 54. For 32-bit integer (<18 bytes, our format), it reads the 4-byte integer directly and uses header offset 48. Verified with both `clip.aiff` (Audacity, 47,920 frames) and `long-test.aiff` (our capture, 5,473,278 frames) — 0 mismatches in both.
+9. **aiff2wav.sh dual-format detection**: The conversion script detects COMM chunk size at offset 16 to determine sample rate encoding. For 80-bit extended float (≥18 bytes, Audacity/standard AIFF), it uses Python to parse the IEEE 754 extended float and sets header offset to 54. For 32-bit integer (<18 bytes, our format), it reads the 4-byte integer directly and uses header offset 48.
+
+10. **aiff2wav.sh sample rate validation**: Audacity sometimes writes garbage sample rates to the 80-bit extended float COMM chunk (e.g., 56768 instead of 48000), causing pitch-shifted WAV output. The script validates parsed rates against known standard rates (8000, 11025, 16000, 22050, 24000, 32000, 44100, 48000, 88200, 96000, 176400, 192000). Unrecognized rates default to 48000 Hz (macOS default). Verified: `clip.aiff` (Audacity, 48000 Hz, -6.9 dBFS, 0 clipping) and `long-test.aiff` (our capture, 48000 Hz) — 0 mismatches in both.
 
 ## Third-Party Behavior: BlackHole 2ch Attenuation
 
@@ -47,6 +49,27 @@ BlackHole 2ch applies a fixed ~3 dB attenuation to all output. This was diagnose
 - **Conclusion**: The capture code and conversion script are both correct. The audio chain produces accurate results.
 
 **Fix**: Increase the BlackHole 2ch volume slider in System Settings → Sound → Output. The capture code needs no changes.
+
+## Decision: Use libsndfile for AIFF Writing
+
+**Replaced 532 lines of hand-written AIFF chunk formatting with ~50 lines wrapping libsndfile.**
+
+### Why
+- macOS tools (afinfo, ffprobe, QuickTime) always try to parse 80-bit extended float for sample rate, regardless of COMM chunk size.
+- Writing 32-bit integer sample rate (our old approach) was non-standard and rejected by these tools.
+- libsndfile writes standard AIFF (80-bit extended float) that all tools accept.
+
+### What changed
+- **aiff.h**: 218 → 108 lines. Public interface changed from `writeSamples(const unsigned char*, uint32_t)` to `writeSamples(const int16_t*, uint32_t)`. No longer manages FILE* or chunk offsets.
+- **aiff.cpp**: 532 → 112 lines. All FORM/COMM/SSND chunk formatting, byte-order, and patching delegated to libsndfile.
+- **main.cpp**: Float-to-int16 callback no longer manual byte-swaps. Writes int16_t directly; libsndfile handles big-endian conversion.
+- **CMakeLists.txt**: Added libsndfile dependency (find_library + find_path).
+
+### Tradeoffs
+- +1 dependency (already planned for libaudio).
+- Files are 6 bytes larger (54-byte header vs 48-byte).
+- All macOS tools now accept our output directly.
+- aiff2wav.sh still needed for Audacity files with garbage sample rates.
 
 ## Bugs Fixed (Historical)
 

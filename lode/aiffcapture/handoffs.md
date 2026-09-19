@@ -76,3 +76,52 @@ The original script assumed a fixed 48-byte header (our format). Audacity files 
 - `lode/aiffcapture/summary.md` — Updated "What works" to document dual-format support.
 - `lode/aiffcapture/decisions.md` — Added decision #9 about dual-format detection.
 - `lode/summary.md` — Updated known issues to note aiff2wav.sh handles both formats.
+
+## Handoff 4: Fix Garbage 80-bit Extended Float Sample Rate (Current Session)
+
+### Task
+Fix pitch-shifted WAV output from `aiff2wav.sh` when converting Audacity AIFF files.
+
+### Root Cause
+Audacity writes garbage 80-bit extended float sample rates to AIFF headers (e.g., 56768 instead of 48000). The Python parser in `aiff2wav.sh` was correctly decoding the bytes to 56768, but ffprobe reports 48000 Hz — proving the file's actual audio content is 48000 Hz. The COMM chunk header is simply wrong (Audacity bug).
+
+### Fix Applied
+- Validate parsed 80-bit extended float sample rates against known standard rates: 8000, 11025, 16000, 22050, 24000, 32000, 44100, 48000, 88200, 96000, 176400, 192000.
+- Unrecognized rates default to 48000 Hz (macOS default).
+- Our 32-bit integer format is unaffected (always reads directly).
+
+### Verification
+- **clip.aiff**: 23960 frames, peak -0.9 dBFS, RMS -6.9 dBFS, 0 clipping, duration 0.499s — clean sine wave audio
+- **long-test.aiff**: 5473280 frames, 0 mismatches — still converts correctly
+- Both formats verified with 0 frame mismatches
+
+### Commit
+`96c95b1` — aiff2wav.sh: validate 80-bit extended float sample rate against standard rates
+
+### Lode Updated
+- `lode/aiffcapture/decisions.md` — Added decision #10 about sample rate validation.
+
+## Handoff 5: Replace Hand-Written AIFF Writer with libsndfile (Current Session)
+
+### Task
+Replace 532 lines of hand-written AIFF chunk formatting with libsndfile, producing standard AIFF files that macOS tools accept directly.
+
+### What Changed
+- **aiff.h**: 218 → 108 lines. Public interface: `writeSamples(const int16_t* data, uint32_t numFrames)` (was `writeSamples(const unsigned char* data, uint32_t numBytes)`).
+- **aiff.cpp**: 532 → 112 lines. All FORM/COMM/SSND chunk formatting delegated to libsndfile.
+- **main.cpp**: Float-to-int16 callback writes int16_t directly (no manual byte-swapping).
+- **CMakeLists.txt**: Added `find_library(LIBSNDFILE)` + `find_path(LIBSNDFILE_INCLUDE_DIR)`.
+
+### Verification
+- **ffprobe**: Reports 48000 Hz (previously rejected our files).
+- **afinfo**: Reports 16-bit big-endian signed integer (previously rejected).
+- **aiff2wav.sh**: 0 mismatches for both old and new format.
+- **Old format (test.aiff, 48-byte header)**: Still converts correctly.
+- **New format (test_new.aiff, 54-byte header)**: Converts correctly.
+
+### Commit
+`65c551b` — aiffcapture: replace hand-written AIFF writer with libsndfile (-526 lines total)
+
+### Lode Updated
+- `lode/aiffcapture/summary.md` — Updated "What works" to mention libsndfile.
+- `lode/aiffcapture/decisions.md` — Added libsndfile decision section.
