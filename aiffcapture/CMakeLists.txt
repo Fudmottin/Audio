@@ -1,6 +1,6 @@
 # CMakeLists.txt — aiffcapture
-# Core Guidelines: use modern CMake, explicit targets, no implicit globals.
-# This project targets macOS and links against Core Audio frameworks.
+# This project targets macOS and links against Core Audio frameworks and
+# libsndfile
 
 cmake_minimum_required(VERSION 3.20)
 
@@ -10,15 +10,12 @@ project(aiffcapture
     LANGUAGES CXX
 )
 
-# Core Guidelines: enforce C++20 explicitly. No implicit language standards.
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)  # Core: no compiler-specific extensions
 
-# Core Guidelines: use position-independent code by default.
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
-# Core Guidelines: explicit output directories for clean builds.
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
 # --- Core Audio frameworks (macOS-only) ---
@@ -84,7 +81,6 @@ target_link_libraries(aiffcapture PRIVATE
 target_link_libraries(aiffcapture PRIVATE ${LIBSNDFILE})
 target_include_directories(aiffcapture PRIVATE ${LIBSNDFILE_INCLUDE_DIR})
 
-# Core Guidelines: use compiler warnings as errors in development builds.
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
     target_compile_options(aiffcapture PRIVATE
         -Wall
@@ -97,7 +93,7 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
     )
 endif()
 
-# Core Guidelines: position-dependent warnings for macOS-specific code.
 target_compile_definitions(aiffcapture PRIVATE
     $<$<PLATFORM_ID:Darwin>:CORE_AUDIO_AVAILABLE>
 )
+

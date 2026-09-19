@@ -37,7 +37,7 @@
 
 | Module | Description |
 |--------|-------------|
-| midicapture | Audio → MIDI transcription (DSP + AI inference) |
+| **midicapture** | Audio → MIDI transcription (Phase 2 — in progress) |
 | midisheet | MIDI → sheet music generation |
 | sheetmidi | Sheet music → MIDI file generation |
 
