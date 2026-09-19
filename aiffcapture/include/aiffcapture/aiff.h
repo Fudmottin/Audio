@@ -1,55 +1,24 @@
 /**
  * @file aiff.h
- * @brief AIFF file format writing — writes chunk-based binary audio files.
+ * @brief AIFF file format writing via libsndfile.
  *
- * This module encapsulates all AIFF file format logic. It writes AIFF
- * files (uncompressed PCM) from raw PCM data captured via Core Audio.
- *
- * @section aiff-structure AIFF File Structure
- *
- * AIFF (Audio Interchange File Format) is a chunk-based binary format
- * developed by Apple. The structure is:
- *
- * ```
- * FORM (header)
- *   └─ AIFF (magic bytes)
- *   └─ COMM (common metadata)
- *   │     └─ numChannels (2 bytes)
- *   │     └─ numSamples (4 bytes)
- *   │     └─ sampleSize (2 bytes)
- *   │     └─ sampleRate (32-bit integer, see below)
- *   └─ SSND (sound data)
- *         └─ offset (4 bytes, usually 0)
- *         └─ blockSize (4 bytes, usually 0)
- *         └─ PCM data (variable length)
- * ```
+ * This module writes AIFF files (uncompressed 16-bit PCM) using
+ * libsndfile. It handles all chunk formatting (FORM, COMM, SSND),
+ * byte-order conversion, and file finalization.
  *
  * Key design decisions:
  *
- * 1. **Chunk-based patching**: We write FORM and SSND chunk sizes as
- *    placeholders (0) during `open()`, then patch them with actual
- *    values in `close()` via `finalizeFile()`. This requires recording
- *    file offsets BEFORE writing placeholders — a critical fix.
+ * 1. **libsndfile**: We delegate all AIFF file format logic to libsndfile,
+ *    which writes standard AIFF with 80-bit extended float sample rates.
+ *    This ensures compatibility with all standard tools (ffprobe,
+ *    QuickTime, afinfo, Audacity).
  *
- * 2. **Big-endian byte order**: All multi-byte integers in AIFF must be
- *    written in big-endian (network) byte order. We write each byte
- *    individually to ensure correctness regardless of platform
- *    (macOS is little-endian, so the bytes are swapped).
+ * 2. **16-bit PCM**: Core Audio outputs 32-bit float. We convert to
+ *    16-bit signed integer in the output callback (main.cpp) and write
+ *    via libsndfile's sf_write_short().
  *
- * 3. **16-bit signed integer PCM**: We write 16-bit signed integer
- *    samples (CDDA standard). Core Audio outputs 32-bit float, so
- *    main.cpp converts between the two formats.
- *
- * 4. **32-bit integer sample rate**: We use 32-bit integer encoding
- *    for sample rate (not 80-bit extended float). The 80-bit extended
- *    float is spec-compliant but breaks macOS tools (afinfo, ffprobe)
- *    which always try to parse it regardless of COMM chunk size,
- *    producing garbage values (e.g., 30464 Hz instead of 44100 Hz).
- *
- * 5. **FILE* over std::fstream**: We use C FILE* for streaming writes
- *    because we need explicit control over the write buffer and error
- *    handling. std::fstream adds layers of buffering and exception
- *    handling that obscure the low-level binary write operations.
+ * 3. **RAII**: The AiffWriter acquires the SNDFILE* in open() and
+ *    releases it in close() (or the destructor).
  *
  */
 
@@ -57,43 +26,15 @@
 #define AIFFCAPTURE_AIFF_H
 
 #include <aiffcapture/audio_types.h>
+#include <sndfile.h>
 #include <cstdint>
-#include <cstdio>
 #include <string>
 
-// Forward declaration of FILE (C standard library).
-// We use FILE* for streaming writes, not std::fstream.
-// This is intentional: we want explicit control over the write buffer
-// and error handling.
-
 // ============================================================================
-// AiffWriter — Writes AIFF files from raw PCM data.
+// AiffWriter — Writes AIFF files from 16-bit PCM data via libsndfile.
 //
-// Domain context: The AiffWriter class manages the full lifecycle of
-// an AIFF file: creating the FORM/COMM/SSND chunks, writing PCM data,
-// and finalizing the file by patching up chunk sizes.
-//
-// Key design decisions:
-//
-// 1. Offset recording: We record file offsets BEFORE writing placeholder
-//    sizes. This is critical — if we record the offset AFTER writing,
-//    we patch the wrong position (e.g., the "AIFF" magic bytes instead
-//    of the FORM size field). This was a critical bug fix.
-//
-// 2. COMM chunk sample rate: We write sample rate as a 32-bit integer
-//    (4 bytes) instead of 80-bit extended float (10 bytes). The 80-bit
-//    format is spec-compliant but macOS tools (afinfo, ffprobe) always
-//    try to parse 80-bit extended float regardless of COMM chunk size,
-//    producing garbage values. The 32-bit integer encoding is spec-
-//    compliant and works with all standard tools.
-//
-// 3. Big-endian byte order: All multi-byte integers are written byte-by-
-//    byte in big-endian order. This ensures the file is portable across
-//    platforms (macOS is little-endian, so the bytes are swapped).
-//
-// This class encapsulates the full AIFF file format.
-// It is a resource acquisition is initialization (RAII) object: it acquires
-// the output file in the constructor and closes it in the destructor.
+// This class wraps libsndfile for AIFF output. It manages the full
+// lifecycle: opening a file, streaming samples, and finalizing.
 // ============================================================================
 class AiffWriter {
  public:
@@ -114,39 +55,29 @@ class AiffWriter {
 
    // Open an AIFF file for writing.
    //
-   // This creates the FORM, COMM, and SSND chunks. The file is opened
-   // in binary mode for writing. The format parameter describes the
-   // audio data that will be written.
-   //
-   // This function is the only place where we write
-   // the AIFF header. All chunk writing is centralized here.
+   // This creates a standard AIFF file (80-bit extended float sample
+   // rate) via libsndfile. The file is compatible with ffprobe,
+   // QuickTime, afinfo, and all standard audio tools.
    //
    // @param filePath Path to the output file (e.g., "output.aiff").
    // @param format The audio format (channels, sample rate, bits per sample).
    // @return true if the file was opened successfully, false otherwise.
    bool open(const std::string& filePath, const AudioFormat& format);
 
-   // Write a block of PCM data to the AIFF file.
+   // Write a block of 16-bit PCM samples to the AIFF file.
    //
-   // This writes raw PCM samples to the SSND chunk. The samples must
-   // match the format specified when the file was opened (see open()).
+   // Samples must be interleaved L/R for stereo. libsndfile handles
+   // byte-order conversion (writes big-endian for AIFF).
    //
-   // This function is the only place where we write
-   // PCM data to the file. All error handling is centralized here.
-   //
-   // @param data Pointer to the PCM data (interleaved L/R for stereo).
-   // @param numBytes Number of bytes of PCM data to write.
+   // @param data Pointer to interleaved int16_t samples.
+   // @param numFrames Number of frames (not bytes) to write.
    // @return true if the data was written successfully, false otherwise.
-   bool writeSamples(const unsigned char* data, uint32_t numBytes);
+   bool writeSamples(const int16_t* data, uint32_t numFrames);
 
-   // Close the AIFF file and finalize the file size.
+   // Close the AIFF file and finalize.
    //
-   // This patches up the FORM and SSND chunk sizes (which are written
-   // as placeholders during open()) with the actual sizes. The file
-   // is then closed.
-   //
-   // This function is the only place where we finalize
-   // the AIFF file. It patches up the chunk sizes and closes the file.
+   // This finalizes the file (libsndfile handles all chunk patching)
+   // and closes the file descriptor.
    //
    // @return true if the file was closed successfully, false otherwise.
    bool close();
@@ -160,59 +91,18 @@ class AiffWriter {
 
    // Check if the file is currently open.
    //
-   // This function is a simple accessor.
-   //
    // @return true if the file is open, false otherwise.
    [[nodiscard]] bool isOpen() const;
 
  private:
-   // File handle for the AIFF file.
-   // Explicit handle, not a smart pointer (we need
-   // explicit control over the file descriptor).
-   FILE* file_ = nullptr;
-
-   // Output file path.
-   // Explicit path, not derived from file handle.
-   std::string filePath_;
+   // libsndfile file handle.
+   SNDFILE* sndfile_ = nullptr;
 
    // Audio format of the file.
-   // Explicit format, not derived from file.
    AudioFormat format_;
 
-   // Total number of bytes written (data only, not headers).
-   // Explicit counter, not derived from file position.
-   uint64_t bytesWritten_ = 0;
-
-   // Position of the FORM chunk size field in the file.
-   // Explicit offset, used to patch up the file size.
-   uint64_t formSizeOffset_ = 0;
-
-   // Position of the SSND chunk size field in the file.
-   // Explicit offset, used to patch up the data size.
-   uint64_t ssndSizeOffset_ = 0;
-
-   // Internal helper: write the FORM chunk header.
-   // This writes the FORM ID, size (placeholder),
-   // and "AIFF" magic bytes. The size is patched up in close().
-   bool writeFormHeader();
-
-   // Internal helper: write the COMM chunk.
-   // This writes the COMM ID, size (fixed at 12),
-   // number of channels, number of samples, sample size (16-bit),
-   // and sample rate (32-bit integer).
-   bool writeCommChunk(uint32_t numSamples);
-
-   // Internal helper: write the SSND chunk header.
-   // This writes the SSND ID, size (placeholder),
-   // offset (0), and block size (0). The size is patched up in close().
-   bool writeSsndHeader();
-
-   // Internal helper: finalize the file size (patch up FORM and SSND).
-   // This patches up the FORM and SSND chunk sizes
-   // (which were written as placeholders during open()) with the
-   // actual sizes. It seeks to the correct positions and overwrites
-   // the size fields.
-   bool finalizeFile();
+   // Total number of frames written (used to compute bytesWritten).
+   uint64_t framesWritten_ = 0;
 };
 
 #endif // AIFFCAPTURE_AIFF_H

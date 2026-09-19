@@ -22,9 +22,6 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
 # --- Core Audio frameworks (macOS-only) ---
-# These are system frameworks provided by macOS. They are not cross-platform.
-# The build will fail on non-macOS targets, which is intentional —
-# this utility is macOS-specific (Core Audio dependency).
 find_library(CORE_AUDIO_FRAMEWORK CoreAudio)
 find_library(AUDIO_TOOLBOX_FRAMEWORK AudioToolbox)
 find_library(CORE_FOUNDATION_FRAMEWORK CoreFoundation)
@@ -40,9 +37,24 @@ if(NOT CORE_FOUNDATION_FRAMEWORK)
     message(FATAL_ERROR "CoreFoundation framework not found. This project requires macOS.")
 endif()
 
+# --- libsndfile (cross-platform audio file I/O) ---
+# Used for writing standard AIFF files. libsndfile handles all chunk
+# formatting (FORM, COMM, SSND), byte-order conversion, and file
+# finalization. Produces files compatible with ffprobe, QuickTime,
+# afinfo, and all standard audio tools.
+find_library(LIBSNDFILE sndfile)
+if(NOT LIBSNDFILE)
+    message(FATAL_ERROR "libsndfile not found. Install with: brew install libsndfile")
+endif()
+find_path(LIBSNDFILE_INCLUDE_DIR sndfile.h
+    /opt/homebrew/include
+    /usr/local/include
+)
+if(NOT LIBSNDFILE_INCLUDE_DIR)
+    message(FATAL_ERROR "libsndfile headers not found. Install with: brew install libsndfile")
+endif()
+
 # --- Header-only interface library for shared types ---
-# Core Guidelines: separate interface from implementation.
-# This library exposes the public API (headers) without linking dependencies.
 add_library(aiffcapture_headers INTERFACE)
 target_include_directories(aiffcapture_headers
     INTERFACE
@@ -50,8 +62,6 @@ target_include_directories(aiffcapture_headers
 )
 
 # --- Main executable ---
-# Core Guidelines: explicit source files, explicit dependencies.
-# No wildcards. Each source file is an explicit build artifact.
 add_executable(aiffcapture
     src/main.cpp
     src/device.cpp
@@ -64,15 +74,17 @@ add_executable(aiffcapture
 target_link_libraries(aiffcapture PRIVATE aiffcapture_headers)
 
 # Link against Core Audio frameworks.
-# These are required at link time and resolved at runtime by the OS.
 target_link_libraries(aiffcapture PRIVATE
     ${CORE_AUDIO_FRAMEWORK}
     ${AUDIO_TOOLBOX_FRAMEWORK}
     ${CORE_FOUNDATION_FRAMEWORK}
 )
 
+# Link against libsndfile for AIFF file writing.
+target_link_libraries(aiffcapture PRIVATE ${LIBSNDFILE})
+target_include_directories(aiffcapture PRIVATE ${LIBSNDFILE_INCLUDE_DIR})
+
 # Core Guidelines: use compiler warnings as errors in development builds.
-# This enforces Core Guidelines compliance at compile time.
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
     target_compile_options(aiffcapture PRIVATE
         -Wall
@@ -86,7 +98,6 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
 endif()
 
 # Core Guidelines: position-dependent warnings for macOS-specific code.
-# These are intentionally macOS-only and will be suppressed on other platforms.
 target_compile_definitions(aiffcapture PRIVATE
     $<$<PLATFORM_ID:Darwin>:CORE_AUDIO_AVAILABLE>
 )
