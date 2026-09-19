@@ -437,7 +437,12 @@ int main(int argc, char* argv[]) {
             }
          }
 
-         aiffWriter.writeSamples(convertBuffer.data(), numFrames);
+         // libsndfile's sf_write_short expects the number of samples,
+         // not frames. For stereo, each frame = 2 samples (L+R).
+         // numFrames is the number of 32-bit float frames, so
+         // numFrames * channels is the number of 16-bit samples.
+         aiffWriter.writeSamples(convertBuffer.data(),
+                                 numFrames * format.channels);
       }
    });
 
@@ -498,7 +503,10 @@ int main(int argc, char* argv[]) {
    {
       uint64_t ioCallbacks = recorder.getIoCallbackCount();
       uint64_t totalBytes = recorder.getTotalBytesReceived();
-      uint64_t totalFrames = totalBytes / format.bytesPerFrame;
+      // totalBytes is from Core Audio (32-bit float), so divide by
+      // 32-bit float bytes per frame (channels * 4) to get frames.
+      uint64_t totalFrames =
+         totalBytes / (format.channels * 4);
       double totalDuration = static_cast<double>(totalFrames) /
                              static_cast<double>(format.sampleRate);
 

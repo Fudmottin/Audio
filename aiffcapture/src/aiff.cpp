@@ -76,17 +76,17 @@ bool AiffWriter::open(const std::string& filePath, const AudioFormat& format) {
    return true;
 }
 
-bool AiffWriter::writeSamples(const int16_t* data, uint32_t numFrames) {
-   if (sndfile_ == nullptr || data == nullptr || numFrames == 0) {
+bool AiffWriter::writeSamples(const int16_t* data, uint32_t numSamples) {
+   if (sndfile_ == nullptr || data == nullptr || numSamples == 0) {
       return false;
    }
 
-   sf_count_t written = sf_write_short(sndfile_, data, numFrames);
-   if (written != static_cast<sf_count_t>(numFrames)) {
+   sf_count_t written = sf_write_short(sndfile_, data, numSamples);
+   if (written != static_cast<sf_count_t>(numSamples)) {
       return false;
    }
 
-   framesWritten_ += numFrames;
+   framesWritten_ += static_cast<uint64_t>(written);
    return true;
 }
 
@@ -104,7 +104,9 @@ bool AiffWriter::close() {
 }
 
 uint64_t AiffWriter::getBytesWritten() const {
-   return framesWritten_ * format_.bytesPerFrame;
+   // framesWritten_ is in samples, convert to bytes:
+   // bytes = samples * (bytesPerFrame / channels) = samples * (bitsPerSample / 8)
+   return framesWritten_ * (format_.bitsPerSample / 8);
 }
 
 bool AiffWriter::isOpen() const {

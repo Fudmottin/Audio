@@ -70,9 +70,10 @@ class AiffWriter {
    // byte-order conversion (writes big-endian for AIFF).
    //
    // @param data Pointer to interleaved int16_t samples.
-   // @param numFrames Number of frames (not bytes) to write.
+   // @param numSamples Number of 16-bit samples (not frames). For
+   //   stereo, 1 frame = 2 samples (L+R).
    // @return true if the data was written successfully, false otherwise.
-   bool writeSamples(const int16_t* data, uint32_t numFrames);
+   bool writeSamples(const int16_t* data, uint32_t numSamples);
 
    // Close the AIFF file and finalize.
    //
