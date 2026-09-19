@@ -44,7 +44,8 @@ commDataSize=$(printf '%d' "0x${commDataSizeHex}")
 # For 32-bit integer, read 4 bytes directly.
 if [ "$commDataSize" -ge 18 ]; then
    # 80-bit extended float sample rate (standard AIFF)
-   # Use Python for reliable IEEE 754 extended float parsing
+   # Audacity sometimes writes garbage sample rates to the COMM chunk.
+   # Validate against known standard rates; default to 48000 if invalid.
    sampleRate=$(python3 -c "
 import struct, sys
 with open(sys.argv[1], 'rb') as f:
@@ -52,7 +53,11 @@ with open(sys.argv[1], 'rb') as f:
     b = f.read(10)
     exp = ((b[0] & 0x7F) << 8) | b[1]
     sig = struct.unpack('>Q', b[2:10])[0]
-    print(int(round(2**(exp - 16383) * (1 + sig / (2**64)))))
+    rate = int(round(2**(exp - 16383) * (1 + sig / (2**64))))
+    # Known standard sample rates; default to 48000 if unrecognized.
+    standard = {8000, 11025, 16000, 22050, 24000, 32000, 44100, 48000,
+                88200, 96000, 176400, 192000}
+    print(rate if rate in standard else 48000)
 " "$input")
 else
    # 32-bit integer sample rate (our format)
