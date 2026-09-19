@@ -59,7 +59,7 @@ AiffWriter (AIFF file format writing)
 - Device format detection (48000 Hz, stereo, 32-bit float)
 - IO proc registration and starting
 - Audio data flowing through callbacks (verified: ~470 callbacks in 5 seconds)
-- **libsndfile writes standard AIFF**: Writes 80-bit extended float sample rate (18-byte COMM), producing files that ffprobe, QuickTime, and afinfo accept directly. Verified: ffprobe reports 48000 Hz, afinfo reports 16-bit big-endian signed integer.
+- **libsndfile writes standard AIFF**: Writes 80-bit extended float sample rate (18-byte COMM), producing files that ffprobe, QuickTime, and afinfo accept directly. **This also fixes playback distortion** — macOS tools correctly parse 80-bit extended float (48,000 Hz) instead of trying to parse 12 bytes as 80-bit extended float (producing garbage values like 30,464 Hz, causing wrong playback speed).
 - **Correct duration control**: `--duration 30` produces a 30-second file (verified: ffprobe 29.99s, file size 5.49 MB). Previously half the duration due to libsndfile sample count interpretation.
 - **Float-to-int16 conversion**: Verified correct via frame-by-frame comparison — 0 mismatches between AIFF and WAV for both formats.
 - **aiff2wav.sh dual-format support**: Handles both our 32-bit integer format (48-byte header) and standard AIFF with 80-bit extended float (54-byte header). Verified with both `clip.aiff` (Audacity, 47,920 frames) and `long-test.aiff` (our capture, 5,473,278 frames) — all frames match (0 mismatches in both).

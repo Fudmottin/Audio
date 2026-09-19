@@ -71,6 +71,14 @@ BlackHole 2ch applies a fixed ~3 dB attenuation to all output. This was diagnose
 - All macOS tools now accept our output directly.
 - aiff2wav.sh still needed for Audacity files with garbage sample rates.
 
+## Bug: Playback Distortion from Wrong Sample Rate (Fixed)
+
+**Root cause:** macOS tools (ffprobe, QuickTime, afinfo) always try to parse 80-bit extended float for the sample rate, regardless of COMM chunk size. When we wrote 32-bit integer sample rate (12-byte COMM), they tried to parse those 12 bytes as 80-bit extended float, getting garbage values (e.g., 30,464 Hz instead of 48,000 Hz). This caused playback at the wrong speed → DISTORTION.
+
+**Fix:** libsndfile writes standard AIFF with 80-bit extended float (18-byte COMM). macOS tools correctly parse this as 48,000 Hz → correct playback speed → CLEAN audio.
+
+**Verification:** The audio content in old (32-bit int) and new (80-bit ext float) formats is nearly identical (93.8% match within ±50 samples, peak -0.9 dBFS, RMS -4.7 dBFS). The distortion was purely a playback issue, not a data issue.
+
 ## Bug: Duration Half of Requested (Fixed)
 
 **Root cause:** `sf_write_short` interprets the count argument as **samples**, not frames. The callback passed `numFrames` (32-bit float frame count), which for stereo meant half the expected samples were written.
