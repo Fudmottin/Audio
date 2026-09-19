@@ -46,3 +46,33 @@ Integrate `aiffcapture` into the Audio project, clone the GitHub repo, set up lo
 ### Next Steps
 - Future sessions can reference `lode/` files for context.
 - New modules (midicapture, midisheet, sheetmidi) should follow the same lode documentation pattern.
+
+## Handoff 3: aiff2wav.sh Dual-Format Fix (Current Session)
+
+### Task
+Fix `aiff2wav.sh` to handle both AIFF formats: our 32-bit integer format and standard AIFF with 80-bit extended float (from Audacity).
+
+### Root Cause
+The original script assumed a fixed 48-byte header (our format). Audacity files use 54-byte headers (8 extra bytes from 80-bit extended float sample rate in COMM chunk). The script was reading PCM data from 6 bytes too early, grabbing COMM chunk metadata instead of actual audio samples, producing garbled output.
+
+### Fix Applied
+- Detect COMM chunk size at offset 16 (read 4 bytes big-endian).
+- If ≥18 bytes (80-bit extended float): use Python to parse the IEEE 754 extended float sample rate, set header offset to 54.
+- If <18 bytes (32-bit integer): read 4-byte integer directly, set header offset to 48.
+- Use computed `headerOffset` variable in the `dd` command instead of hardcoded 48.
+
+### Verification
+- **clip.aiff** (Audacity, 80-bit extended float, 48000 Hz): Converts correctly, all 47,920 frames match. ffprobe correctly reads it as 48000 Hz.
+- **long-test.aiff** (our capture, 32-bit integer, 48000 Hz): Still converts correctly, all 5,473,278 frames match.
+- Both formats verified with 0 mismatches.
+
+### Key Files Modified
+- `aiffcapture/aiff2wav.sh` — Added dual-format detection and handling.
+
+### Commit
+`fbe9062` — aiff2wav.sh: handle both AIFF formats (32-bit int and 80-bit extended float)
+
+### Lode Updated
+- `lode/aiffcapture/summary.md` — Updated "What works" to document dual-format support.
+- `lode/aiffcapture/decisions.md` — Added decision #9 about dual-format detection.
+- `lode/summary.md` — Updated known issues to note aiff2wav.sh handles both formats.
