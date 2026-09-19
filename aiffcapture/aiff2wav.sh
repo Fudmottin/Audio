@@ -1,11 +1,9 @@
 #!/bin/bash
 # aiff2wav.sh — Convert AIFF files to WAV format.
 #
-# The AIFF file from aiffcapture is 100% valid per the spec, but
-# QuickTime Player and other macOS tools have a bug where they
-# always try to parse 80-bit extended float for sample rate
-# regardless of COMM chunk size. This utility extracts the raw
-# PCM data and wraps it in a WAV header that any tool can read.
+# Handles both AIFF formats:
+#   - Our aiffcapture: 32-bit integer sample rate (12-byte COMM chunk)
+#   - Standard AIFF (Audacity, etc.): 80-bit extended float (18-byte COMM chunk)
 #
 # Usage: aiff2wav.sh <input.aiff> [output.wav]
 # If output is omitted, it defaults to <input>.wav
@@ -35,13 +33,46 @@ fi
 channelsHex=$(xxd -s 20 -l 2 -p "$input")
 channels=$(printf '%d' "0x${channelsHex}")
 
-# Read sample rate (offset 28, 4 bytes big-endian) as hex, then to decimal
-sampleRateHex=$(xxd -s 28 -l 4 -p "$input")
-sampleRate=$(printf '%d' "0x${sampleRateHex}")
+# Detect COMM chunk size to determine sample rate encoding.
+# Standard AIFF uses 80-bit extended float (18-byte COMM data).
+# Our aiffcapture uses 32-bit integer (12-byte COMM data).
+commDataSizeHex=$(xxd -s 16 -l 4 -p "$input")
+commDataSize=$(printf '%d' "0x${commDataSizeHex}")
 
-# PCM data size (total file minus 48-byte AIFF header)
+# Read sample rate based on COMM chunk size.
+# For 80-bit extended float, use Python for reliable parsing.
+# For 32-bit integer, read 4 bytes directly.
+if [ "$commDataSize" -ge 18 ]; then
+   # 80-bit extended float sample rate (standard AIFF)
+   # Use Python for reliable IEEE 754 extended float parsing
+   sampleRate=$(python3 -c "
+import struct, sys
+with open(sys.argv[1], 'rb') as f:
+    f.seek(28)
+    b = f.read(10)
+    exp = ((b[0] & 0x7F) << 8) | b[1]
+    sig = struct.unpack('>Q', b[2:10])[0]
+    print(int(round(2**(exp - 16383) * (1 + sig / (2**64)))))
+" "$input")
+else
+   # 32-bit integer sample rate (our format)
+   sampleRateHex=$(xxd -s 28 -l 4 -p "$input")
+   sampleRate=$(printf '%d' "0x${sampleRateHex}")
+fi
+
+# Determine header offset based on COMM chunk size.
+# FORM: 12 bytes (4 + 4 + 4)
+# COMM: 8 (id + size) + commDataSize
+# SSND: 16 (id + size + blockOffset + blockSize)
+if [ "$commDataSize" -ge 18 ]; then
+   headerOffset=54  # 12 + 8 + 18 + 16 (SSND header = 16 bytes)
+else
+   headerOffset=48  # 12 + 8 + 12 + 16 (SSND header = 16 bytes)
+fi
+
+# PCM data size (total file minus computed header offset)
 fileSize=$(wc -c < "$input")
-pcmSize=$((fileSize - 48))
+pcmSize=$((fileSize - headerOffset))
 
 # Helper: pack a 16-bit integer as little-endian hex bytes
 pack_le16() {
@@ -91,9 +122,9 @@ headerHex="${headerHex}$(pack_le32 "$pcmSize")"
 # Convert hex string to binary and write header
 printf "%s" "$headerHex" | xxd -r -p > "$output"
 
-# Append PCM data (skip 48-byte AIFF header), byte-swapping
+# Append PCM data (skip computed AIFF header), byte-swapping
 # from big-endian (AIFF) to little-endian (WAV).
-dd if="$input" bs=48 skip=1 2>/dev/null \
+dd if="$input" bs=$headerOffset skip=1 2>/dev/null \
    | xxd -p \
    | sed 's/\(..\)\(..\)/\2\1/g' \
    | xxd -r -p >> "$output"
