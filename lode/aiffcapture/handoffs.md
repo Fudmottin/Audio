@@ -101,6 +101,31 @@ Audacity writes garbage 80-bit extended float sample rates to AIFF headers (e.g.
 ### Lode Updated
 - `lode/aiffcapture/decisions.md` — Added decision #10 about sample rate validation.
 
+## Handoff 6: Fix Duration Bug and Recording Summary (Current Session)
+
+### Task
+Fix `--duration` producing files half the requested length, and fix recording summary showing double the actual duration.
+
+### Root Cause
+`sf_write_short` interprets its count argument as **samples**, not frames. The callback passed `numFrames` (32-bit float frame count), which for stereo meant only half the expected samples were written (15s instead of 30s).
+
+### Fixes
+1. **writeSamples**: Changed signature from `numFrames` to `numSamples`. Callback now passes `numFrames * channels` (number of 16-bit samples).
+2. **getBytesWritten**: Now tracks samples, converts to bytes via `bitsPerSample / 8`.
+3. **Recording summary**: Changed from `totalBytes / format.bytesPerFrame` (wrong — 16-bit frame size) to `totalBytes / (channels * 4)` (correct — 32-bit float frame size).
+
+### Verification
+- `--duration 30` → ffprobe reports 29.99s, file size 5.49 MB ✓
+- Recording summary: 1,439,744 frames = 29.99 seconds (was 60s) ✓
+- `aiff2wav.sh`: 0 mismatches ✓
+
+### Commit
+`e4d60f5` — aiffcapture: fix duration and recording summary
+
+### Lode Updated
+- `lode/aiffcapture/summary.md` — Added "Correct duration control" note.
+- `lode/aiffcapture/decisions.md` — Added "Bug: Duration Half of Requested" section.
+
 ## Handoff 5: Replace Hand-Written AIFF Writer with libsndfile (Current Session)
 
 ### Task

@@ -71,6 +71,14 @@ BlackHole 2ch applies a fixed ~3 dB attenuation to all output. This was diagnose
 - All macOS tools now accept our output directly.
 - aiff2wav.sh still needed for Audacity files with garbage sample rates.
 
+## Bug: Duration Half of Requested (Fixed)
+
+**Root cause:** `sf_write_short` interprets the count argument as **samples**, not frames. The callback passed `numFrames` (32-bit float frame count), which for stereo meant half the expected samples were written.
+
+**Fix:** Pass `numFrames * channels` (number of 16-bit samples) to libsndfile. Updated `writeSamples` signature to accept `numSamples` (samples, not frames). Updated `getBytesWritten()` to track samples and convert to bytes via `bitsPerSample / 8`.
+
+**Also fixed:** Recording summary divided 32-bit float bytes by 16-bit frame size, doubling the reported duration. Fixed to divide by 32-bit float bytes per frame (`channels * 4`).
+
 ## Bugs Fixed (Historical)
 
 ### Bug 1: `findDeviceByName` searched empty `devices_`
