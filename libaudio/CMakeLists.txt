@@ -75,9 +75,10 @@ set(LIBAUDIO_SOURCES
 add_library(libaudio STATIC ${LIBAUDIO_SOURCES})
 
 # Core Guidelines: public include directory for consumers of the library.
+# Use CMAKE_CURRENT_SOURCE_DIR so it works both as standalone and subdirectory.
 target_include_directories(libaudio
     PUBLIC
-        $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:include>
     PRIVATE
         ${AUBIO_INCLUDE_DIRS}
@@ -121,7 +122,7 @@ add_executable(test_libaudio
 )
 
 target_include_directories(test_libaudio PRIVATE
-    ${CMAKE_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${SNDFILE_INCLUDE_DIRS}
 )
 

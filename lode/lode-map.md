@@ -16,6 +16,7 @@
 |--------|------|--------|
 | aiffcapture | [lode/aiffcapture/](aiffcapture/) | Phase 1 — Complete |
 | libaudio | [lode/libaudio/](libaudio/) | Phase 0 — Designed |
+| **midicapture** | **[lode/midicapture/](midicapture/)** | **Phase 2 — In Progress** |
 
 ## Subsystem: aiffcapture
 
@@ -33,11 +34,16 @@
 | [decisions.md](libaudio/decisions.md) | Library choices (aubio, libsndfile, rubberband), wrapper pattern, default parameters |
 | [hir.md](libaudio/hir.md) | High-level Instrumentation Representation (Note, ControlEvent, Score) |
 
+## Subsystem: midicapture
+
+| Document | Purpose |
+|----------|---------|
+| [summary.md](midicapture/summary.md) | Module overview, architecture, transcription pipeline, CLI interface |
+
 ## Future Modules (Planned)
 
 | Module | Description |
 |--------|-------------|
-| **midicapture** | Audio → MIDI transcription (Phase 2 — in progress) |
 | midisheet | MIDI → sheet music generation |
 | sheetmidi | Sheet music → MIDI file generation |
 
@@ -46,6 +52,7 @@
 - `.clang-format` — Shared coding style (repository root)
 - `README.md` — Project-level documentation (repository root)
 - `aiffcapture/` — Phase 1 implementation (repository root)
+- `midicapture/` — Phase 2 implementation (in progress)
 - `lode/MIDI.md` — MIDI protocol, General MIDI, SMF file format
 - `lode/LilyPond.md` — LilyPond notation, MIDI-to-LilyPond mapping
 - `lode/libaudio/` — Phase 0 DSP library (designed, not yet implemented)

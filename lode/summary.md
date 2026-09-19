@@ -10,7 +10,7 @@ Build a suite of local-first audio processing utilities targeting macOS (later P
 |-------|--------|-------------|
 | **Audio → AIFF** (capture) | Complete | Capture audio from BlackHole 2ch to 16-bit signed integer AIFF files. |
 | **DSP Library** (libaudio) | Designed | DSP library wrapping aubio, libsndfile, rubberband. HIR defined. Not yet implemented. |
-| **Audio → MIDI** (transcription) | Planned | DSP + AI inference to convert audio recordings to MIDI. Starts with piano-only content. |
+| **Audio → MIDI** (transcription) | **In Progress** | Monophonic prototype using aubio (YINfft pitch, spectral flux onsets) → Type 1 MIDI. |
 | **MIDI → Sheet Music** | Planned | Generate readable sheet music from MIDI data. |
 | **Sheet Music → MIDI** | Planned | Generate playable audio from sheet music representations. |
 
@@ -19,6 +19,8 @@ Build a suite of local-first audio processing utilities targeting macOS (later P
 ```
 Audio/
 ├── aiffcapture/          # Phase 1: BlackHole → AIFF capture utility
+├── libaudio/             # Phase 0: DSP library (designed, not implemented)
+├── midicapture/          # Phase 2: Audio → MIDI (in progress)
 ├── lode/                 # Lode coding documentation (project knowledge)
 │   ├── summary.md        # This file
 │   ├── terminology.md    # Shared glossary
@@ -30,6 +32,8 @@ Audio/
 │       ├── summary.md    # Module overview, API design
 │       ├── decisions.md  # Library choices, wrapper pattern, defaults
 │       └── hir.md        # High-level Instrumentation Representation
+│   └── midicapture/      # Phase 2: transcription module
+│       └── summary.md    # Module overview, architecture, pipeline
 ├── README.md             # Project overview
 ├── LICENSE
 └── .clang-format         # Shared coding style (Core Guidelines compliant)
@@ -55,16 +59,5 @@ Audio/
 
 ## Future Modules (Planned)
 
-- `midicapture/` — Audio → MIDI transcription using DSP + AI inference
 - `midisheet/` — MIDI → sheet music generation
 - `sheetmidi/` — Sheet music → MIDI file generation
-
-## References
-
-- [Lode Coding](https://fjzeit.github.io/lode) — Structured documentation approach for AI-assisted development
-- [Core Guidelines for C++](https://isocpp.github.io/CppCoreGuidelines/CppCoreGuidelines)
-- [AIFF Specification](https://www.mpg123.de/api/aiff_8c.html)
-- [Core Audio API](https://developer.apple.com/library/archive/documentation/MusicAudio/Reference/CoreAudioAPIRef/)
-- [aubio](https://aubio.org) — Audio analysis library (pitch, onsets, beats, notes)
-- [libsndfile](http://www.mega-nerd.com/libsndfile/) — Audio file I/O library
-- [rubberband](http://breakfastquay.com/rubberband/) — Time-stretching and pitch-shifting library
