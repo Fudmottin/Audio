@@ -7,6 +7,7 @@
 | [summary.md](summary.md) | Project overview, scope, architecture, key decisions |
 | [terminology.md](terminology.md) | Shared glossary: audio formats, Core Audio API, AIFF format, Lode coding terms |
 | [practices.md](practices.md) | Coding style, project structure, Core Audio patterns, documentation standards |
+| [literate-programming.md](../literate-programming.md) | Knuth's philosophy, Web language, toolchain history, source code for humans |
 | [MIDI.md](MIDI.md) | MIDI protocol, General MIDI, SMF file format, piano-specific considerations |
 | [LilyPond.md](LilyPond.md) | LilyPond notation, MIDI-to-LilyPond mapping, Logic Pro integration |
 

@@ -36,12 +36,13 @@ Audio/
 │       └── summary.md    # Module overview, architecture, pipeline
 ├── README.md             # Project overview
 ├── LICENSE
-└── .clang-format         # Shared coding style (Core Guidelines compliant)
+└── .clang-format         # Shared coding style
+└── literate-programming.md # Knuth's philosophy, toolchain, source code for humans
 ```
 
 ## Key Decisions
 
-- **Language**: C++20, Core Guidelines compliant
+- **Language**: C++20
 - **Build system**: CMake (canonical directory structure)
 - **Platform**: macOS first (Core Audio), POSIX later
 - **Audio format**: AIFF output (16-bit signed integer PCM, 32-bit integer sample rate)

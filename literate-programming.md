@@ -143,7 +143,7 @@ we don't use Doxygen today. The markup is also highly readable by AI tools.
 ```
 
 **Source files** — use `/** ... */` block comments at the top of files and
-sections, with `// Core Guidelines:` annotations for specific rules:
+sections, with annotations for specific notes:
 
 ```cpp
 /**
