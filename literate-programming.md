@@ -108,7 +108,7 @@ syntax, target languages, and philosophies.
 Silvio Levy. It is the most widely-used literate programming system for C
 and C++ code.
 
-- **URL**: https://www.tug.org/cweb/
+- **URL**: https://tug.org/texinfohtml/web2c.html
 - **Syntax**: Uses `%` for comments (like C) and `%O` for narrative text.
 - **Toolchain**: `ctangle` (extract code), `cweave` (extract documentation).
 - **Notable use**: The CWEB distribution itself was written in CWEB.
@@ -120,7 +120,7 @@ CWEB is available from the TeX Users Group (TUG) and is maintained by Knuth.
 **Noweb** was developed by Ken Williams in the 1990s. It differs from Web
 in its chunk syntax, which is more concise and shell-script-friendly.
 
-- **URL**: http://noweb.sourceforge.net/
+- **URL**: https://github.com/nrnrnr/noweb
 - **Syntax**: `<<chunk-name>>= ... =<` for defining chunks.
 - **Toolchain**: `noweave` (extract documentation), `noweave` (extract code).
 - **Notable feature**: Named chunks with forward references; chunks can be
@@ -169,58 +169,6 @@ interactive, cell-based model.
 | Forward references | Yes | Yes | Yes |
 | Primary language | Pascal (TeX) | Any text | C / C++ |
 | Maintainer | Knuth (TUG) | Ken Williams | Knuth (TUG) |
-
-## Further Reading
-
-For those interested in the academic and historical background of literate
-programming, here are verified references:
-
-### Donald Knuth's Original Works
-
-1. **"Literate Programming"** (1984) — *The Computer Journal*, Vol. 27, No. 2,
-   pp. 97–111. This is the original paper that introduced the concept.
-   - PDF: https://cm.bell-labs.com/cm/cs/cikk/lp.pdf
-
-2. **"Literate Programming"** (1992) — CSLI Lecture Notes, Stanford.
-   The expanded book-length treatment, published by Stanford's Center for
-   the Study of Language and Information.
-   - ISBN: 978-0-937073-82-4
-
-### Academic and Historical References
-
-3. **"The Web System"** — Knuth's original Web documentation, describing
-   the system used to produce TeX itself.
-   - https://www.tug.org/web/
-
-4. **"CWEB: A Literate Programming System for C"** — Silvio Levy's
-   documentation of CWEB, the C-language variant.
-   - https://www.tug.org/cweb/
-
-5. **"Noweb: A Literate Programming System for Unix Tools"** — Ken Williams.
-   The nowweb documentation and source.
-   - http://noweb.sourceforge.net/
-
-### Modern Approaches
-
-6. **Org-mode** — The Emacs mode with Org-Babel for literate programming.
-   - https://orgmode.org/
-
-7. **"Reproducible Research with R Markdown"** — The R Markdown book,
-   covering literate publishing workflows.
-   - https://rmarkdown.rstudio.com/
-
-### Key Concepts to Research Further
-
-- **Weave** — Extracting the narrative and documentation into a readable
-  document (for humans to read).
-- **Tangle** — Extracting the code fragments into a compilable source file
-  (for the computer to execute).
-- **Chunk** — A named unit of code that can be referenced and reordered.
-- **Forward reference** — Referencing a chunk before it is defined, allowing
-  the narrative to flow naturally rather than following execution order.
-- **Self-documenting code** — The opposing philosophy (associated with
-  Donald Knuth's critic, Edsger Dijkstra) that code should be clear enough
-  without narrative documentation.
 
 ## Philosophy
 
@@ -334,6 +282,58 @@ Priority order for adding domain context comments:
 This comment explains the *why* (asymmetric two's complement range),
 the *what* (clamping and scaling steps), and the *gotcha* (32767 vs
 32768) that a beginner would need to know.
+
+## Further Reading
+
+For those interested in the academic and historical background of literate
+programming, here are verified references:
+
+### Donald Knuth's Original Works
+
+1. **"Literate Programming"** (1984) — *The Computer Journal*, Vol. 27, No. 2,
+   pp. 97–111. This is the original paper that introduced the concept.
+   - PDF: https://cm.bell-labs.com/cm/cs/cikk/lp.pdf
+
+2. **"Literate Programming"** (1992) — CSLI Lecture Notes, Stanford.
+   The expanded book-length treatment, published by Stanford's Center for
+   the Study of Language and Information.
+   - ISBN: 978-0-937073-82-4
+
+### Academic and Historical References
+
+3. **"The Web System"** — Knuth's original Web documentation, describing
+   the system used to produce TeX itself.
+   - https://www.tug.org/web/
+
+4. **"CWEB: A Literate Programming System for C"** — Silvio Levy's
+   documentation of CWEB, the C-language variant.
+   - https://www.tug.org/cweb/
+
+5. **"Noweb: A Literate Programming System for Unix Tools"** — Ken Williams.
+   The nowweb documentation and source.
+   - http://noweb.sourceforge.net/
+
+### Modern Approaches
+
+6. **Org-mode** — The Emacs mode with Org-Babel for literate programming.
+   - https://orgmode.org/
+
+7. **"Reproducible Research with R Markdown"** — The R Markdown book,
+   covering literate publishing workflows.
+   - https://rmarkdown.rstudio.com/
+
+### Key Concepts to Research Further
+
+- **Weave** — Extracting the narrative and documentation into a readable
+  document (for humans to read).
+- **Tangle** — Extracting the code fragments into a compilable source file
+  (for the computer to execute).
+- **Chunk** — A named unit of code that can be referenced and reordered.
+- **Forward reference** — Referencing a chunk before it is defined, allowing
+  the narrative to flow naturally rather than following execution order.
+- **Self-documenting code** — The opposing philosophy (associated with
+  Donald Knuth's critic, Edsger Dijkstra) that code should be clear enough
+  without narrative documentation.
 
 ## Verification Checklist
 
