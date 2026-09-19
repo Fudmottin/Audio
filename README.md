@@ -1,6 +1,6 @@
 # Audio
 
-Local-first audio processing utilities for macOS, written in C++20.
+Local-first audio processing utilities for macOS, written in C++.
 
 ## Currently Available
 
@@ -16,18 +16,11 @@ A macOS command-line utility that routes audio through the BlackHole virtual dev
 
 ### libaudio
 
-A C++20 DSP library providing audio analysis (pitch, onsets, beats, notes), spectral features, and MIDI export. See the [module README](libaudio/README.md) for the full API.
+A C++ DSP library providing audio analysis (pitch, onsets, beats, notes), spectral features, and MIDI export. See the [module README](libaudio/README.md) for the full API.
 
 ### midicapture
 
 A command-line utility that converts audio recordings (AIFF, WAV, FLAC) to Standard MIDI Files (SMF). Uses aubio for pitch detection (YINfft) and onset detection (spectral flux). See the [module README](midicapture/README.md) for build instructions and usage.
-
-## Planned (Not Yet Implemented)
-
-These modules are documented in [`lode/summary.md`](lode/summary.md) but have not been started:
-
-- **midisheet** — MIDI → sheet music generation
-- **sheetmidi** — Sheet music → MIDI file generation
 
 ## Build
 
@@ -70,3 +63,4 @@ Requires macOS, aubio (`brew install aubio`), libsndfile (`brew install libsndfi
 - [`aiffcapture/README.md`](aiffcapture/README.md) — Module-specific docs
 - [`libaudio/README.md`](libaudio/README.md) — Module-specific docs
 - [`midicapture/README.md`](midicapture/README.md) — Module-specific docs
+
