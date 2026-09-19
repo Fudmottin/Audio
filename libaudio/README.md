@@ -1,6 +1,6 @@
 # libaudio
 
-A C++20 DSP library for audio-to-MIDI transcription, wrapping **aubio**,
+A C++ DSP library for audio-to-MIDI transcription, wrapping **aubio**,
 **libsndfile**, and **rubberband** in a modern C++ interface with Pimpl
 encapsulation and RAII resource management.
 
@@ -88,7 +88,7 @@ writer.write(score);
 
 ## Design Principles
 
-- **C++20**: Explicit types, RAII resource management.
+- **C++**: Explicit types, RAII resource management.
 - **Pimpl pattern**: All public classes use `std::unique_ptr<Impl>` for
   encapsulation of C library internals.
 - **HIR as single source of truth**: `Score` containing `Note` and
