@@ -77,3 +77,10 @@ IMPORTANT: Before exploring the codebase or searching for files, ALWAYS check lo
 When the session starts, briefly show that you have domain knowledge before attending to the first request.
 
 if the lode/ does not exist, ask the user if you should create one.
+
+Coding Style
+- Follow Core Guidelines within reason
+- Follow literate programming philosphy
+- Don't mention lode coding or reference lode/ in comments
+- run `clang-format -i` on source and header files
+

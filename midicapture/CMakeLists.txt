@@ -15,7 +15,6 @@
 #  * Optional packages:
 #  * - Boost program_options: Command-line argument parsing
 #  *
-#  * @see lode/midicapture/summary.md — Module overview
 #  */
 
 cmake_minimum_required(VERSION 3.20)
