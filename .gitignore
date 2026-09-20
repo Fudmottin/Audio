@@ -25,3 +25,8 @@ lode/tmp
 *.swp
 *.swo
 *~
+
+# Generated MIDI / audio outputs + vendored validation tool
+*.mid
+*.ogg
+midicsv-1.1/
