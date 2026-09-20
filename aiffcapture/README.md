@@ -83,7 +83,7 @@ The binary will be at `build/bin/aiffcapture`.
    - Or wait for the specified duration to elapse.
 
 5. **Use the AIFF file**:
-   - The output is a standard AIFF file (uncompressed, stereo, 16-bit signed integer PCM, 32-bit integer sample rate).
+   - The output is a standard AIFF file (uncompressed, stereo, 16-bit signed integer PCM, 48000Hz.
    - Convert it to other formats using `afconvert`, `ffmpeg`, or similar tools.
 
 ## Project Structure
@@ -127,5 +127,5 @@ MIT License (see LICENSE file).
 - **BlackHole** by rolandy000 (virtual audio driver for macOS).
 - **Core Audio** by Apple (macOS audio framework).
 - **AIFF specification** by Apple Computer, Inc.
-- **Qwen3.6 35B A3B** vibe coded this project.
+- **Qwen3.6 35B A3B** lode coded this project.
 
