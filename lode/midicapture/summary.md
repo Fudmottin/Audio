@@ -100,17 +100,38 @@ Transitions:
 
 ## 6. CLI Interface
 
-```bash
-midicapture [options] <input.aiff> <output.mid>
+`--input` / `-i` and `--output` / `-o` are both optional. When `--input` is
+provided without `--output`, the output path defaults to `<input>.mid` (extension
+replaced).
 
-Options:
-  --window-size <int>       FFT window size (default: 2048)
-  --hop-size <int>          Hop size (default: 512)
-  --confidence <float>      Confidence threshold (default: 0.5)
-  --silence <float>         Silence threshold in dB (default: -40)
-  --tempo <float>           Tempo in BPM (default: 120)
-  --method <string>         Pitch method (default: "yinfft")
-  --help                    Print usage
+`--help` prints a POSIX-style help message with a `Usage:` line and exits — no
+input file required.
+
+```
+midicapture — audio-to-MIDI transcription
+
+Usage: ./midicapture [options] <input.aiff> [output.mid]
+
+Main options:
+  -h [ --help ]             Print usage information.
+  -i [ --input ] arg        Input audio file path (AIFF, WAV, FLAC, etc.).
+  -o [ --output ] arg       Output MIDI file path (.mid).
+  --window-size arg (=2048) FFT window size (power of 2, default: 2048).
+  --hop-size arg (=512)     Hop size between frames (default: 512).
+  --confidence arg (=0.5)   Pitch detection confidence threshold (0.0–1.0,
+                            default: 0.5).
+  --silence arg (=-40)      Silence threshold in dB (default: -40).
+  --tempo arg (=120)        Tempo in BPM (default: 120).
+  --method arg (=yinfft)    Pitch detection method (default: "yinfft").
+```
+
+Examples:
+```bash
+midicapture song.aiff                          # → song.mid
+midicapture song.aiff output.mid               # explicit output
+midicapture -i song.aiff                       # → song.mid
+midicapture --input song.aiff --output out.mid # explicit output
+midicapture --help                             # usage only
 ```
 
 ---

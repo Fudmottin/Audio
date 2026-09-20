@@ -137,12 +137,19 @@ int main(int argc, char* argv[]) {
 
    // Define the options: name, type, description.
    namespace po = boost::program_options;
-   po::options_description desc("midicapture — audio-to-MIDI transcription");
-   desc.add_options()("help,h", "Print usage information.")("input",
-       po::value<std::string>(&inputPath)->required(),
+   // Build a header that puts the usage line between the project name
+   // and the option list.  Boost appends ":" after the header string,
+   // so we end with a newline to absorb it.
+   // Boost's operator<< appends ":\n" after the header text, then prints
+   // the option list.  We end the header with a newline so the ":" that
+   // Boost appends replaces the blank line separator.
+   std::string header = "midicapture — audio-to-MIDI transcription\n\nUsage: "
+      + std::string(argv[0]) + " [options] <input.aiff> [output.mid]";
+   po::options_description desc(header);
+   desc.add_options()("help,h", "Print usage information.")(
+       "input,i", po::value<std::string>(&inputPath),
        "Input audio file path (AIFF, WAV, FLAC, etc.).")(
-       "output,o",
-       po::value<std::string>(&outputPath)->required(),
+       "output,o", po::value<std::string>(&outputPath),
        "Output MIDI file path (.mid).")(
        "window-size",
        po::value<uint32_t>(&windowSize)->default_value(2048),
@@ -163,10 +170,19 @@ int main(int argc, char* argv[]) {
        po::value<std::string>(&pitchMethod)->default_value("yinfft"),
        "Pitch detection method (default: \"yinfft\").");
 
-   // Parse the command line.
+   // Define positional options: <input.aiff> <output.mid>.
+   po::positional_options_description positional;
+   positional.add("input", 1).add("output", 1);
+
+   // Parse the command line with both named and positional options.
    po::variables_map vm;
    try {
-      po::store(po::parse_command_line(argc, argv, desc), vm);
+      po::store(
+         po::command_line_parser(argc, argv)
+            .options(desc)
+            .positional(positional)
+            .run(),
+         vm);
       po::notify(vm);
    } catch (const po::error& e) {
       std::cerr << "Error: " << e.what() << "\n\n";
@@ -174,18 +190,43 @@ int main(int argc, char* argv[]) {
       return 1;
    }
 
-   // Handle --help explicitly (Boost program_options does this, but we
-   // provide our own formatted output for consistency).
+   // Print a POSIX-style help message.
    if (vm.count("help")) {
-      std::cout << desc << "\n";
+      std::cout << "midicapture — audio-to-MIDI transcription\n\n"
+         << "Usage: " << argv[0] << " [options] <input.aiff> [output.mid]\n"
+         << "\nMain options:\n"
+         << "  -h [ --help ]             Print usage information.\n"
+         << "  -i [ --input ] arg        Input audio file path (AIFF, WAV, FLAC, "
+            "etc.).\n"
+         << "  -o [ --output ] arg       Output MIDI file path (.mid).\n"
+         << "  --window-size arg (=2048) FFT window size (power of 2, default: "
+            "2048).\n"
+         << "  --hop-size arg (=512)     Hop size between frames (default: 512).\n"
+         << "  --confidence arg (=0.5)   Pitch detection confidence threshold "
+            "(0.0–1.0,\n"
+         << "                            default: 0.5).\n"
+         << "  --silence arg (=-40)      Silence threshold in dB (default: -40).\n"
+         << "  --tempo arg (=120)        Tempo in BPM (default: 120).\n"
+         << "  --method arg (=yinfft)    Pitch detection method (default: "
+            "\"yinfft\").\n"
+         << "\n";
       return 0;
    }
 
-   // Validate arguments.
-   if (inputPath.empty() || outputPath.empty()) {
-      std::cerr << "Error: --input and --output are required.\n\n";
+   // Validate arguments: input is required; output defaults to <input>.mid.
+   if (inputPath.empty()) {
+      std::cerr << "Error: an input audio file is required.\n\n";
       printUsage(argv[0]);
       return 1;
+   }
+   if (outputPath.empty()) {
+      // Derive output path from input: replace extension with .mid.
+      auto dot = inputPath.rfind('.');
+      if (dot != std::string::npos) {
+         outputPath = inputPath.substr(0, dot) + ".mid";
+      } else {
+         outputPath = inputPath + ".mid";
+      }
    }
 
    // Validate window size (must be a power of 2).
