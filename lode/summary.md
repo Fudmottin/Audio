@@ -40,6 +40,16 @@ Audio/
 └── literate-programming.md # Knuth's philosophy, toolchain, source code for humans
 ```
 
+## Known Bugs (2026-09-20)
+
+- **`secondsToTicks` formula off by 60×** in `libaudio/src/midiFileWriter.cpp`:
+  divides by 60 twice, making all MIDI note times 60× too short.
+  Fix: `seconds × TICKS_PER_QUARTER_NOTE × (tempoBPM / 60.0)` (remove one division).
+- **Transcription quality**: Only 2 notes detected from a 30s Final Fantasy AIFF.
+  Suspected: thresholds too high, state machine flickering.
+- **ffprobe false positive**: Valid 71-byte MIDI files reported as "Invalid data".
+  ffprobe's probe buffer is too small for tiny valid MIDI files.
+
 ## Key Decisions
 
 - **Language**: C++20

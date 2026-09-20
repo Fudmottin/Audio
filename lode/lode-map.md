@@ -39,7 +39,8 @@
 
 | Document | Purpose |
 |----------|---------|
-| [summary.md](midicapture/summary.md) | Module overview, architecture, transcription pipeline, CLI interface |
+| [summary.md](midicapture/summary.md) | Module overview, architecture, transcription pipeline, CLI interface, **known bugs** |
+| [tmp/session-handoff-midicapture-diagnosis.md](tmp/session-handoff-midicapture-diagnosis.md) | Session diagnosis: secondsToTicks bug, transcription quality issues |
 
 ## Future Modules (Planned)
 

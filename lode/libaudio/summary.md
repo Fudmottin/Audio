@@ -1122,6 +1122,15 @@ The output of libaudio feeds into the HIR (see `hir.md`), which then produces bo
 
 **Key insight**: aubio's `aubio_notes_t` (note detection) alone can produce a reasonable monophonic transcription with onset + pitch + velocity + note-off in a single call. This makes Phase 0 achievable with relatively modest effort. Polyphonic transcription and pedal detection are harder problems that can be added in later phases.
 
+### Known Bugs (2026-09-20)
+
+**`secondsToTicks` formula off by 60×** in `MidiFileWriter::Impl::secondsToTicks()`
+(`libaudio/src/midiFileWriter.cpp`). The formula divides by 60 twice,
+producing results 60× too small. All MIDI note times are compressed into
+the first fraction of a second instead of their correct positions.
+
+See `lode/midicapture/summary.md` for details and fix.
+
 ### Cross-References
 
 - **libaudio/decisions.md** — Library choices, wrapper pattern, default parameters

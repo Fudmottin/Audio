@@ -56,22 +56,29 @@ struct MidiFileWriter::Impl {
    }
 
    // Write a variable-length integer (MIDI format).
+   //
+   // Domain context: MIDI variable-length integers are encoded
+   // least-significant 7-bit group first, with the high bit of
+   // each byte set except for the last byte. This is the opposite
+   // of big-endian byte order.
    static bool writeVarLen(FILE* f, uint32_t value) {
       std::vector<uint8_t> bytes;
       if (value == 0) {
          bytes.push_back(0);
       } else {
-         std::vector<uint8_t> reversed;
+         // Collect 7-bit groups (LSB first).
+         std::vector<uint8_t> groups;
          while (value > 0) {
-            reversed.push_back(static_cast<uint8_t>(value & 0x7F));
+            groups.push_back(static_cast<uint8_t>(value & 0x7F));
             value >>= 7;
          }
-         // Reverse and set continuation bits.
-         for (int i = static_cast<int>(reversed.size()) - 1; i >= 0; --i) {
-            if (i > 0) {
-               bytes.push_back(static_cast<uint8_t>(reversed[i] | 0x80));
+         // Write LSB first, setting continuation bit on all but the
+         // last (most significant) group.
+         for (size_t i = 0; i < groups.size(); ++i) {
+            if (i < groups.size() - 1) {
+               bytes.push_back(static_cast<uint8_t>(groups[i] | 0x80));
             } else {
-               bytes.push_back(reversed[i]);
+               bytes.push_back(groups[i]);
             }
          }
       }
@@ -79,11 +86,14 @@ struct MidiFileWriter::Impl {
    }
 
    // Convert seconds to MIDI ticks (480 ticks per quarter note).
+   //
+   // Domain context: The formula is seconds × ticksPerQuarterNote ×
+   // (tempoBPM / 60.0). Do NOT divide by 60 twice — that was a
+   // previous bug producing results 60× too small.
    static uint32_t secondsToTicks(double seconds, double tempoBpm) {
-      // ticks = seconds × (ticksPerQuarterNote / 60) × (tempoBPM / 60)
-      // With 480 ticks/qn and 120 BPM: ticks = seconds × 960
+      // ticks = seconds × 480 × (120 / 60) = seconds × 960
       uint32_t ticks = static_cast<uint32_t>(std::round(
-         seconds * (TICKS_PER_QUARTER_NOTE / 60.0) * (tempoBpm / 60.0)));
+         seconds * TICKS_PER_QUARTER_NOTE * (tempoBpm / 60.0)));
       return ticks;
    }
 
@@ -100,28 +110,8 @@ struct MidiFileWriter::Impl {
       events.push_back(note);
       events.push_back(64); // Default release velocity.
 
-      // Prepend delta-time.
-      std::vector<uint8_t> delta;
-      if (deltaTicks == 0) {
-         delta.push_back(0);
-      } else {
-         std::vector<uint8_t> reversed;
-         uint32_t val = deltaTicks;
-         while (val > 0) {
-            reversed.push_back(static_cast<uint8_t>(val & 0x7F));
-            val >>= 7;
-         }
-         for (int i = static_cast<int>(reversed.size()) - 1; i >= 0; --i) {
-            if (i > 0) {
-               delta.push_back(static_cast<uint8_t>(reversed[i] | 0x80));
-            } else {
-               delta.push_back(reversed[i]);
-            }
-         }
-      }
-
-      // Insert delta-time at the beginning.
-      events.insert(events.begin(), delta.begin(), delta.end());
+      // Prepend delta-time (MIDI variable-length integer, LSB first).
+      prependDeltaTime(events, deltaTicks);
    }
 
    // Build a Control Change event (no running status).
@@ -133,27 +123,8 @@ struct MidiFileWriter::Impl {
       events.push_back(controller);
       events.push_back(value);
 
-      // Prepend delta-time.
-      std::vector<uint8_t> delta;
-      if (deltaTicks == 0) {
-         delta.push_back(0);
-      } else {
-         std::vector<uint8_t> reversed;
-         uint32_t val = deltaTicks;
-         while (val > 0) {
-            reversed.push_back(static_cast<uint8_t>(val & 0x7F));
-            val >>= 7;
-         }
-         for (int i = static_cast<int>(reversed.size()) - 1; i >= 0; --i) {
-            if (i > 0) {
-               delta.push_back(static_cast<uint8_t>(reversed[i] | 0x80));
-            } else {
-               delta.push_back(reversed[i]);
-            }
-         }
-      }
-
-      events.insert(events.begin(), delta.begin(), delta.end());
+      // Prepend delta-time (MIDI variable-length integer, LSB first).
+      prependDeltaTime(events, deltaTicks);
    }
 
    // Build a Program Change event (no running status).
@@ -164,27 +135,8 @@ struct MidiFileWriter::Impl {
       events.push_back(static_cast<uint8_t>(0xC0 | (channel & 0x0F)));
       events.push_back(patch);
 
-      // Prepend delta-time.
-      std::vector<uint8_t> delta;
-      if (deltaTicks == 0) {
-         delta.push_back(0);
-      } else {
-         std::vector<uint8_t> reversed;
-         uint32_t val = deltaTicks;
-         while (val > 0) {
-            reversed.push_back(static_cast<uint8_t>(val & 0x7F));
-            val >>= 7;
-         }
-         for (int i = static_cast<int>(reversed.size()) - 1; i >= 0; --i) {
-            if (i > 0) {
-               delta.push_back(static_cast<uint8_t>(reversed[i] | 0x80));
-            } else {
-               delta.push_back(reversed[i]);
-            }
-         }
-      }
-
-      events.insert(events.begin(), delta.begin(), delta.end());
+      // Prepend delta-time (MIDI variable-length integer, LSB first).
+      prependDeltaTime(events, deltaTicks);
    }
 
    // Build a Set Tempo meta event (FF 51).
@@ -203,9 +155,39 @@ struct MidiFileWriter::Impl {
          static_cast<uint8_t>((microsecondsPerQuarterNote >> 8) & 0xFF));
       events.push_back(static_cast<uint8_t>(microsecondsPerQuarterNote & 0xFF));
 
-      // Prepend delta-time.
+      // Prepend delta-time (MIDI variable-length integer, LSB first).
+      prependDeltaTime(events, deltaTicks);
+   }
+
+   // Prepend a delta-time (MIDI variable-length integer) to events.
+   //
+   // Domain context: MIDI variable-length integers are encoded
+   // least-significant 7-bit group first, with the high bit of
+   // each byte set except for the last byte. This is the opposite
+   // of big-endian byte order.
+   static void prependDeltaTime(std::vector<uint8_t>& events,
+                               uint32_t deltaTicks) {
       std::vector<uint8_t> delta;
-      delta.push_back(0); // Delta = 0 (at the start of the track).
+      if (deltaTicks == 0) {
+         delta.push_back(0);
+      } else {
+         // Collect 7-bit groups (LSB first).
+         std::vector<uint8_t> groups;
+         uint32_t val = deltaTicks;
+         while (val > 0) {
+            groups.push_back(static_cast<uint8_t>(val & 0x7F));
+            val >>= 7;
+         }
+         // Write LSB first, setting continuation bit on all but the
+         // last (most significant) group.
+         for (size_t i = 0; i < groups.size(); ++i) {
+            if (i < groups.size() - 1) {
+               delta.push_back(static_cast<uint8_t>(groups[i] | 0x80));
+            } else {
+               delta.push_back(groups[i]);
+            }
+         }
+      }
       events.insert(events.begin(), delta.begin(), delta.end());
    }
 

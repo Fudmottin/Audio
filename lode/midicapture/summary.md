@@ -149,9 +149,51 @@ Requires: aubio, libsndfile, Boost (program_options).
 
 ---
 
-## 8. Cross-References
+## 8. Known Bugs (2026-09-20)
+
+### Bug: `secondsToTicks` formula off by 60×
+
+**File:** `libaudio/src/midiFileWriter.cpp`
+
+The formula divides by 60 twice:
+
+```cpp
+seconds * (TICKS_PER_QUARTER_NOTE / 60.0) * (tempoBPM / 60.0)
+// = seconds × (480/60) × (120/60) = seconds × 16  (WRONG)
+// Should be: seconds × (480 × 120/60) = seconds × 960
+```
+
+**Impact:** All MIDI note times are 60× too short. Notes at 5.7s appear
+at 91 ticks (0.095s correct time). The MIDI file is structurally valid
+but semantically wrong.
+
+**Fix:** Remove one division by 60:
+
+```cpp
+seconds * TICKS_PER_QUARTER_NOTE * (tempoBPM / 60.0)
+```
+
+### Bug: Transcription detects far too few notes
+
+Only 2 notes detected from a ~30s Final Fantasy AIFF (C2 and A#5),
+both with very low velocities (15 and 8). Suspected causes:
+- Onset detection threshold (default 0.2) too high for the recording
+- Confidence threshold (default 0.5) too high
+- State machine flickering creates duplicate NoteOn/NoteOff pairs
+- Stereo-to-mono downmix quality issues
+
+### Bug: `ffprobe` reports "Invalid data" on valid tiny MIDI files
+
+71-byte MIDI files are structurally valid but below ffprobe's probe
+buffer threshold. This is a false positive from ffprobe, not a real
+file error.
+
+---
+
+## 9. Cross-References
 
 - **libaudio**: `lode/libaudio/summary.md`, `lode/libaudio/decisions.md`, `lode/libaudio/hir.md`
 - **MIDI format**: `lode/MIDI.md`
 - **aiffcapture**: `lode/aiffcapture/summary.md`
+- **Session handoff**: `lode/tmp/session-handoff-midicapture-diagnosis.md`
 - **Project overview**: `lode/summary.md`

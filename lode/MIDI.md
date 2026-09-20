@@ -188,6 +188,21 @@ Example: with 480 ticks per quarter note:
 | 480 | 1.00 s (whole note) |
 | 720 | 1.50 s (dotted whole note) |
 
+### Converting Seconds to Ticks
+
+To convert an absolute time (in seconds) from the HIR to MIDI ticks:
+
+```
+ticks = round(seconds × ticksPerQuarterNote × (tempoBPM / 60.0))
+```
+
+With 480 ticks/qn and 120 BPM: `ticks = seconds × 960`.
+
+**Common pitfall:** Do NOT divide by 60 twice. The formula
+`seconds × (ticksPerQuarterNote / 60) × (tempoBPM / 60)` is wrong
+and produces results 60× too small. (This was a bug in the original
+implementation, fixed by removing one division.)
+
 ### Running Status
 
 If the channel byte does not change, it can be omitted, saving bytes. The last status byte is "running" until a new status byte appears.

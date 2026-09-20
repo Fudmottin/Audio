@@ -150,7 +150,8 @@ int main(int argc, char* argv[]) {
        "input,i", po::value<std::string>(&inputPath),
        "Input audio file path (AIFF, WAV, FLAC, etc.).")(
        "output,o", po::value<std::string>(&outputPath),
-       "Output MIDI file path (.mid).")(
+       "Output MIDI filename (.mid).  When omitted, the input"
+       " filename is reused with a .mid extension.")(
        "window-size",
        po::value<uint32_t>(&windowSize)->default_value(2048),
        "FFT window size (power of 2, default: 2048).")(
@@ -198,7 +199,8 @@ int main(int argc, char* argv[]) {
          << "  -h [ --help ]             Print usage information.\n"
          << "  -i [ --input ] arg        Input audio file path (AIFF, WAV, FLAC, "
             "etc.).\n"
-         << "  -o [ --output ] arg       Output MIDI file path (.mid).\n"
+         << "  -o [ --output ] arg       Output MIDI filename (.mid)."
+         "  When omitted, the input filename is reused.\n"
          << "  --window-size arg (=2048) FFT window size (power of 2, default: "
             "2048).\n"
          << "  --hop-size arg (=512)     Hop size between frames (default: 512).\n"
@@ -220,12 +222,18 @@ int main(int argc, char* argv[]) {
       return 1;
    }
    if (outputPath.empty()) {
-      // Derive output path from input: replace extension with .mid.
-      auto dot = inputPath.rfind('.');
+      // Derive output path from input: strip directory, replace
+      // extension with .mid.  This ensures the output goes into the
+      // current working directory (e.g., song.aiff → song.mid).
+      auto slash = inputPath.rfind('/');
+      std::string baseName = (slash != std::string::npos)
+         ? inputPath.substr(slash + 1)
+         : inputPath;
+      auto dot = baseName.rfind('.');
       if (dot != std::string::npos) {
-         outputPath = inputPath.substr(0, dot) + ".mid";
+         outputPath = baseName.substr(0, dot) + ".mid";
       } else {
-         outputPath = inputPath + ".mid";
+         outputPath = baseName + ".mid";
       }
    }
 
