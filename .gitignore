@@ -29,4 +29,5 @@ lode/tmp
 # Generated MIDI / audio outputs + vendored validation tool
 *.mid
 *.ogg
+*.aiff
 midicsv-1.1/
