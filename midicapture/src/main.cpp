@@ -93,6 +93,31 @@ static void printUsage(const char* programName) {
 }
 
 // ============================================================================
+// makeSanityScore — build the canonical single-note Score used by --test.
+//
+// Domain context: This is a fixed, input-independent note (middle C, velocity
+// 100, one second). It gives a stable round-trip target for validating the
+// MIDI writer and the midicsv/timidity toolchain without depending on the
+// (work-in-progress) transcription pipeline.
+// ============================================================================
+static Score makeSanityScore(double tempoBpm) {
+   Score score;
+   score.tempo = tempoBpm;
+   score.title = "midicapture sanity test";
+
+   Note note;
+   note.startTime = 0.0;
+   note.endTime = 1.0;  // one second
+   note.pitch = 60;  // middle C (C4)
+   note.velocity = 100;
+   note.channel = 0;  // channel 1 (Acoustic Grand Piano).
+   note.sustain = false;
+   score.notes.push_back(note);
+
+   return score;
+}
+
+// ============================================================================
 // main — Entry point for midicapture.
 //
 // Domain context: The program flow is:
@@ -134,6 +159,7 @@ int main(int argc, char* argv[]) {
    float silenceDb = -40.0f;
    double tempoBpm = 120.0;
    std::string pitchMethod = "yinfft";
+   bool testMode = false;
 
    // Define the options: name, type, description.
    namespace po = boost::program_options;
@@ -169,7 +195,9 @@ int main(int argc, char* argv[]) {
        "Tempo in BPM (default: 120).")(
        "method",
        po::value<std::string>(&pitchMethod)->default_value("yinfft"),
-       "Pitch detection method (default: \"yinfft\").");
+       "Pitch detection method (default: \"yinfft\").")("test,t",
+       "Sanity test: write a single middle-C note (C4, velocity 100, 1s)"
+       " regardless of the input audio contents (no analysis is run).");
 
    // Define positional options: <input.aiff> <output.mid>.
    po::positional_options_description positional;
@@ -191,6 +219,8 @@ int main(int argc, char* argv[]) {
       return 1;
    }
 
+   testMode = (vm.count("test") > 0);
+
    // Print a POSIX-style help message.
    if (vm.count("help")) {
       std::cout << "midicapture — audio-to-MIDI transcription\n\n"
@@ -211,29 +241,38 @@ int main(int argc, char* argv[]) {
          << "  --tempo arg (=120)        Tempo in BPM (default: 120).\n"
          << "  --method arg (=yinfft)    Pitch detection method (default: "
             "\"yinfft\").\n"
+         << "  -t [ --test ]             Sanity test: write a single middle-C"
+            " note (C4, velocity 100,\n"
+         << "                            1s) regardless of the input audio."
+            " No analysis is run.\n"
          << "\n";
       return 0;
    }
 
-   // Validate arguments: input is required; output defaults to <input>.mid.
-   if (inputPath.empty()) {
+   // Validate arguments: input is required unless in sanity-test mode.
+   if (inputPath.empty() && !testMode) {
       std::cerr << "Error: an input audio file is required.\n\n";
       printUsage(argv[0]);
       return 1;
    }
    if (outputPath.empty()) {
-      // Derive output path from input: strip directory, replace
-      // extension with .mid.  This ensures the output goes into the
-      // current working directory (e.g., song.aiff → song.mid).
-      auto slash = inputPath.rfind('/');
-      std::string baseName = (slash != std::string::npos)
-         ? inputPath.substr(slash + 1)
-         : inputPath;
-      auto dot = baseName.rfind('.');
-      if (dot != std::string::npos) {
-         outputPath = baseName.substr(0, dot) + ".mid";
+      if (inputPath.empty()) {
+         // Sanity-test mode with no input file: default output name.
+         outputPath = "midicapture-test.mid";
       } else {
-         outputPath = baseName + ".mid";
+         // Derive output path from input: strip directory, replace
+         // extension with .mid.  This ensures the output goes into the
+         // current working directory (e.g., song.aiff → song.mid).
+         auto slash = inputPath.rfind('/');
+         std::string baseName = (slash != std::string::npos)
+            ? inputPath.substr(slash + 1)
+            : inputPath;
+         auto dot = baseName.rfind('.');
+         if (dot != std::string::npos) {
+            outputPath = baseName.substr(0, dot) + ".mid";
+         } else {
+            outputPath = baseName + ".mid";
+         }
       }
    }
 
@@ -266,6 +305,29 @@ int main(int argc, char* argv[]) {
 
    std::cout << "midicapture — audio-to-MIDI transcription (monophonic prototype)\n";
    std::cout << "============================================================\n\n";
+
+   // ---- Sanity-test mode: write a known single note, skip all analysis. ----
+   // The output is identical for every input, so it doubles as a stable
+   // round-trip target for validating the MIDI writer + midicsv/timidity.
+   if (testMode) {
+      std::cout << "Mode: SANITY TEST (input audio contents ignored)\n\n";
+      Score score = makeSanityScore(tempoBpm);
+      std::cout << "  Note: middle C (C4, MIDI note 60), velocity 100,"
+         " 1.0 second.\n";
+      std::cout << "\nWriting MIDI file: " << outputPath << "\n";
+
+      MidiFileWriter midiWriter(outputPath);
+      if (midiWriter.write(score)) {
+         std::cout << "Wrote " << midiWriter.bytesWritten() << " bytes.\n";
+         std::cout << "Validate: midicsv " << outputPath
+            << "   (or: timidity -Ow " << outputPath << ")\n";
+         std::cout << "Done.\n";
+      } else {
+         std::cerr << "Error: Failed to write MIDI file.\n";
+         return 1;
+      }
+      return 0;
+   }
 
    try {
       AudioFile audioReader(inputPath);

@@ -414,7 +414,7 @@ Header:  MThd  000006  Format:1  Tracks:2  Division:480
 
 Track 0 (Tempo + Piano):
   00  MTrk  [data]
-    00  FF 51 03 0C 42 A0    // t=0, 120 BPM (500,000 µs/qn)
+    00  FF 51 03 07 A1 20    // t=0, 120 BPM (500,000 µs/qn)
     00  FF 3B 01 48 00        // t=0, tempo name: "Allegro"
     00  90 3C 64              // t=0, ch1, C4 (60), vel 100
    240  80 3C 40              // t=0.5s, ch1, C4 off, vel 64
@@ -484,6 +484,12 @@ Track 1 (Bass):
 | **Qtractor** | Linux | MIDI sequencer |
 | **Ardour** | C++ | DAW with MIDI support |
 | **MIDIFlow** | Java | MIDI file parsing/generation |
+| **midicsv** | C | MIDI file → CSV; primary *structural* validator for `midicapture` |
+
+> **Validation decision (midicapture):** validate generated MIDI with
+> **`midicsv`** (structural parse) and **`timidity`** (render to WAV, confirm
+> `Notes lost totally: 0`) — **not** `ffprobe`, which is unreliable for small
+> files. See [midicapture/writer.md](midicapture/writer.md) §7.
 
 ---
 

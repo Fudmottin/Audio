@@ -100,9 +100,10 @@ Transitions:
 
 ## 6. CLI Interface
 
-`--input` / `-i` and `--output` / `-o` are both optional. When `--input` is
-provided without `--output`, the output path defaults to `<input>.mid` (extension
-replaced).
+An input file is required, **except** in `--test` mode (which needs none).
+When `--input` is given without `--output`, the output path defaults to
+`<input>.mid` (extension replaced); in `--test` mode with no input it
+defaults to `midicapture-test.mid`.
 
 `--help` prints a POSIX-style help message with a `Usage:` line and exits — no
 input file required.
@@ -123,6 +124,8 @@ Main options:
   --silence arg (=-40)      Silence threshold in dB (default: -40).
   --tempo arg (=120)        Tempo in BPM (default: 120).
   --method arg (=yinfft)    Pitch detection method (default: "yinfft").
+  -t [ --test ]             Sanity test: write a single middle-C note
+                            (C4, velocity 100, 1s) regardless of input.
 ```
 
 Examples:
@@ -132,6 +135,8 @@ midicapture song.aiff output.mid               # explicit output
 midicapture -i song.aiff                       # → song.mid
 midicapture --input song.aiff --output out.mid # explicit output
 midicapture --help                             # usage only
+midicapture --test song.aiff                   # fixed sanity note -> song.mid
+midicapture -t --output sanity.mid             # sanity note, no input needed
 ```
 
 ---
@@ -149,50 +154,39 @@ Requires: aubio, libsndfile, Boost (program_options).
 
 ---
 
-## 8. Known Bugs (2026-09-20)
+## 8. Validation & Known Issues
 
-### Bug: `secondsToTicks` formula off by 60×
+The writer is **validated, not a bug** — see [writer.md](writer.md). What
+remains open is transcription quality.
 
-**File:** `libaudio/src/midiFileWriter.cpp`
+### Validation toolchain (decided: not ffprobe)
 
-The formula divides by 60 twice:
+`ffprobe` is **not** authoritative for small MIDI files — it reports
+"Invalid data" on valid ones. We validate with:
+- **`midicsv <file>`** — parses to CSV; a clean parse = structurally valid.
+- **`timidity -Ow out.wav <file>`** — renders audio; `Notes lost totally: 0`
+  and a correctly-timed note = semantically valid.
 
-```cpp
-seconds * (TICKS_PER_QUARTER_NOTE / 60.0) * (tempoBPM / 60.0)
-// = seconds × (480/60) × (120/60) = seconds × 16  (WRONG)
-// Should be: seconds × (480 × 120/60) = seconds × 960
-```
+The writer round-trips cleanly through both (53-byte `--test` file;
+clean 62-byte real-transcription file on `aiffcapture/final-fantasy.aiff`).
 
-**Impact:** All MIDI note times are 60× too short. Notes at 5.7s appear
-at 91 ticks (0.095s correct time). The MIDI file is structurally valid
-but semantically wrong.
+### Open: transcription detects far too few notes (WIP)
 
-**Fix:** Remove one division by 60:
+Only ~2 notes are detected from a ~30 s Final Fantasy AIFF (C2, A#5),
+both with very low velocities. Suspected causes:
+- Onset detection (spectral flux) threshold mis-tuned for this recording
+- Pitch confidence threshold (0.5) too high
+- IDLE/PLAYING state-machine flickering
+- Stereo-to-mono downmix quality
 
-```cpp
-seconds * TICKS_PER_QUARTER_NOTE * (tempoBPM / 60.0)
-```
-
-### Bug: Transcription detects far too few notes
-
-Only 2 notes detected from a ~30s Final Fantasy AIFF (C2 and A#5),
-both with very low velocities (15 and 8). Suspected causes:
-- Onset detection threshold (default 0.2) too high for the recording
-- Confidence threshold (default 0.5) too high
-- State machine flickering creates duplicate NoteOn/NoteOff pairs
-- Stereo-to-mono downmix quality issues
-
-### Bug: `ffprobe` reports "Invalid data" on valid tiny MIDI files
-
-71-byte MIDI files are structurally valid but below ffprobe's probe
-buffer threshold. This is a false positive from ffprobe, not a real
-file error.
+This is a **separate** issue from writer validity, which is now solved.
 
 ---
 
 ## 9. Cross-References
 
 - **libaudio**: `lode/libaudio/summary.md`, `lode/libaudio/decisions.md`, `lode/libaudio/hir.md`
+- **MIDI writer**: `lode/midicapture/writer.md` (SMF byte layout, invariants, `--test` flag, midicsv/timidity validation)
 - **MIDI format**: `lode/MIDI.md`
 - **aiffcapture**: `lode/aiffcapture/summary.md`
 - **Session handoff**: `lode/tmp/session-handoff-midicapture-diagnosis.md`

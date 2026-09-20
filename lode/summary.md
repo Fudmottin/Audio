@@ -40,15 +40,17 @@ Audio/
 └── literate-programming.md # Knuth's philosophy, toolchain, source code for humans
 ```
 
-## Known Bugs (2026-09-20)
+## Current State (midicapture)
 
-- **`secondsToTicks` formula off by 60×** in `libaudio/src/midiFileWriter.cpp`:
-  divides by 60 twice, making all MIDI note times 60× too short.
-  Fix: `seconds × TICKS_PER_QUARTER_NOTE × (tempoBPM / 60.0)` (remove one division).
-- **Transcription quality**: Only 2 notes detected from a 30s Final Fantasy AIFF.
-  Suspected: thresholds too high, state machine flickering.
-- **ffprobe false positive**: Valid 71-byte MIDI files reported as "Invalid data".
-  ffprobe's probe buffer is too small for tiny valid MIDI files.
+- **MIDI writer — validated.** The writer emits well-formed Type 1 SMF files
+  that round-trip cleanly through **`midicsv`** (structural parse) and
+  **`timidity`** (render to WAV). A `--test` flag writes a fixed single note
+  (middle C, vel 100, 1 s) as a stable regression target. No practical
+  note-count limit. See [midicapture/writer.md](midicapture/writer.md).
+  *`ffprobe` is not a reliable validator for small MIDI files — use the above.*
+- **Transcription — still WIP (open).** The monophonic pipeline detects only
+  ~2 notes from a ~30 s recording. Threshold tuning and state-machine stability
+  remain open; this is independent of (now-solved) writer validity.
 
 ## Key Decisions
 

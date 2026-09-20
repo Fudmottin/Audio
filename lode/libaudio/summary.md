@@ -1122,18 +1122,21 @@ The output of libaudio feeds into the HIR (see `hir.md`), which then produces bo
 
 **Key insight**: aubio's `aubio_notes_t` (note detection) alone can produce a reasonable monophonic transcription with onset + pitch + velocity + note-off in a single call. This makes Phase 0 achievable with relatively modest effort. Polyphonic transcription and pedal detection are harder problems that can be added in later phases.
 
-### Known Bugs (2026-09-20)
+### MIDI Writer (`MidiFileWriter`) — current state
 
-**`secondsToTicks` formula off by 60×** in `MidiFileWriter::Impl::secondsToTicks()`
-(`libaudio/src/midiFileWriter.cpp`). The formula divides by 60 twice,
-producing results 60× too small. All MIDI note times are compressed into
-the first fraction of a second instead of their correct positions.
+The writer (`libaudio/src/midiFileWriter.cpp`) is a **renderer** that turns a
+`Score` into a well-formed **Type 1 SMF** (480 ticks/qn). It guarantees a
+valid file for **any** score (even zero notes) and round-trips cleanly through
+`midicsv` / `timidity` — validation no longer relies on `ffprobe`. `write()`
+flushes via `fclose` on success (the fix that made unit tests pass).
 
-See `lode/midicapture/summary.md` for details and fix.
+See `lode/midicapture/writer.md` for the byte layout, the 8 invariants it
+enforces, the `--test` sanity flag, and the validation toolchain.
 
 ### Cross-References
 
 - **libaudio/decisions.md** — Library choices, wrapper pattern, default parameters
 - **libaudio/hir.md** — HIR data structures (Note, ControlEvent, Score)
 - **MIDI.md** — MIDI file format (SMF), MIDI writer design
+- **midicapture/writer.md** — SMF writer: byte layout, invariants, `--test` flag, midicsv/timidity validation
 - **LilyPond.md** — LilyPond notation, LilyPond exporter design

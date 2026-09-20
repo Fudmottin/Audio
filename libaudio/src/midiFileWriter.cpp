@@ -1,36 +1,44 @@
 /**
  * @file midiFileWriter.cpp
- * @brief Implementation of MidiFileWriter — write HIR to Standard MIDI File.
+ * @brief Implementation of MidiFileWriter — write a Score (HIR) to a
+ *        Standard MIDI File (Type 1, 480 ticks per quarter note).
  *
- * This module writes a Score (HIR) to a Type 1 Standard MIDI File (SMF)
- * with 480 ticks per quarter note, compatible with Apple Logic Pro.
+ * This module is a *renderer*: it converts the HIR `Score` into a binary
+ * SMF. Correctness is the whole job — a Score must always produce a file
+ * that external tools (midicsv, timidity, Logic Pro) can parse and play,
+ * regardless of how many notes it contains (even zero).
  *
+ * Invariants (see lode/midicapture/summary.md):
+ * - Every event is preceded by a variable-length delta-time (>= 0).
+ * - Channel events always include a status byte (no running status).
+ * - Multi-byte fields are big-endian; the `MTrk` length equals the actual
+ *   number of event bytes that follow.
+ * - Each note emits exactly one Note On and one Note Off.
+ * - The track always ends with an End-of-Track meta event (FF 2F 00).
  */
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
-#include <cstring>
 #include <libaudio/hir.h>
 #include <libaudio/midiFileWriter.h>
-#include <numeric>
 #include <string>
 #include <vector>
 
 // ============================================================================
 // MidiFileWriter::Impl — Private implementation (Pimpl pattern).
 //
-// Domain context: All MIDI file format logic is isolated here. The public
-// interface never exposes FILE* or binary format details.
-//
-// RAII — the file handle is automatically closed when
-// the Impl is destroyed.
+// All SMF byte-format logic is isolated here. The public interface never
+// exposes FILE* or binary details. RAII: the file handle is closed when the
+// Impl is destroyed, so write() can return early on failure without leaks.
 // ============================================================================
 struct MidiFileWriter::Impl {
+   static constexpr uint16_t TICKS_PER_QUARTER_NOTE = 480;
+
    FILE* file = nullptr;
    std::string outputPath;
    uint64_t bytesWritten_ = 0;
-   static constexpr uint16_t TICKS_PER_QUARTER_NOTE = 480;
 
    ~Impl() {
       if (file) {
@@ -39,14 +47,16 @@ struct MidiFileWriter::Impl {
       }
    }
 
-   // Write a big-endian uint16.
+   // ------------------------------------------------------------------
+   // Big-endian primitives.
+   // ------------------------------------------------------------------
+
    static bool writeUint16(FILE* f, uint16_t value) {
       uint8_t bytes[2] = {static_cast<uint8_t>((value >> 8) & 0xFF),
                           static_cast<uint8_t>(value & 0xFF)};
       return fwrite(bytes, 2, 1, f) == 1;
    }
 
-   // Write a big-endian uint32.
    static bool writeUint32(FILE* f, uint32_t value) {
       uint8_t bytes[4] = {static_cast<uint8_t>((value >> 24) & 0xFF),
                           static_cast<uint8_t>((value >> 16) & 0xFF),
@@ -55,173 +65,176 @@ struct MidiFileWriter::Impl {
       return fwrite(bytes, 4, 1, f) == 1;
    }
 
-   // Write a variable-length integer (MIDI format).
+   // ------------------------------------------------------------------
+   // Variable-length integer (MIDI delta-times).
    //
-   // Domain context: MIDI variable-length integers are encoded
-   // least-significant 7-bit group first, with the high bit of
-   // each byte set except for the last byte. This is the opposite
-   // of big-endian byte order.
-   static bool writeVarLen(FILE* f, uint32_t value) {
-      std::vector<uint8_t> bytes;
+   // Each byte carries 7 data bits with the high bit as a continuation
+   // flag. Groups are written most-significant first, so the final byte
+   // (least significant group) has the continuation bit cleared.
+   // ------------------------------------------------------------------
+   static void appendVarLen(std::vector<uint8_t>& out, uint32_t value) {
+      std::vector<uint8_t> groups;
       if (value == 0) {
-         bytes.push_back(0);
+         groups.push_back(0);
       } else {
-         // Collect 7-bit groups (LSB first).
-         std::vector<uint8_t> groups;
-         while (value > 0) {
-            groups.push_back(static_cast<uint8_t>(value & 0x7F));
-            value >>= 7;
+         uint32_t v = value;
+         while (v > 0) {
+            groups.push_back(static_cast<uint8_t>(v & 0x7F));
+            v >>= 7;
          }
-         // Write LSB first, setting continuation bit on all but the
-         // last (most significant) group.
-         for (size_t i = 0; i < groups.size(); ++i) {
-            if (i < groups.size() - 1) {
-               bytes.push_back(static_cast<uint8_t>(groups[i] | 0x80));
-            } else {
-               bytes.push_back(groups[i]);
-            }
+         std::reverse(groups.begin(), groups.end());  // MSB group first.
+      }
+      for (size_t i = 0; i < groups.size(); ++i) {
+         if (i + 1 < groups.size()) {
+            out.push_back(static_cast<uint8_t>(groups[i] | 0x80));
+         } else {
+            out.push_back(groups[i]);
          }
       }
-      return fwrite(bytes.data(), 1, bytes.size(), f) == bytes.size();
    }
 
-   // Convert seconds to MIDI ticks (480 ticks per quarter note).
-   //
-   // Domain context: The formula is seconds × ticksPerQuarterNote ×
-   // (tempoBPM / 60.0). Do NOT divide by 60 twice — that was a
-   // previous bug producing results 60× too small.
+   // Append a full event: [delta-time varlen][payload bytes].
+   static void emit(std::vector<uint8_t>& track, uint32_t deltaTicks,
+                    std::vector<uint8_t> payload) {
+      appendVarLen(track, deltaTicks);
+      for (uint8_t b : payload) {
+         track.push_back(b);
+      }
+   }
+
+   // ------------------------------------------------------------------
+   // Timing and range helpers.
+   // ------------------------------------------------------------------
+
+   // Convert seconds to MIDI ticks: seconds * ticksPerQuarterNote * (bpm/60).
+   // With 480 ticks/qn and 120 BPM this is seconds * 960.
    static uint32_t secondsToTicks(double seconds, double tempoBpm) {
-      // ticks = seconds × 480 × (120 / 60) = seconds × 960
-      uint32_t ticks = static_cast<uint32_t>(std::round(
-         seconds * TICKS_PER_QUARTER_NOTE * (tempoBpm / 60.0)));
-      return ticks;
+      if (seconds <= 0.0) {
+         return 0;
+      }
+      double ticks = seconds * static_cast<double>(TICKS_PER_QUARTER_NOTE) *
+                     (tempoBpm / 60.0);
+      return static_cast<uint32_t>(std::llround(ticks));
    }
 
-   // Build MIDI event data for a single note (Note On + Note Off).
-   static void buildNoteEvent(std::vector<uint8_t>& events, uint32_t deltaTicks,
-                              uint8_t note, uint8_t velocity, uint8_t channel) {
-      // Note On event (9n nn vv) — no running status.
-      events.push_back(static_cast<uint8_t>(0x90 | (channel & 0x0F)));
-      events.push_back(note);
-      events.push_back(velocity);
+   static uint8_t clamp7(uint8_t value) { return value & 0x7F; }
 
-      // Note Off event (8n nn) — no running status.
-      events.push_back(static_cast<uint8_t>(0x80 | (channel & 0x0F)));
-      events.push_back(note);
-      events.push_back(64); // Default release velocity.
+   // ------------------------------------------------------------------
+   // Event payload builders (no delta; the delta is added by emit()).
+   // No running status — every event carries its own status byte.
+   // ------------------------------------------------------------------
 
-      // Prepend delta-time (MIDI variable-length integer, LSB first).
-      prependDeltaTime(events, deltaTicks);
+   static std::vector<uint8_t> noteOn(uint8_t pitch, uint8_t velocity,
+                                      uint8_t channel) {
+      return {static_cast<uint8_t>(0x90 | (channel & 0x0F)), pitch, velocity};
    }
 
-   // Build a Control Change event (no running status).
-   static void buildCcEvent(std::vector<uint8_t>& events, uint32_t deltaTicks,
-                            uint8_t controller, uint8_t value,
-                            uint8_t channel) {
-      // Control Change event (Bn cc vv) — no running status.
-      events.push_back(static_cast<uint8_t>(0xB0 | (channel & 0x0F)));
-      events.push_back(controller);
-      events.push_back(value);
-
-      // Prepend delta-time (MIDI variable-length integer, LSB first).
-      prependDeltaTime(events, deltaTicks);
-   }
-
-   // Build a Program Change event (no running status).
-   static void buildProgramChangeEvent(std::vector<uint8_t>& events,
-                                       uint32_t deltaTicks, uint8_t patch,
+   static std::vector<uint8_t> noteOff(uint8_t pitch, uint8_t velocity,
                                        uint8_t channel) {
-      // Program Change event (Cn pp) — no running status.
-      events.push_back(static_cast<uint8_t>(0xC0 | (channel & 0x0F)));
-      events.push_back(patch);
-
-      // Prepend delta-time (MIDI variable-length integer, LSB first).
-      prependDeltaTime(events, deltaTicks);
+      return {static_cast<uint8_t>(0x80 | (channel & 0x0F)), pitch, velocity};
    }
 
-   // Build a Set Tempo meta event (FF 51).
-   static void buildSetTempoEvent(std::vector<uint8_t>& events,
-                                  uint32_t deltaTicks, double tempoBpm) {
-      // Set Tempo meta event (FF 51 03 t1 t2 t3).
-      uint32_t microsecondsPerQuarterNote =
-         static_cast<uint32_t>(60000000.0 / tempoBpm);
-
-      events.push_back(0xFF);
-      events.push_back(0x51);
-      events.push_back(0x03); // 3 data bytes.
-      events.push_back(
-         static_cast<uint8_t>((microsecondsPerQuarterNote >> 16) & 0xFF));
-      events.push_back(
-         static_cast<uint8_t>((microsecondsPerQuarterNote >> 8) & 0xFF));
-      events.push_back(static_cast<uint8_t>(microsecondsPerQuarterNote & 0xFF));
-
-      // Prepend delta-time (MIDI variable-length integer, LSB first).
-      prependDeltaTime(events, deltaTicks);
+   static std::vector<uint8_t> controlChange(uint8_t controller, uint8_t value,
+                                             uint8_t channel) {
+      return {static_cast<uint8_t>(0xB0 | (channel & 0x0F)), controller, value};
    }
 
-   // Prepend a delta-time (MIDI variable-length integer) to events.
-   //
-   // Domain context: MIDI variable-length integers are encoded
-   // least-significant 7-bit group first, with the high bit of
-   // each byte set except for the last byte. This is the opposite
-   // of big-endian byte order.
-   static void prependDeltaTime(std::vector<uint8_t>& events,
-                               uint32_t deltaTicks) {
-      std::vector<uint8_t> delta;
-      if (deltaTicks == 0) {
-         delta.push_back(0);
-      } else {
-         // Collect 7-bit groups (LSB first).
-         std::vector<uint8_t> groups;
-         uint32_t val = deltaTicks;
-         while (val > 0) {
-            groups.push_back(static_cast<uint8_t>(val & 0x7F));
-            val >>= 7;
+   static std::vector<uint8_t> programChange(uint8_t patch, uint8_t channel) {
+      return {static_cast<uint8_t>(0xC0 | (channel & 0x0F)), patch};
+   }
+
+   // Set Tempo meta event (FF 51 03). Tempo is encoded as
+   // microseconds per quarter note = 60,000,000 / bpm.
+   static std::vector<uint8_t> setTempo(double tempoBpm) {
+      double bpm = (tempoBpm > 0.0) ? tempoBpm : 120.0;
+      uint32_t microseconds =
+         static_cast<uint32_t>(std::llround(60000000.0 / bpm));
+      return {0xFF, 0x51, 0x03,
+              static_cast<uint8_t>((microseconds >> 16) & 0xFF),
+              static_cast<uint8_t>((microseconds >> 8) & 0xFF),
+              static_cast<uint8_t>(microseconds & 0xFF)};
+   }
+
+   static std::vector<uint8_t> endOfTrack() { return {0xFF, 0x2F, 0x00}; }
+
+   // ------------------------------------------------------------------
+   // buildTrack — assemble the full event byte stream for a Score.
+   // ------------------------------------------------------------------
+   static std::vector<uint8_t> buildTrack(const Score& score) {
+      std::vector<uint8_t> track;
+      const double tempo = score.tempo;
+      uint32_t lastTick = 0;
+
+      // t=0 scaffolding: tempo, program (Acoustic Grand), sustain on.
+      emit(track, 0, setTempo(tempo));
+      emit(track, 0, programChange(0, 0));
+      emit(track, 0, controlChange(64, 127, 0));
+
+      // Notes, sorted by start time. Each emits exactly one Note On
+      // followed by one Note Off.
+      std::vector<Note> notes = score.notes;
+      std::sort(notes.begin(), notes.end(),
+                 [](const Note& a, const Note& b) {
+                    return a.startTime < b.startTime;
+                 });
+
+      for (const Note& note : notes) {
+         uint8_t pitch = clamp7(note.pitch);
+         // A Note On with velocity 0 is a "silent note off" by the MIDI
+         // spec; enforce a minimum of 1 so a detected note always sounds.
+         uint8_t velocity = static_cast<uint8_t>(
+            std::min(127u, std::max(1u, static_cast<unsigned>(note.velocity))));
+         uint8_t channel = note.channel & 0x0F;
+
+         uint32_t onTick = secondsToTicks(note.startTime, tempo);
+         uint32_t offTick = secondsToTicks(note.endTime, tempo);
+         if (offTick <= onTick) {
+            offTick = onTick + 1;  // Guarantee a non-zero-length note.
          }
-         // Write LSB first, setting continuation bit on all but the
-         // last (most significant) group.
-         for (size_t i = 0; i < groups.size(); ++i) {
-            if (i < groups.size() - 1) {
-               delta.push_back(static_cast<uint8_t>(groups[i] | 0x80));
-            } else {
-               delta.push_back(groups[i]);
-            }
+
+         uint32_t onDelta =
+            (onTick > lastTick) ? (onTick - lastTick) : 0;
+         emit(track, onDelta, noteOn(pitch, velocity, channel));
+
+         uint32_t offDelta = (offTick > onTick) ? (offTick - onTick) : 0;
+         emit(track, offDelta, noteOff(pitch, velocity, channel));
+
+         if (offTick > lastTick) {
+            lastTick = offTick;  // Keep the timeline monotonic.
          }
       }
-      events.insert(events.begin(), delta.begin(), delta.end());
-   }
 
-   // Build an End of Track meta event (FF 2F 00).
-   static void buildEndOfTrack(std::vector<uint8_t>& events) {
-      events.push_back(0xFF);
-      events.push_back(0x2F);
-      events.push_back(0x00);
-   }
-
-   // Write a track chunk.
-   static bool writeTrack(FILE* f, const std::vector<uint8_t>& trackData) {
-      // Write "MTrk" header + variable-length length + data.
-      const char mtrkId[4] = {'M', 'T', 'r', 'k'};
-      if (fwrite(mtrkId, 4, 1, f) != 1) {
-         return false;
+      // Score control events (pedals, etc.), sorted by time.
+      std::vector<ControlEvent> controls = score.controls;
+      std::sort(controls.begin(), controls.end(),
+                 [](const ControlEvent& a, const ControlEvent& b) {
+                    return a.time < b.time;
+                 });
+      for (const ControlEvent& control : controls) {
+         uint32_t tick = secondsToTicks(control.time, tempo);
+         uint32_t delta = (tick > lastTick) ? (tick - lastTick) : 0;
+         emit(track, delta,
+              controlChange(clamp7(control.controller), clamp7(control.value),
+                            0));
+         if (tick > lastTick) {
+            lastTick = tick;
+         }
       }
 
-      uint32_t trackLength = static_cast<uint32_t>(trackData.size());
-      return writeUint32(f, trackLength) &&
-             fwrite(trackData.data(), 1, trackLength, f) == trackLength;
+      // Release the sustain pedal, then terminate the track.
+      emit(track, 0, controlChange(64, 0, 0));
+      emit(track, 0, endOfTrack());
+
+      return track;
    }
 };
 
 // ============================================================================
-// MidiFileWriter implementation
-// RAII resource management — file handle is released
-// automatically when the C++ object is destroyed.
+// MidiFileWriter — public API implementation.
 // ============================================================================
 
 MidiFileWriter::MidiFileWriter(std::string_view path)
    : impl_(std::make_unique<Impl>()) {
-   // Open the output file for writing.
-
    impl_->outputPath = std::string(path);
 }
 
@@ -241,138 +254,65 @@ MidiFileWriter& MidiFileWriter::operator=(MidiFileWriter&& other) noexcept {
 }
 
 bool MidiFileWriter::write(const Score& score) {
-   // Write a Score (HIR) to a MIDI file.
-   // All variables with initializers are declared
-   // before any goto that could skip them (C.118).
-
-   // Open the output file.
+   // Open the output file for binary writing.
    FILE* f = fopen(impl_->outputPath.c_str(), "wb");
    if (f == nullptr) {
       return false;
    }
+   impl_->file = f;  // Owned; closed in the Impl destructor on any path.
 
-   impl_->file = f;
-
-   // Build track 0 data (piano track).
-   // Moved before the header-writing goto points to avoid jumping
-   // past variable initializations.
-   std::vector<uint8_t> trackData;
-   std::vector<Note> sortedNotes = score.notes;
-   std::sort(sortedNotes.begin(), sortedNotes.end(),
-             [](const Note& a, const Note& b) {
-                return a.startTime < b.startTime;
-             });
-   uint32_t lastTick = 0;
-
-   // Write the MIDI header (14 bytes).
-   // Format: 1 (Type 1), Num tracks: 1, Division: 480 ticks/qn.
-   const char mthdId[4] = {'M', 'T', 'h', 'd'};
+   // Header chunk: "MThd" + length(6) + format(1) + ntrks(1) + division(480).
+   const uint8_t mthdId[] = {'M', 'T', 'h', 'd'};
    if (fwrite(mthdId, 4, 1, f) != 1) {
-      goto error;
+      return false;
    }
-   if (!Impl::writeUint32(f, 6)) { // Header chunk length = 6 bytes.
-      goto error;
+   if (!Impl::writeUint32(f, 6)) {
+      return false;
    }
-   if (!Impl::writeUint16(f, 1)) { // Format: 1 (multi-track).
-      goto error;
+   if (!Impl::writeUint16(f, 1)) {  // Format: 1 (multi-track).
+      return false;
    }
-   if (!Impl::writeUint16(f, 1)) { // Number of tracks: 1.
-      goto error;
+   if (!Impl::writeUint16(f, 1)) {  // Number of tracks: 1.
+      return false;
    }
    if (!Impl::writeUint16(f, Impl::TICKS_PER_QUARTER_NOTE)) {
-      // Division: 480 ticks per quarter note (Logic Pro default).
-      goto error;
+      return false;  // Division: 480 ticks per quarter note.
    }
 
-   // Set Tempo meta event (at t=0).
-   Impl::buildSetTempoEvent(trackData, 0, score.tempo);
+   // Track chunk: "MTrk" + length + event bytes. The length must equal the
+   // number of event bytes that actually follow.
+   const std::vector<uint8_t> track = Impl::buildTrack(score);
 
-   // Program Change to Acoustic Grand Piano (patch 0)
-   // on channel 0 (at t=0).
-   Impl::buildProgramChangeEvent(trackData, 0, 0, 0);
-
-   // Sustain pedal ON (CC#64 = 127) at t=0.
-   Impl::buildCcEvent(trackData, 0, 64, 127, 0);
-
-   // Write all notes as Note On + Note Off events.
-   for (const auto& note : sortedNotes) {
-      uint32_t noteOnTick = Impl::secondsToTicks(note.startTime, score.tempo);
-      uint32_t noteOffTick = Impl::secondsToTicks(note.endTime, score.tempo);
-
-      // Clamp pitch to valid piano range (21–108).
-      uint8_t pitch = static_cast<uint8_t>(
-         std::max(21u, std::min(108u, static_cast<unsigned>(note.pitch))));
-
-      // Clamp velocity to valid range (1–127).
-      uint8_t velocity = static_cast<uint8_t>(
-         std::max(1u, std::min(127u, static_cast<unsigned>(note.velocity))));
-
-      // Compute delta-time (non-negative).
-      uint32_t deltaTicks =
-         std::max(0u, static_cast<unsigned>(noteOnTick - lastTick));
-
-      Impl::buildNoteEvent(trackData, deltaTicks, pitch, velocity,
-                           note.channel);
-
-      // Compute note-off delta-time.
-      uint32_t noteOffDelta =
-         std::max(0u, static_cast<unsigned>(noteOffTick - noteOnTick));
-
-      Impl::buildNoteEvent(trackData, noteOffDelta, pitch, velocity,
-                           note.channel);
-
-      lastTick = noteOffTick;
+   const uint8_t mtrkId[] = {'M', 'T', 'r', 'k'};
+   if (fwrite(mtrkId, 4, 1, f) != 1) {
+      return false;
+   }
+   if (!Impl::writeUint32(f, static_cast<uint32_t>(track.size()))) {
+      return false;
+   }
+   if (!track.empty() &&
+       fwrite(track.data(), 1, track.size(), f) != track.size()) {
+      return false;
    }
 
-   // Write sustain pedal OFF (CC#64 = 0) at the end.
-   Impl::buildCcEvent(trackData, 0, 64, 0, 0);
+   // Total file size = 14 (header chunk) + 8 (MTrk id + length) + events.
+   impl_->bytesWritten_ = 14 + 8 + static_cast<uint64_t>(track.size());
 
-   // Write all control events from the Score.
-   for (const auto& ctrl : score.controls) {
-      uint32_t ctrlTick = Impl::secondsToTicks(ctrl.time, score.tempo);
-
-      // Clamp controller and value to valid ranges.
-      uint8_t controller = static_cast<uint8_t>(
-         std::max(0u, std::min(127u, static_cast<unsigned>(ctrl.controller))));
-      uint8_t value = static_cast<uint8_t>(
-         std::max(0u, std::min(127u, static_cast<unsigned>(ctrl.value))));
-
-      // Compute delta-time (non-negative).
-      uint32_t deltaTicks =
-         std::max(0u, static_cast<unsigned>(ctrlTick - lastTick));
-
-      Impl::buildCcEvent(trackData, deltaTicks, controller, value, 0);
-
-      lastTick = ctrlTick;
+   // The file is complete. fclose flushes the stdio buffer to disk and
+   // releases the handle. On success we clear impl_->file so the destructor
+   // does not close it a second time. On failure we keep it owned by impl_
+   // so the destructor closes the (partial) file.
+   if (fclose(f) != 0) {
+      return false;
    }
-
-   // End of Track marker.
-   Impl::buildEndOfTrack(trackData);
-
-   // Write the track chunk.
-   if (!Impl::writeTrack(f, trackData)) {
-      goto error;
-   }
-
-   // Close the file.
-   impl_->bytesWritten_ = static_cast<uint64_t>(ftello(f));
-   fclose(f);
    impl_->file = nullptr;
-
    return true;
-
-error:
-   fclose(f);
-   impl_->file = nullptr;
-   return false;
 }
 
 uint64_t MidiFileWriter::bytesWritten() const {
-   // Simple accessor.
    return impl_ ? impl_->bytesWritten_ : 0;
 }
 
 bool MidiFileWriter::isOpen() const {
-   // Simple accessor.
-   return impl_ ? impl_->file != nullptr : false;
+   return impl_ ? (impl_->file != nullptr) : false;
 }

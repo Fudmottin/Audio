@@ -31,6 +31,7 @@
 
 #include <sndfile.h>
 
+#include <cstdint>
 #include <cstdio>
 #include <cmath>
 #include <cstring>
@@ -414,8 +415,54 @@ static void test_scoreBuilder()
 }
 
 // ============================================================================
-// 5. MidiFileWriter Tests — requires libsndfile for writing.
+// 5. MidiFileWriter Tests — verifies the raw SMF bytes, not just the size.
 // ============================================================================
+
+// Read an entire file into a byte vector (empty vector if unreadable).
+static std::vector<uint8_t> readFileBytes(const char* path)
+{
+    std::vector<uint8_t> bytes;
+    FILE* f = fopen(path, "rb");
+    if (!f) return bytes;
+    fseek(f, 0, SEEK_END);
+    long size = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    if (size > 0) {
+        bytes.resize(static_cast<size_t>(size));
+        size_t n = fread(bytes.data(), 1, bytes.size(), f);
+        bytes.resize(n);
+    }
+    fclose(f);
+    return bytes;
+}
+
+static uint16_t be16(const std::vector<uint8_t>& b, size_t off)
+{
+    return static_cast<uint16_t>((b[off] << 8) | b[off + 1]);
+}
+
+static uint32_t be32(const std::vector<uint8_t>& b, size_t off)
+{
+    return (static_cast<uint32_t>(b[off]) << 24) |
+           (static_cast<uint32_t>(b[off + 1]) << 16) |
+           (static_cast<uint32_t>(b[off + 2]) << 8) |
+           static_cast<uint32_t>(b[off + 3]);
+}
+
+static bool hasSubseq(const std::vector<uint8_t>& b,
+                      const std::vector<uint8_t>& needle)
+{
+    if (needle.size() > b.size()) return false;
+    for (size_t i = 0; i + needle.size() <= b.size(); ++i) {
+        bool match = true;
+        for (size_t j = 0; j < needle.size(); ++j) {
+            if (b[i + j] != needle[j]) { match = false; break; }
+        }
+        if (match) return true;
+    }
+    return false;
+}
+
 static void test_midiWriter()
 {
     fprintf(stdout, "\n--- MidiFileWriter Tests ---\n");
@@ -432,48 +479,75 @@ static void test_midiWriter()
     m2.pitch = 64; m2.velocity = 100; m2.channel = 0; m2.sustain = false;
     midiScore.notes.push_back(m2);  // E4
 
-    ControlEvent midCtrl;
-    midCtrl.time = 0.0; midCtrl.controller = 64; midCtrl.value = 127;  // Sustain ON
-    midiScore.controls.push_back(midCtrl);
-
     MidiFileWriter writer("/tmp/test_output.mid");
     ASSERT(writer.write(midiScore),
            "Midi: write() returns true for valid score");
     ASSERT(writer.bytesWritten() > 0,
            "Midi: bytesWritten() returns > 0");
 
-    // 5b. Verify the output file exists and is non-zero size.
-    FILE* check = fopen("/tmp/test_output.mid", "rb");
-    ASSERT(check != nullptr,
-           "Midi: output file /tmp/test_output.mid exists");
+    // 5b. Byte-level structure checks on the header chunk.
+    std::vector<uint8_t> bytes = readFileBytes("/tmp/test_output.mid");
+    ASSERT(bytes.size() >= 22,
+           "Midi: file is at least a header + MTrk header (got " +
+           std::to_string(bytes.size()) + " bytes)");
 
-    int fileSize = 0;
-    if (check) {
-        fseek(check, 0, SEEK_END);
-        fileSize = static_cast<int>(ftell(check));
-        fclose(check);
+    if (bytes.size() >= 22) {
+        ASSERT(bytes[0] == 'M' && bytes[1] == 'T' && bytes[2] == 'h' &&
+                   bytes[3] == 'd',
+               "Midi: header magic is \"MThd\"");
+        ASSERT(be32(bytes, 4) == 6,
+               "Midi: header chunk length is 6");
+        ASSERT(be16(bytes, 8) == 1, "Midi: format is Type 1");
+        ASSERT(be16(bytes, 10) == 1, "Midi: exactly 1 track");
+        ASSERT(be16(bytes, 12) == 480, "Midi: division is 480 ticks/qn");
+        ASSERT(bytes[14] == 'M' && bytes[15] == 'T' && bytes[16] == 'r' &&
+                   bytes[17] == 'k',
+               "Midi: track magic is \"MTrk\"");
+
+        // The declared track length must exactly match the bytes that follow.
+        uint32_t declaredTrackLen = be32(bytes, 18);
+        ASSERT(bytes.size() == 22 + declaredTrackLen,
+               "Midi: track length field matches actual data (declared " +
+               std::to_string(declaredTrackLen) + ", file " +
+               std::to_string(bytes.size()) + ")");
+
+        // The first event must be the SetTempo meta (delta 0, FF 51 03) —
+        // this directly guards against the historical garbage-prefix bug.
+        ASSERT(bytes[22] == 0x00 && bytes[23] == 0xFF && bytes[24] == 0x51,
+               "Midi: first event is the SetTempo meta (delta 0, FF 51)");
+
+        // The track must contain both notes (Note On 90 3C 64, 90 40 64).
+        ASSERT(hasSubseq(bytes, {0x90, 0x3C, 0x64}),
+               "Midi: C4 Note On (90 3C 64) present");
+        ASSERT(hasSubseq(bytes, {0x90, 0x40, 0x64}),
+               "Midi: E4 Note On (90 40 64) present");
+
+        // The track must end with End-of-Track (FF 2F 00).
+        ASSERT(bytes.size() >= 3 && bytes[bytes.size() - 3] == 0xFF &&
+                   bytes[bytes.size() - 2] == 0x2F &&
+                   bytes[bytes.size() - 1] == 0x00,
+               "Midi: track ends with End-of-Track (FF 2F 00)");
     }
-    ASSERT(fileSize > 0,
-           "Midi: output file has non-zero size (fileSize=" +
-           std::to_string(fileSize) + ")");
-    ASSERT(fileSize >= 50,
-           "Midi: output file is a reasonable size (>= 50 bytes, got " +
-           std::to_string(fileSize) + ")");
 
-    // 5c. Write an empty score (header-only file).
+    // 5c. Write an empty score — must still be a structurally valid SMF.
     Score emptyScore;
     MidiFileWriter emptyWriter("/tmp/test_empty.mid");
     ASSERT(emptyWriter.write(emptyScore),
            "Midi: write() returns true for empty score");
-    ASSERT(emptyWriter.bytesWritten() > 0,
-           "Midi: empty write bytesWritten() > 0");
 
-    // 5d. Verify the empty file exists.
-    FILE* emptyCheck = fopen("/tmp/test_empty.mid", "rb");
-    ASSERT(emptyCheck != nullptr,
-           "Midi: empty output file /tmp/test_empty.mid exists");
-    if (emptyCheck) {
-        fclose(emptyCheck);
+    std::vector<uint8_t> emptyBytes = readFileBytes("/tmp/test_empty.mid");
+    ASSERT(emptyBytes.size() >= 22,
+           "Midi: empty-score file has a header (got " +
+           std::to_string(emptyBytes.size()) + " bytes)");
+    if (emptyBytes.size() >= 22) {
+        uint32_t emptyTrackLen = be32(emptyBytes, 18);
+        ASSERT(emptyBytes.size() == 22 + emptyTrackLen,
+               "Midi: empty-score track length is consistent");
+        ASSERT(emptyBytes.size() >= 3 &&
+                   emptyBytes[emptyBytes.size() - 3] == 0xFF &&
+                   emptyBytes[emptyBytes.size() - 2] == 0x2F &&
+                   emptyBytes[emptyBytes.size() - 1] == 0x00,
+               "Midi: empty-score track ends with End-of-Track");
     }
 }
 

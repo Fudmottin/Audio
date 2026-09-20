@@ -39,7 +39,8 @@
 
 | Document | Purpose |
 |----------|---------|
-| [summary.md](midicapture/summary.md) | Module overview, architecture, transcription pipeline, CLI interface, **known bugs** |
+| [summary.md](midicapture/summary.md) | Module overview, architecture, transcription pipeline, CLI, validation, open transcription issue |
+| [writer.md](midicapture/writer.md) | SMF writer: byte layout, invariants, `--test` flag, midicsv/timidity validation |
 | [tmp/session-handoff-midicapture-diagnosis.md](tmp/session-handoff-midicapture-diagnosis.md) | Session diagnosis: secondsToTicks bug, transcription quality issues |
 
 ## Future Modules (Planned)
