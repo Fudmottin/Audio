@@ -1,26 +1,24 @@
-// /**
-//  * @file transcriber.cpp
-//  * @brief Implementation of Transcriber — audio-to-MIDI transcription.
-//  *
-//  * This module implements the Transcriber class, which orchestrates
-//  * the full transcription pipeline:
-//  * 1. Open the input audio file (via AudioFile).
-//  * 2. Run pitch detection (YINfft) on each audio frame.
-//  * 3. Run onset detection (spectral flux) on each frame.
-//  * 4. Build a HIR Score with detected notes.
-//  * 5. Return the Score (HIR) for MIDI writing.
-//  *
-//  * The monophonic prototype uses a simple state machine:
-//  * - IDLE: No note currently active. Waiting for onset.
-//  * - PLAYING: A note is active. Watching for note-off.
-//  *
-//  * @see lode/libaudio/hir.md — HIR specification
-//  * @see lode/libaudio/decisions.md — Default parameters
-//  */
+/**
+ * @file transcriber.cpp
+ * @brief Implementation of Transcriber — audio-to-MIDI transcription.
+ *
+ * This module implements the Transcriber class, which orchestrates
+ * the full transcription pipeline:
+ * 1. Open the input audio file (via AudioFile).
+ * 2. Run pitch detection (YINfft) on each audio frame.
+ * 3. Run onset detection (spectral flux) on each frame.
+ * 4. Build a HIR Score with detected notes.
+ * 5. Return the Score (HIR) for MIDI writing.
+ *
+ * The monophonic prototype uses a simple state machine:
+ * - IDLE: No note currently active. Waiting for onset.
+ * - PLAYING: A note is active. Watching for note-off.
+ *
+ */
 
+#include <cmath>
 #include <libaudio/libaudio.h>
 #include <libaudio/onset.h>
-#include <cmath>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -77,8 +75,8 @@ struct Transcriber::Impl {
    static uint8_t pitchToMidiNote(float pitch) {
       uint8_t note = static_cast<uint8_t>(std::round(pitch));
       // Clamp to piano range (A0 = 21, C8 = 108).
-      return static_cast<uint8_t>(std::max(21u, std::min(108u,
-         static_cast<unsigned>(note))));
+      return static_cast<uint8_t>(
+         std::max(21u, std::min(108u, static_cast<unsigned>(note))));
    }
 
    // Convert dB to linear amplitude.
@@ -86,9 +84,7 @@ struct Transcriber::Impl {
    // Domain context: The silence threshold is in dB. We convert it to
    // linear amplitude for comparison with the RMS energy of each frame.
    // silenceDb = -40 dB → linear = 0.01 (1% of full scale).
-   static float dbToLinear(float db) {
-      return std::pow(10.0f, db / 20.0f);
-   }
+   static float dbToLinear(float db) { return std::pow(10.0f, db / 20.0f); }
 
    // Calculate the RMS energy of a buffer.
    //
@@ -110,8 +106,8 @@ struct Transcriber::Impl {
    // is calculated as: frameCount * hopSize / sampleRate.
    // This gives the time in seconds from the start of the recording.
    double frameToTimestamp(uint32_t frameCount) const {
-      return static_cast<double>(frameCount) *
-             static_cast<double>(hopSize) / static_cast<double>(sampleRate_);
+      return static_cast<double>(frameCount) * static_cast<double>(hopSize) /
+             static_cast<double>(sampleRate_);
    }
 
    // Finalize the current note (end it) and add it to the results.
@@ -140,7 +136,7 @@ struct Transcriber::Impl {
       currentNote_.startTime = startTime;
       currentNote_.pitch = pitchToMidiNote(pitchMidi);
       currentNote_.velocity = velocity;
-      currentNote_.channel = 0;  // Channel 0 = Acoustic Grand Piano.
+      currentNote_.channel = 0; // Channel 0 = Acoustic Grand Piano.
       currentNote_.sustain = false;
    }
 };
@@ -161,15 +157,15 @@ Transcriber::Transcriber(uint32_t bufSize, uint32_t hopSize,
    impl_->pitchMethod = pitchMethod;
 
    // Create the pitch detector (YINfft by default).
-   impl_->pitchDetector =
-      std::make_unique<PitchDetector>(bufSize, 0.15f);
+   impl_->pitchDetector = std::make_unique<PitchDetector>(bufSize, 0.15f);
    impl_->pitchDetector->setMethod(pitchMethod);
    impl_->pitchDetector->setConfidenceThreshold(confidenceThreshold);
    impl_->pitchDetector->setHopSize(hopSize);
 
    // Create the onset detector (spectral flux by default).
-   impl_->onsetDetector = std::make_unique<OnsetDetector>(
-      "specflux", bufSize, hopSize, 48000);  // Default sample rate.
+   impl_->onsetDetector =
+      std::make_unique<OnsetDetector>("specflux", bufSize, hopSize,
+                                      48000); // Default sample rate.
 }
 
 Transcriber::~Transcriber() = default;
@@ -201,7 +197,7 @@ Score Transcriber::transcribe(const std::string& inputPath) const {
 
    // Update the onset detector's sample rate.
    // Note: we need a non-const pointer for this.
-   const_cast<std::string&>(p->pitchMethod) = p->pitchMethod;  // no-op.
+   const_cast<std::string&>(p->pitchMethod) = p->pitchMethod; // no-op.
 
    // Allocate the audio buffer.
    std::vector<float> buffer(p->bufSize);
@@ -209,7 +205,7 @@ Score Transcriber::transcribe(const std::string& inputPath) const {
    // Process the audio frame by frame.
    while (!audioReader.eof()) {
       uint32_t framesRead = audioReader.readMono(buffer.data(), p->bufSize);
-      if (framesRead == 0) break;  // EOF.
+      if (framesRead == 0) break; // EOF.
 
       // Calculate RMS energy of the current frame.
       float rms = Impl::rmsEnergy(buffer.data(), framesRead);
@@ -243,9 +239,9 @@ Score Transcriber::transcribe(const std::string& inputPath) const {
             // Start a new note (onset detected, not currently playing).
             // Estimate velocity from RMS energy (0–127).
             uint8_t velocity = static_cast<uint8_t>(
-               std::min(127.0, rms * 254.0) + 0.5);  // Scale to 0–127.
-            velocity = static_cast<uint8_t>(std::max(1u,
-               std::min(127u, static_cast<unsigned>(velocity))));
+               std::min(127.0, rms * 254.0) + 0.5); // Scale to 0–127.
+            velocity = static_cast<uint8_t>(
+               std::max(1u, std::min(127u, static_cast<unsigned>(velocity))));
 
             p->startNewNote(pitchMidi, confidence, timestamp, velocity);
          } else if (p->isPlaying_) {
@@ -265,7 +261,7 @@ Score Transcriber::transcribe(const std::string& inputPath) const {
    // Build and return the Score (HIR).
    Score score;
    score.notes = std::move(p->notes_);
-   score.tempo = 120.0;  // Default tempo.
+   score.tempo = 120.0; // Default tempo.
    score.title = "";
    score.composer = "";
 

@@ -1,54 +1,52 @@
-// /**
-//  * @file main.cpp
-//  * @brief Entry point for midicapture — audio-to-MIDI transcription.
-//  *
-//  * This is the single entry point of the program. It parses command-line
-//  * arguments using Boost program_options, opens the input audio file,
-//  * runs pitch detection and onset detection, builds a HIR Score, and
-//  * writes the result to a MIDI file.
-//  *
-//  * For the monophonic prototype:
-//  * 1. Read audio file metadata (sample rate, channels, duration).
-//  * 2. Run monophonic pitch detection (YINfft) frame by frame.
-//  * 3. Use onset detection (spectral flux) to find note boundaries.
-//  * 4. Build a simple Score with detected notes.
-//  * 5. Write the Score to a Type 1 MIDI file (480 ticks/qn).
-//  *
-//  * @section cli-interface Command-Line Interface
-//  *
-//  * Usage: midicapture [options] <input.aiff> <output.mid>
-//  *
-//  * Options:
-//  *   --window-size <int>  FFT window size (default: 2048).
-//  *   --hop-size <int>     Hop size (default: 512).
-//  *   --confidence <float> Confidence threshold (default: 0.5).
-//  *   --silence <float>    Silence threshold in dB (default: -40).
-//  *   --tempo <float>      Tempo in BPM (default: 120).
-//  *   --method <string>    Pitch detection method (default: "yinfft").
-//  *   --help               Print this message.
-//  *
-//  * @section monophonic-design Monophonic Prototype Design
-//  *
-//  * The monophonic prototype assumes only one note at a time:
-//  * - Pitch detection runs YINfft on each audio frame.
-//  * - Onset detection (spectral flux) marks note starts.
-//  * - When confidence drops below threshold, the note ends.
-//  * - Notes are sorted by start time and written to the MIDI file.
-//  *
-//  * Polyphony (chords) is a future enhancement: it will use spectral
-//  * peak tracking + multiple pitch detection to resolve overlapping notes.
-//  *
-//  * @see lode/midicapture/summary.md — Module overview
-//  * @see lode/libaudio/hir.md — HIR specification
-//  * @see lode/MIDI.md — MIDI file format
-//  */
+/**
+ * @file main.cpp
+ * @brief Entry point for midicapture — audio-to-MIDI transcription.
+ *
+ * This is the single entry point of the program. It parses command-line
+ * arguments using Boost program_options, opens the input audio file,
+ * runs pitch detection and onset detection, builds a HIR Score, and
+ * writes the result to a MIDI file.
+ *
+ * For the monophonic prototype:
+ * 1. Read audio file metadata (sample rate, channels, duration).
+ * 2. Run monophonic pitch detection (YINfft) frame by frame.
+ * 3. Use onset detection (spectral flux) to find note boundaries.
+ * 4. Build a simple Score with detected notes.
+ * 5. Write the Score to a Type 1 MIDI file (480 ticks/qn).
+ *
+ * @section cli-interface Command-Line Interface
+ *
+ * Usage: midicapture [options] <input.aiff> <output.mid>
+ *
+ * Options:
+ *   --window-size <int>  FFT window size (default: 2048).
+ *   --hop-size <int>     Hop size (default: 512).
+ *   --confidence <float> Confidence threshold (default: 0.5).
+ *   --silence <float>    Silence threshold in dB (default: -40).
+ *   --tempo <float>      Tempo in BPM (default: 120).
+ *   --method <string>    Pitch detection method (default: "yinfft").
+ *   --help               Print this message.
+ *
+ * @section monophonic-design Monophonic Prototype Design
+ *
+ * The monophonic prototype assumes only one note at a time:
+ * - Pitch detection runs YINfft on each audio frame.
+ * - Onset detection (spectral flux) marks note starts.
+ * - When confidence drops below threshold, the note ends.
+ * - Notes are sorted by start time and written to the MIDI file.
+ *
+ * Polyphony (chords) is a future enhancement: it will use spectral
+ * peak tracking + multiple pitch detection to resolve overlapping notes.
+ *
+ */
 
 #include <boost/program_options.hpp>
+
+#include <iostream>
 #include <libaudio/hir.h>
 #include <libaudio/midiFileWriter.h>
 #include <midicapture/audioFile.h>
 #include <midicapture/transcriber.h>
-#include <iostream>
 #include <string>
 #include <vector>
 
@@ -72,10 +70,12 @@ static void printUsage(const char* programName) {
    //   --method <string>    Pitch detection method (default: "yinfft").
    //   --help               Print this message.
 
-   std::cerr << "Usage: " << programName << " [options] <input.aiff> <output.mid>\n"
+   std::cerr << "Usage: " << programName
+             << " [options] <input.aiff> <output.mid>\n"
              << "\nOptions:\n";
    std::cerr << "  --help                    Print this message.\n";
-   std::cerr << "  --window-size <int>       FFT window size (default: 2048).\n";
+   std::cerr
+      << "  --window-size <int>       FFT window size (default: 2048).\n";
    std::cerr << "  --hop-size <int>          Hop size (default: 512).\n";
    std::cerr << "  --confidence <float>      Confidence threshold (default: "
              << "0.5).\n";
@@ -107,10 +107,10 @@ static Score makeSanityScore(double tempoBpm) {
 
    Note note;
    note.startTime = 0.0;
-   note.endTime = 1.0;  // one second
-   note.pitch = 60;  // middle C (C4)
+   note.endTime = 1.0; // one second
+   note.pitch = 60;    // middle C (C4)
    note.velocity = 100;
-   note.channel = 0;  // channel 1 (Acoustic Grand Piano).
+   note.channel = 0; // channel 1 (Acoustic Grand Piano).
    note.sustain = false;
    score.notes.push_back(note);
 
@@ -169,35 +169,31 @@ int main(int argc, char* argv[]) {
    // Boost's operator<< appends ":\n" after the header text, then prints
    // the option list.  We end the header with a newline so the ":" that
    // Boost appends replaces the blank line separator.
-   std::string header = "midicapture — audio-to-MIDI transcription\n\nUsage: "
-      + std::string(argv[0]) + " [options] <input.aiff> [output.mid]";
+   std::string header = "midicapture — audio-to-MIDI transcription\n\nUsage: " +
+                        std::string(argv[0]) +
+                        " [options] <input.aiff> [output.mid]";
    po::options_description desc(header);
    desc.add_options()("help,h", "Print usage information.")(
-       "input,i", po::value<std::string>(&inputPath),
-       "Input audio file path (AIFF, WAV, FLAC, etc.).")(
-       "output,o", po::value<std::string>(&outputPath),
-       "Output MIDI filename (.mid).  When omitted, the input"
-       " filename is reused with a .mid extension.")(
-       "window-size",
-       po::value<uint32_t>(&windowSize)->default_value(2048),
-       "FFT window size (power of 2, default: 2048).")(
-       "hop-size",
-       po::value<uint32_t>(&hopSize)->default_value(512),
-       "Hop size between frames (default: 512).")(
-       "confidence",
-       po::value<float>(&confidenceThreshold)->default_value(0.5f),
-       "Pitch detection confidence threshold (0.0–1.0, default: 0.5).")(
-       "silence",
-       po::value<float>(&silenceDb)->default_value(-40.0f),
-       "Silence threshold in dB (default: -40).")(
-       "tempo",
-       po::value<double>(&tempoBpm)->default_value(120.0),
-       "Tempo in BPM (default: 120).")(
-       "method",
-       po::value<std::string>(&pitchMethod)->default_value("yinfft"),
-       "Pitch detection method (default: \"yinfft\").")("test,t",
-       "Sanity test: write a single middle-C note (C4, velocity 100, 1s)"
-       " regardless of the input audio contents (no analysis is run).");
+      "input,i", po::value<std::string>(&inputPath),
+      "Input audio file path (AIFF, WAV, FLAC, etc.).")(
+      "output,o", po::value<std::string>(&outputPath),
+      "Output MIDI filename (.mid).  When omitted, the input"
+      " filename is reused with a .mid extension.")(
+      "window-size", po::value<uint32_t>(&windowSize)->default_value(2048),
+      "FFT window size (power of 2, default: 2048).")(
+      "hop-size", po::value<uint32_t>(&hopSize)->default_value(512),
+      "Hop size between frames (default: 512).")(
+      "confidence", po::value<float>(&confidenceThreshold)->default_value(0.5f),
+      "Pitch detection confidence threshold (0.0–1.0, default: 0.5).")(
+      "silence", po::value<float>(&silenceDb)->default_value(-40.0f),
+      "Silence threshold in dB (default: -40).")(
+      "tempo", po::value<double>(&tempoBpm)->default_value(120.0),
+      "Tempo in BPM (default: 120).")(
+      "method", po::value<std::string>(&pitchMethod)->default_value("yinfft"),
+      "Pitch detection method (default: \"yinfft\").")(
+      "test,t",
+      "Sanity test: write a single middle-C note (C4, velocity 100, 1s)"
+      " regardless of the input audio contents (no analysis is run).");
 
    // Define positional options: <input.aiff> <output.mid>.
    po::positional_options_description positional;
@@ -206,12 +202,11 @@ int main(int argc, char* argv[]) {
    // Parse the command line with both named and positional options.
    po::variables_map vm;
    try {
-      po::store(
-         po::command_line_parser(argc, argv)
-            .options(desc)
-            .positional(positional)
-            .run(),
-         vm);
+      po::store(po::command_line_parser(argc, argv)
+                   .options(desc)
+                   .positional(positional)
+                   .run(),
+                vm);
       po::notify(vm);
    } catch (const po::error& e) {
       std::cerr << "Error: " << e.what() << "\n\n";
@@ -223,21 +218,25 @@ int main(int argc, char* argv[]) {
 
    // Print a POSIX-style help message.
    if (vm.count("help")) {
-      std::cout << "midicapture — audio-to-MIDI transcription\n\n"
+      std::cout
+         << "midicapture — audio-to-MIDI transcription\n\n"
          << "Usage: " << argv[0] << " [options] <input.aiff> [output.mid]\n"
          << "\nMain options:\n"
          << "  -h [ --help ]             Print usage information.\n"
-         << "  -i [ --input ] arg        Input audio file path (AIFF, WAV, FLAC, "
+         << "  -i [ --input ] arg        Input audio file path (AIFF, WAV, "
+            "FLAC, "
             "etc.).\n"
          << "  -o [ --output ] arg       Output MIDI filename (.mid)."
-         "  When omitted, the input filename is reused.\n"
+            "  When omitted, the input filename is reused.\n"
          << "  --window-size arg (=2048) FFT window size (power of 2, default: "
             "2048).\n"
-         << "  --hop-size arg (=512)     Hop size between frames (default: 512).\n"
+         << "  --hop-size arg (=512)     Hop size between frames (default: "
+            "512).\n"
          << "  --confidence arg (=0.5)   Pitch detection confidence threshold "
             "(0.0–1.0,\n"
          << "                            default: 0.5).\n"
-         << "  --silence arg (=-40)      Silence threshold in dB (default: -40).\n"
+         << "  --silence arg (=-40)      Silence threshold in dB (default: "
+            "-40).\n"
          << "  --tempo arg (=120)        Tempo in BPM (default: 120).\n"
          << "  --method arg (=yinfft)    Pitch detection method (default: "
             "\"yinfft\").\n"
@@ -265,8 +264,8 @@ int main(int argc, char* argv[]) {
          // current working directory (e.g., song.aiff → song.mid).
          auto slash = inputPath.rfind('/');
          std::string baseName = (slash != std::string::npos)
-            ? inputPath.substr(slash + 1)
-            : inputPath;
+                                   ? inputPath.substr(slash + 1)
+                                   : inputPath;
          auto dot = baseName.rfind('.');
          if (dot != std::string::npos) {
             outputPath = baseName.substr(0, dot) + ".mid";
@@ -303,8 +302,10 @@ int main(int argc, char* argv[]) {
    // channels, duration) to stdout for user feedback.
    // =====================================================================
 
-   std::cout << "midicapture — audio-to-MIDI transcription (monophonic prototype)\n";
-   std::cout << "============================================================\n\n";
+   std::cout
+      << "midicapture — audio-to-MIDI transcription (monophonic prototype)\n";
+   std::cout
+      << "============================================================\n\n";
 
    // ---- Sanity-test mode: write a known single note, skip all analysis. ----
    // The output is identical for every input, so it doubles as a stable
@@ -313,14 +314,14 @@ int main(int argc, char* argv[]) {
       std::cout << "Mode: SANITY TEST (input audio contents ignored)\n\n";
       Score score = makeSanityScore(tempoBpm);
       std::cout << "  Note: middle C (C4, MIDI note 60), velocity 100,"
-         " 1.0 second.\n";
+                   " 1.0 second.\n";
       std::cout << "\nWriting MIDI file: " << outputPath << "\n";
 
       MidiFileWriter midiWriter(outputPath);
       if (midiWriter.write(score)) {
          std::cout << "Wrote " << midiWriter.bytesWritten() << " bytes.\n";
          std::cout << "Validate: midicsv " << outputPath
-            << "   (or: timidity -Ow " << outputPath << ")\n";
+                   << "   (or: timidity -Ow " << outputPath << ")\n";
          std::cout << "Done.\n";
       } else {
          std::cerr << "Error: Failed to write MIDI file.\n";
@@ -336,9 +337,8 @@ int main(int argc, char* argv[]) {
       std::cout << "  Sample rate: " << audioReader.sampleRate() << " Hz\n";
       std::cout << "  Channels: " << audioReader.channels() << "\n";
       std::cout << "  Total frames: " << audioReader.totalFrames() << "\n";
-      double duration =
-         static_cast<double>(audioReader.totalFrames()) /
-         audioReader.sampleRate();
+      double duration = static_cast<double>(audioReader.totalFrames()) /
+                        audioReader.sampleRate();
       std::cout << "  Duration: " << duration << " seconds\n";
       std::cout << "  Format: " << audioReader.formatName() << "\n\n";
 
@@ -373,16 +373,15 @@ int main(int argc, char* argv[]) {
       // Print detected notes.
       for (const auto& note : score.notes) {
          // Convert MIDI note number to note name.
-         const char* noteNames[] = {
-            "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"
-         };
+         const char* noteNames[] = {"C",  "C#", "D",  "D#", "E",  "F",
+                                    "F#", "G",  "G#", "A",  "A#", "B"};
          int octave = (note.pitch / 12) - 1;
          const char* noteName =
-            noteNames[note.pitch % 12];  // Note name within octave.
+            noteNames[note.pitch % 12]; // Note name within octave.
 
          std::cout << "  " << noteName << octave << "  "
-                   << static_cast<int>(note.pitch) << "  "
-                   << note.startTime << "s → " << note.endTime << "s  "
+                   << static_cast<int>(note.pitch) << "  " << note.startTime
+                   << "s → " << note.endTime << "s  "
                    << static_cast<int>(note.velocity) << "\n";
       }
 

@@ -1,20 +1,19 @@
-// /**
-//  * @file audioFile.h
-//  * @brief Lightweight wrapper around libaudio::AudioFileReader.
-//  *
-//  * This module provides a simple interface for reading audio files
-//  * (AIFF, WAV, FLAC, etc.) via libsndfile (through libaudio).
-//  * It exposes file metadata (sample rate, channels, duration) and
-//  * frame-based reading.
-//  *
-//  * @section design Design
-//  *
-//  * We use libaudio::AudioFileReader (wrapping libsndfile) directly.
-//  * This module is a thin wrapper that adds format name reporting
-//  * and a convenience method for getting the format name as a string.
-//  *
-//  * @see lode/libaudio/summary.md — DSP library design
-//  */
+/**
+ * @file audioFile.h
+ * @brief Lightweight wrapper around libaudio::AudioFileReader.
+ *
+ * This module provides a simple interface for reading audio files
+ * (AIFF, WAV, FLAC, etc.) via libsndfile (through libaudio).
+ * It exposes file metadata (sample rate, channels, duration) and
+ * frame-based reading.
+ *
+ * @section design Design
+ *
+ * We use libaudio::AudioFileReader (wrapping libsndfile) directly.
+ * This module is a thin wrapper that adds format name reporting
+ * and a convenience method for getting the format name as a string.
+ *
+ */
 
 #ifndef MIDICAPTURE_AUDIOFILE_H
 #define MIDICAPTURE_AUDIOFILE_H
@@ -101,4 +100,4 @@ class AudioFile {
    std::unique_ptr<Impl> impl_;
 };
 
-#endif  // MIDICAPTURE_AUDIOFILE_H
+#endif // MIDICAPTURE_AUDIOFILE_H

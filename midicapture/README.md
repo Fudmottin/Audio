@@ -147,13 +147,5 @@ To test with a recorded AIFF file:
 
 # Verify the MIDI file:
 file test.mid
-ffprobe test.mid
+midicsv test.mid
 ```
-
-## Cross-References
-
-- [`lode/midicapture/summary.md`](../lode/midicapture/summary.md) — Module overview
-- [`lode/libaudio/hir.md`](../lode/libaudio/hir.md) — HIR specification
-- [`lode/libaudio/decisions.md`](../lode/libaudio/decisions.md) — Default parameters
-- [`lode/MIDI.md`](../MIDI.md) — MIDI file format
-- [`aiffcapture/README.md`](../aiffcapture/README.md) — Audio capture utility

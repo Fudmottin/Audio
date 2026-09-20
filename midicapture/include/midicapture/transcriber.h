@@ -1,32 +1,30 @@
-// /**
-//  * @file transcriber.h
-//  * @brief High-level API for audio-to-MIDI transcription.
-//  *
-//  * The Transcriber orchestrates the full transcription pipeline:
-//  * 1. Open the input audio file (via AudioFile).
-//  * 2. Run pitch detection (YINfft) on each audio frame.
-//  * 3. Run onset detection (spectral flux) on each frame.
-//  * 4. Build a HIR Score with detected notes.
-//  * 5. Return the Score (HIR) for MIDI writing.
-//  *
-//  * This is the main entry point for the monophonic prototype.
-//  * Polyphony (chords) is a future enhancement.
-//  *
-//  * @section design Design
-//  *
-//  * The Transcriber uses a simple state machine:
-//  * - IDLE: No note currently active. Waiting for onset.
-//  * - PLAYING: A note is active. Watching for note-off.
-//  *
-//  * Transitions:
-//  * - IDLE → PLAYING: When pitch confidence exceeds threshold AND
-//  *   an onset is detected.
-//  * - PLAYING → IDLE: When pitch confidence drops below threshold
-//  *   (note-off) or when a new onset is detected (new note).
-//  *
-//  * @see lode/libaudio/hir.md — HIR specification
-//  * @see lode/libaudio/decisions.md — Default parameters
-//  */
+/**
+ * @file transcriber.h
+ * @brief High-level API for audio-to-MIDI transcription.
+ *
+ * The Transcriber orchestrates the full transcription pipeline:
+ * 1. Open the input audio file (via AudioFile).
+ * 2. Run pitch detection (YINfft) on each audio frame.
+ * 3. Run onset detection (spectral flux) on each frame.
+ * 4. Build a HIR Score with detected notes.
+ * 5. Return the Score (HIR) for MIDI writing.
+ *
+ * This is the main entry point for the monophonic prototype.
+ * Polyphony (chords) is a future enhancement.
+ *
+ * @section design Design
+ *
+ * The Transcriber uses a simple state machine:
+ * - IDLE: No note currently active. Waiting for onset.
+ * - PLAYING: A note is active. Watching for note-off.
+ *
+ * Transitions:
+ * - IDLE → PLAYING: When pitch confidence exceeds threshold AND
+ *   an onset is detected.
+ * - PLAYING → IDLE: When pitch confidence drops below threshold
+ *   (note-off) or when a new onset is detected (new note).
+ *
+ */
 
 #ifndef MIDICAPTURE_TRANSCRIBER_H
 #define MIDICAPTURE_TRANSCRIBER_H
@@ -90,4 +88,4 @@ class Transcriber {
    std::unique_ptr<Impl> impl_;
 };
 
-#endif  // MIDICAPTURE_TRANSCRIBER_H
+#endif // MIDICAPTURE_TRANSCRIBER_H

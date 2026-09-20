@@ -1,20 +1,19 @@
-// /**
-//  * @file audioFile.cpp
-//  * @brief Implementation of AudioFile — audio file reading via
-//  *        libsndfile (through libaudio).
-//  *
-//  * This module wraps AudioFileReader (which wraps libsndfile)
-//  * to provide a simple interface for reading audio files (AIFF, WAV,
-//  * FLAC, etc.). It exposes file metadata (sample rate, channels,
-//  * duration) and frame-based reading.
-//  *
-//  * @section design Design
-//  *
-//  * We use AudioFileReader internally (Pimpl pattern).
-//  * This module adds format name reporting as a convenience.
-//  *
-//  * @see lode/libaudio/summary.md — DSP library design
-//  */
+/**
+ * @file audioFile.cpp
+ * @brief Implementation of AudioFile — audio file reading via
+ *        libsndfile (through libaudio).
+ *
+ * This module wraps AudioFileReader (which wraps libsndfile)
+ * to provide a simple interface for reading audio files (AIFF, WAV,
+ * FLAC, etc.). It exposes file metadata (sample rate, channels,
+ * duration) and frame-based reading.
+ *
+ * @section design Design
+ *
+ * We use AudioFileReader internally (Pimpl pattern).
+ * This module adds format name reporting as a convenience.
+ *
+ */
 
 #include <libaudio/audioFile.h>
 #include <stdexcept>
@@ -48,8 +47,7 @@ struct AudioFile::Impl {
    static std::string getFormatName(const std::string& path) {
       std::string lowerPath = path;
       for (auto& c : lowerPath) {
-         c = static_cast<char>(
-            std::tolower(static_cast<unsigned char>(c)));
+         c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
       }
 
       if (lowerPath.size() >= 5 &&
@@ -82,9 +80,7 @@ AudioFile::AudioFile(const std::string& path)
    impl_->formatName_ = Impl::getFormatName(path);
 }
 
-AudioFile::~AudioFile() {
-   delete impl_->reader;
-}
+AudioFile::~AudioFile() { delete impl_->reader; }
 
 // Destructor handled above.
 
