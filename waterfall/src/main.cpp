@@ -96,9 +96,18 @@ static void printUsage(const char* programName) {
 // quantizeTo16bit — Convert a magnitude to a 16-bit intensity on a log scale.
 //
 // Domain context: This is the grayscale quantization step. Acoustic energy
-// spans a huge dynamic range, so we map linearly in dB (a logarithmic
+// spans a wide dynamic range, so we map linearly in dB (a logarithmic
 // quantity) to the full 16-bit range. A reference level (refDb, 0 dB by
-// default) marks full scale; the floor (-60 dB) maps to 0.
+// default) marks full scale; a noise floor (kFloorDb, -60 dB) maps to 0.
+//
+// Note: kFloorDb is a *pragmatic display cut-off*, not a physical limit. The
+// theoretical dynamic range of a 16-bit word is ~96 dB, but a FFT *bin
+// magnitude* rarely spans anything like that in practice: a full-scale tone
+// yields a peak bin of ~N/2 (~60 dB below a full-scale reference at a 2048-pt
+// window), a window function adds ~6 dB more, and real signals spread their
+// energy across many bins. So reachable bin-magnitude levels cluster in the
+// ~-60..0 dB band, which is what this floor is tuned to. Values at or below
+// the floor are treated as silence.
 //
 // @param magnitude  FFT magnitude (linear scale).
 // @param refDb      Full-scale reference in dB.
