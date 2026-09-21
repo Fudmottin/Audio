@@ -125,7 +125,8 @@ python3 waterfall_video.py <text_file> <audio_file> <height> <width> [-o out.mp4
   from the top, and the oldest leave from the bottom. Scroll speed is tied to the
   *real* per-row audio duration (`hopSize / sampleRate` from the header), so the
   row at the playhead is the audio you hear at that instant. The audio plays for
-  the full clip; the video ends when the last row clears the bottom.
+  the full clip, and the video ends when the *tail of the data* passes the
+  playhead — i.e. at the audio's duration.
 - **Rendering:** numpy builds each frame (no Pillow / ImageMagick needed); raw
   RGB frames are piped to FFmpeg over stdin, which encodes H.264 and muxes the
   audio.

@@ -13,7 +13,8 @@ sits at the top of the image; the image then moves down, newest rows entering
 at the top and oldest leaving at the bottom. The clip starts with the head of
 the waterfall — the first row of the recording — aligned with the playhead, so
 the *start of the recording* plays at the start of the video. The video ends
-once the last (oldest) row clears the bottom of the frame.
+when the *tail of the data* (the oldest row) passes the playhead, which by the
+sync model is exactly the audio's duration.
 
 Because the scroll speed is tied to the *real* per-row audio duration
 (`hopSize / sampleRate`), the row sitting on the playhead at time t is exactly
@@ -342,18 +343,21 @@ def main():
 
     # The image's last row (recording head) lands exactly on the playhead.
     img_top_start = playhead - (num_rows - 1) * row_h
-    # The video ends when the image's oldest row (recording tail, last row of
-    # the file) clears the bottom of the frame.
-    img_top_end = out_h
-    t_video_end = (img_top_end - img_top_start) / slope
 
-    # Audio runs from 0 to t_video_end (the full clip): it starts in sync with
-    # the head on the playhead and ends exactly when the last row clears the
-    # bottom. Because the sample rate is constant, this is just a duration,
-    # and `atrim=start=0:end=<dur>` keys on the *sample count* — which sidesteps
-    # the unreliable (NaN) audio timestamp `t` in a multi-input rawvideo pipe.
-    a_end_s = max(0.0, t_video_end)
-    audio_filter = f"atrim=start=0:end={a_end_s:.6f}"
+    # The video ends when the *tail of the data* passes the playhead. At that
+    # instant the tail row sits exactly on the playhead and everything below it
+    # is already dark (no data rows remain), so this is the last interesting
+    # frame — we do not wait for the empty space below the tail to clear the
+    # bottom of the frame. By the sync model (row at the playhead = audio at t)
+    # that instant is exactly t = audio duration.
+    t_video_end = max(0.0, audio_dur)
+
+    # Audio runs from 0 to the end of the clip (the audio's full duration): it
+    # starts in sync with the head on the playhead and ends exactly when the
+    # tail passes the playhead. `atrim=start=0:end=<dur>` keys on the *sample
+    # count* — which sidesteps the unreliable (NaN) audio timestamp `t` in a
+    # multi-input rawvideo pipe.
+    audio_filter = f"atrim=start=0:end={t_video_end:.6f}"
 
     total_frames = max(1, int(round(t_video_end * FPS)))
 
@@ -361,8 +365,8 @@ def main():
           f"row_dur={row_dur_s:.4f}s, audio={audio_dur:.3f}s", file=sys.stderr)
     print(f"video: {out_w}x{out_h} @ {FPS}fps, {total_frames} frames, "
           f"~{t_video_end:.2f}s", file=sys.stderr)
-    print(f"audio: plays from 0.000s to video end "
-          f"({t_video_end:.3f}s)", file=sys.stderr)
+    print(f"audio: plays from 0.000s to {t_video_end:.3f}s "
+          f"(ends when the tail passes the playhead)", file=sys.stderr)
 
     # --- Pre-render the waterfall image once (the perf win). ---
     # Reversed so the newest sample is the image's row 0 (top). See the
