@@ -66,15 +66,23 @@ waterfall --no-auto-scale --ref-db -12 recording.aiff | less
 ### Scaling
 
 Each column magnitude is converted to dB and mapped linearly onto the 16-bit
-range between a floor (`-60 dB`) and a reference (`refDb`):
+range between a noise floor (`-60 dB`) and a reference (`refDb`):
 
 ```
 level16 = round( clamp( (db - -60) / (refDb - -60), 0, 1 ) * 65535 )
 ```
 
+The `-60 dB` floor is a **pragmatic display cut-off**, not a physical limit:
+although a 16-bit word has ~96 dB of theoretical dynamic range, an FFT *bin
+magnitude* rarely spans anything like that in practice (a full-scale tone
+sits ~60 dB below a full-scale reference at a 2048-pt window, the window
+function adds ~6 dB more, and real signals spread energy across many bins).
+Reachable levels cluster in the `-60…0 dB` band, which is what the floor is
+tuned to; anything at or below it reads as silence (`0000`).
+
 By default `waterfall` **auto-scales**: it makes one pass to find the loudest
 FFT bin in the file, sets `refDb` to that level (in dB), and reports the
-resolved value plus `autoScale=1` in the header. This keeps the full dynamic
+resolved value plus `autoScale=1` in the header. This keeps the usable dynamic
 range visible instead of saturating a loud recording to `FFFF` everywhere.
 Pass `--no-auto-scale` to use `--ref-db` exactly as given (`autoScale=0`).
 
@@ -91,11 +99,44 @@ The executable lands in `build/bin/waterfall`. Requires aubio, libsndfile,
 and Boost (program_options) — all resolved via pkg-config / `find_package`.
 `libaudio` is pulled in as a sibling subdirectory and built automatically.
 
+## Video Renderer (`waterfall_video.py`)
+
+A companion Python script animates the waterfall text output as a scrolling
+color video (H.264 / MP4, 30 fps) with the source audio muxed in sync:
+
+```bash
+python3 waterfall_video.py <text_file> <audio_file> <height> <width> [-o out.mp4]
+```
+
+- `<text_file>`   — the `waterfall` output (header line + one hex row per slice).
+- `<audio_file>`  — the same recording the waterfall was generated from.
+- `<height>` `<width>` — output frame size in pixels (rounded to even for `yuv420p`).
+- `-o/--output`  — output path (default: `<text_file>.mp4`).
+
+### How it works
+
+- **Color:** each sample is mapped through an **arc of the HSV color wheel**
+  — value 0 is black, value 65535 is full yellow, and the hue arcs from blue
+  through red to yellow (brightness is proportional to the sample). The arc is
+  controlled by the `HUE_START` / `HUE_SWEEP` constants at the top of the script.
+- **Scroll & sync:** the whole waterfall spans one frame height and scrolls
+  downward past a playhead at the vertical center. Scroll speed is tied to the
+  *real* per-row audio duration (`hopSize / sampleRate` from the header), so the
+  row at the playhead is the audio you hear at that instant. The audio starts
+  when the head reaches the playhead and runs to the end; the video ends when
+  the last row clears the bottom.
+- **Rendering:** numpy builds each frame (no Pillow / ImageMagick needed); raw
+  RGB frames are piped to FFmpeg over stdin, which encodes H.264 and muxes the
+  audio.
+
+Requires **numpy** and **ffmpeg** on `PATH`.
+
 ## Project Layout
 
 ```
 waterfall/
 ├── CMakeLists.txt              # Build config (libaudio, Boost program_options)
+├── waterfall_video.py          # Optional: animate the text output as an MP4 video
 ├── include/waterfall/
 │   └── audioFile.h             # AudioFile — shared file-reading wrapper
 └── src/
