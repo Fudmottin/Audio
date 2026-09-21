@@ -178,6 +178,25 @@ remains open is transcription quality.
 The writer round-trips cleanly through both (53-byte `--test` file;
 clean 62-byte real-transcription file on `aiffcapture/final-fantasy.aiff`).
 
+### Resolved: segfault on stereo input (heap buffer overflow)
+
+**Symptom:** `midicapture` crashed with a segfault on any stereo audio
+file (e.g., the 44.1 kHz stereo WAV test files from `--generate-test-midi-files`).
+
+**Root cause:** In `Transcriber::transcribe()`, the audio buffer was sized
+`bufSize` (2048 floats). For stereo files, `sf_readf_float(file, buffer,
+2048)` writes `2048 × 2 = 4096` floats into that 2048-float buffer — a heap
+buffer overflow on every frame, corrupting adjacent heap memory until a
+segfault.
+
+**Fix:** Buffer is now sized `bufSize × channels` to accommodate interleaved
+stereo data. After the in-place downmix in `AudioFileReader::read()`, the
+first `framesRead` positions hold valid mono samples. For partial reads near
+EOF, the buffer is zero-padded to `bufSize` before calling the detectors.
+
+**Status:** Fixed. The program runs to completion on stereo input (writes an
+empty 44-byte MIDI file; the 0-note result is the separate open issue below).
+
 ### Open: transcription detects far too few notes (WIP)
 
 Only ~2 notes are detected from a ~30 s Final Fantasy AIFF (C2, A#5),

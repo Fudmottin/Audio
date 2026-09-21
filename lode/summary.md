@@ -48,6 +48,10 @@ Audio/
   (middle C, vel 100, 1 s) as a stable regression target. No practical
   note-count limit. See [midicapture/writer.md](midicapture/writer.md).
   *`ffprobe` is not a reliable validator for small MIDI files — use the above.*
+- **Segfault on stereo input — resolved.** The transcription buffer overflow
+  (2048-float buffer receiving 4096 interleaved stereo floats per frame)
+  is fixed. The program now runs to completion on stereo WAV/AIFF files.
+  See [midicapture/summary.md](midicapture/summary.md) §8.
 - **Transcription — still WIP (open).** The monophonic pipeline detects only
   ~2 notes from a ~30 s recording. Threshold tuning and state-machine stability
   remain open; this is independent of (now-solved) writer validity.

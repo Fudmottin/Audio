@@ -16,6 +16,7 @@
  *
  */
 
+#include <algorithm>
 #include <cmath>
 #include <libaudio/libaudio.h>
 #include <libaudio/onset.h>
@@ -200,14 +201,35 @@ Score Transcriber::transcribe(const std::string& inputPath) const {
    const_cast<std::string&>(p->pitchMethod) = p->pitchMethod; // no-op.
 
    // Allocate the audio buffer.
-   std::vector<float> buffer(p->bufSize);
+   //
+   // Domain context: For stereo files, libsndfile writes interleaved
+   // L,R,L,R,... data, so the buffer must hold bufSize × channels
+   // floats to prevent a heap buffer overflow. After the in-place
+   // downmix in AudioFileReader::read(), the first `framesRead`
+   // positions contain valid mono samples.
+   uint32_t channels = audioReader.channels();
+   std::vector<float> buffer(p->bufSize * std::max(1u, channels));
 
    // Process the audio frame by frame.
+   //
+   // Domain context: The detectors (pitch, onset) require exactly bufSize
+   // samples. Near EOF, libsndfile returns a partial frame (fewer than
+   // bufSize samples). We zero-pad the buffer to bufSize before calling
+   // the detectors so they always receive the expected length.
+
    while (!audioReader.eof()) {
       uint32_t framesRead = audioReader.readMono(buffer.data(), p->bufSize);
       if (framesRead == 0) break; // EOF.
 
-      // Calculate RMS energy of the current frame.
+      // Zero-pad the buffer for partial reads near EOF.
+      // After downmix, the first `framesRead` positions hold mono samples;
+      // positions [framesRead, bufSize) must be zero for the detectors.
+      if (framesRead < p->bufSize) {
+         std::fill(buffer.begin() + framesRead, buffer.begin() + p->bufSize,
+                   0.0f);
+      }
+
+      // Calculate RMS energy of the current frame (only the real samples).
       float rms = Impl::rmsEnergy(buffer.data(), framesRead);
       float silenceLinear = Impl::dbToLinear(p->silenceDb);
 
@@ -220,9 +242,9 @@ Score Transcriber::transcribe(const std::string& inputPath) const {
          continue;
       }
 
-      // Run pitch detection.
+      // Run pitch detection (always pass the full bufSize).
       auto [pitchMidi, confidence] =
-         p->pitchDetector->detect(buffer.data(), framesRead);
+         p->pitchDetector->detect(buffer.data(), p->bufSize);
 
       // Calculate the timestamp for this frame.
       double timestamp = p->frameToTimestamp(p->frameCount_);
@@ -231,9 +253,9 @@ Score Transcriber::transcribe(const std::string& inputPath) const {
       bool hasConfidentPitch = (confidence >= p->confidenceThreshold);
 
       if (hasConfidentPitch && pitchMidi > 0.0f) {
-         // Check for onset.
+         // Check for onset (always pass the full bufSize).
          bool onsetDetected =
-            p->onsetDetector->detect(buffer.data(), framesRead);
+            p->onsetDetector->detect(buffer.data(), p->bufSize);
 
          if (onsetDetected && !p->isPlaying_) {
             // Start a new note (onset detected, not currently playing).
