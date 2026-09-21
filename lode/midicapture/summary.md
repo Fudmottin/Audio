@@ -100,7 +100,9 @@ Transitions:
 
 ## 6. CLI Interface
 
-An input file is required, **except** in `--test` mode (which needs none).
+An input file is required, **except** in `--test` mode (which needs none) or
+`--generate-test-midi-files` mode (which writes a set of files and needs no
+input at all — see [testmidi.md](testmidi.md)).
 When `--input` is given without `--output`, the output path defaults to
 `<input>.mid` (extension replaced); in `--test` mode with no input it
 defaults to `midicapture-test.mid`.
@@ -126,6 +128,10 @@ Main options:
   --method arg (=yinfft)    Pitch detection method (default: "yinfft").
   -t [ --test ]             Sanity test: write a single middle-C note
                             (C4, velocity 100, 1s) regardless of input.
+  --generate-test-midi-files
+                            Generate a set of simple monophonic scale MIDI files
+                            in --output-dir (default: CWD). All other options
+                            are ignored.
 ```
 
 Examples:
@@ -137,6 +143,8 @@ midicapture --input song.aiff --output out.mid # explicit output
 midicapture --help                             # usage only
 midicapture --test song.aiff                   # fixed sanity note -> song.mid
 midicapture -t --output sanity.mid             # sanity note, no input needed
+midicapture --generate-test-midi-files            # 6 scale files in CWD
+midicapture --generate-test-midi-files --output-dir ./test-midi
 ```
 
 ---
@@ -187,6 +195,7 @@ This is a **separate** issue from writer validity, which is now solved.
 
 - **libaudio**: `lode/libaudio/summary.md`, `lode/libaudio/decisions.md`, `lode/libaudio/hir.md`
 - **MIDI writer**: `lode/midicapture/writer.md` (SMF byte layout, invariants, `--test` flag, midicsv/timidity validation)
+- **Test file generator**: `lode/midicapture/testmidi.md` (`--generate-test-midi-files`, `--output-dir`, monophonic scale ground truth)
 - **MIDI format**: `lode/MIDI.md`
 - **aiffcapture**: `lode/aiffcapture/summary.md`
 - **Session handoff**: `lode/tmp/session-handoff-midicapture-diagnosis.md`

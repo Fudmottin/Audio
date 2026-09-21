@@ -41,6 +41,7 @@
 |----------|---------|
 | [summary.md](midicapture/summary.md) | Module overview, architecture, transcription pipeline, CLI, validation, open transcription issue |
 | [writer.md](midicapture/writer.md) | SMF writer: byte layout, invariants, `--test` flag, midicsv/timidity validation |
+| [testmidi.md](midicapture/testmidi.md) | `--generate-test-midi-files`: monophonic scale ground-truth files, `--output-dir` |
 | [tmp/session-handoff-midicapture-diagnosis.md](tmp/session-handoff-midicapture-diagnosis.md) | Session diagnosis: secondsToTicks bug, transcription quality issues |
 
 ## Future Modules (Planned)
