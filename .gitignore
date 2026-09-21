@@ -18,6 +18,7 @@ bin/
 
 # Lode Coding
 lode/tmp
+lode/midicapture/tmp
 
 # Editor
 .idea/
