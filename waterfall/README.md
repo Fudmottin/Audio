@@ -138,6 +138,20 @@ python3 waterfall_video.py <text_file> <audio_file> <height> <width> [-o out.mp4
   `DEFAULT_VSCALE × --vscale` and the scroll speed is scaled identically, so audio
   sync and the end-point (tail at the playhead) are unchanged — only the
   per-row vertical resolution of the display changes.
+- **Horizontal (frequency) scale:** the waterfall's columns are *linear* in
+  frequency (128 MIDI notes × `bands-per-note`), so most audible content sits on
+  the left of the frame. The display warps the horizontal axis to a
+  **logarithmic** frequency map — each column's center frequency (from the
+  header's `col_c` keys) is placed at `x = (ln f − ln F_MIN) / (ln F_MAX − ln F_MIN)`
+  — which widens the low bands (where most musical energy lives) and compresses
+  the high bands, matching perceptual spacing. The map runs `F_MIN_HZ` (default
+  20 Hz) to `F_MAX_HZ` (default 20 kHz, the audible window), so ultrasonic
+  content above 20 kHz is dropped. Sub-pixel columns in the compressed high end
+  are **mean-anti-aliased** (a temporary buffer `H_SUPERSAMPLE`× wider than the
+  output is block-averaged down) so they read as dimmer pixels instead of
+  vanishing. All three constants (`F_MIN_HZ`, `F_MAX_HZ`, `H_SUPERSAMPLE`) are
+  at the top of the script. This is a display-only transform: the underlying
+  waterfall text and data are untouched.
 - **Rendering:** numpy builds each frame (no Pillow / ImageMagick needed); raw
   RGB frames are piped to FFmpeg over stdin, which encodes H.264 and muxes the
   audio.

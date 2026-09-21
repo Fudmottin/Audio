@@ -99,6 +99,34 @@ HUE_SWEEP = 180.0   # deg — total hue rotation from start to end (wraps past 3
 # Pass `--vscale` on the command line to scale this value (see above).
 DEFAULT_VSCALE = 2.0
 
+# --- Horizontal (frequency) scaling ---
+#
+# The waterfall's columns are LINEAR in frequency (128 MIDI notes x bands-per-
+# note, sweeping 0..nyquist), so most audible content sits on the left of the
+# frame. To spread it the way human hearing does, the display maps each
+# column's center frequency to screen x on a LOGARITHMIC axis:
+#
+#     x_frac = (ln(f) - ln(F_MIN)) / (ln(F_MAX) - ln(F_MIN))
+#
+# This widens the low bands (where most musical energy lives) and compresses
+# the high bands, matching perceptual spacing. The two bounds are the only
+# tunables here.
+#
+# F_MIN: the low end of the audible map. Columns below this collapse to the
+#       left edge (e.g. 20 Hz means sub-20 Hz bass is squished off-screen).
+# F_MAX: the high end of the audible map (option "b": audible window).
+#       The default is a constant 20 kHz; if the audio is 96 kHz+ (nyquist
+#       above 20 kHz) we clamp to F_MAX = 20 kHz and drop ultrasonic content.
+#       For 48 kHz audio (nyquist 24 kHz) we similarly clamp to 20 kHz, so
+#       the 20-24 kHz ultrasonic strip (aliasing) is also dropped.
+F_MIN_HZ = 16.0      # Hz — low end of the log frequency map
+F_MAX_HZ = 20000.0   # Hz — high end of the log frequency map (audible window)
+# H_SUPERSAMPLE: supersample factor applied when down-sampling the temporary
+#       horizontal buffer to the output width. Higher values reduce aliasing
+#       artifacts in the high-frequency (compressed) region at the cost of
+#       a few extra per-frame operations. 4 is a good default; 8 is sharper.
+H_SUPERSAMPLE = 8
+
 
 def hue_for_value(t):
     """Map a normalized value t in [0,1] to an HSV hue in degrees.
@@ -219,6 +247,43 @@ def load_waterfall(path):
     return header, arr
 
 
+def extract_col_freqs(header, num_cols):
+    """Build the (num_cols,) float array of center frequencies from the header.
+
+    The `waterfall` header carries one center frequency per column as
+    `col0=... col1=... ... col{N-1}=...`, where N is `numColumns`. We pull
+    those keys out of the parsed header dict and return them as a float array.
+    If the header is missing any of the `col_*` keys (e.g. a hand-crafted or
+    legacy text file), we fall back to a *linear* sweep from 0 to nyquist
+    across the columns, so the log warp degrades gracefully to a plain linear
+    spread rather than failing.
+
+    Returns (col_freq_hz, nyquist_hz) where `nyquist_hz` is read from the
+    header's `nyquistHz` key (or derived as `2 * max(col_freq)` if missing).
+    """
+    cols = []
+    for c in range(num_cols):
+        key = f"col{c}"
+        if key in header:
+            try:
+                cols.append(float(header[key]))
+            except (ValueError, TypeError):
+                cols.append(0.0)
+        else:
+            cols.append(0.0)
+    col_freq = np.asarray(cols, dtype=np.float64)
+
+    ny = float(header.get("nyquistHz", 0)) or 0.0
+    if ny <= 0.0:
+        ny = 2.0 * float(col_freq.max()) if col_freq.size else 0.0
+    if ny > 0.0:
+        # If the header's col_* keys are all zero (fallback), build a linear
+        # sweep across 0..nyquist so the log map has something to work with.
+        if col_freq.max() <= 0.0:
+            col_freq = np.linspace(0.0, ny, num_cols)
+    return col_freq, ny
+
+
 # ============================================================================
 # Audio helpers
 # ============================================================================
@@ -245,39 +310,111 @@ def has_audio_stream(path):
 # Frame synthesis
 # ============================================================================
 
-def render_frame(full_image, img_top, width, height, n_rows, playhead_y,
-                 v_scale=1.0):
+def log_xfrac(col_freq_hz, f_min, f_max):
+    """Map each column's center frequency to a fractional x position in [0,1].
+
+    `x = (ln(f) - ln(f_min)) / (ln(f_max) - ln(f_min))`, clipped to [0, 1].
+    Columns below `f_min` map to 0 (left edge); columns above `f_max` map to 1
+    (right edge). Frequencies at or below 0 Hz (which never occurs for a real
+    FFT) are clamped to `f_min` to keep `ln` finite.
+
+    This is the perceptual (human-hearing) spacing: equal *ratios* of frequency
+    get equal screen width, so the low bands — where most musical energy lives —
+    are wider than the high bands.
+
+    col_freq_hz : (num_cols,) float array of center frequencies in Hz.
+    """
+    f = np.clip(np.asarray(col_freq_hz, dtype=np.float64), f_min, f_max)
+    x = (np.log(f) - np.log(f_min)) / (np.log(f_max) - np.log(f_min))
+    return np.clip(x, 0.0, 1.0)
+
+
+def build_warped(image, col_freq_hz, out_w, f_min=None, f_max=None,
+                 ss=1):
+    """Horizontally warp the color-mapped waterfall onto the output-width grid.
+
+    `image` is the color-mapped waterfall, shape `(n_rows, num_cols, 3)` uint8
+    (one pixel per data column, 16-bit values mapped to RGB).
+
+    Each column `c` occupies a band on the horizontal axis from `x_{c-1}` to
+    `x_c` (its own log-mapped center, bounded by its neighbors), giving the
+    column an *irregular* width that widens in the low end and narrows in the
+    high end. The band is painted into a temporary buffer `ss` times wider than
+    the output using the containing source column, then the buffer is
+    downsampled to the output width by block **mean**. This keeps sub-pixel
+    columns visible (their energy is averaged into the nearest output pixel)
+    instead of vanishing.
+
+    Returns: `(n_rows, out_w, 3)` uint8 — the warped waterfall ready for the
+    vertical sampling in `render_frame`.
+
+    col_freq_hz : (num_cols,) center frequency of each column, Hz.
+    out_w       : output frame width in pixels (must be even for yuv420p).
+    ss          : horizontal supersample factor (integer >= 1). 4 is a good
+                  default; 8 is sharper. 1 disables anti-aliasing (fast, but
+                  sub-pixel columns will flicker/vanish).
+    """
+    n_rows, num_cols, channels = image.shape
+    if f_min is None:
+        f_min = F_MIN_HZ
+    if f_max is None:
+        f_max = F_MAX_HZ
+
+    x = log_xfrac(col_freq_hz, f_min, f_max)         # (num_cols,)
+
+    # Band edges: column c spans [left[c], right[c]) where left is the
+    # log-mapped center of the *previous* column and right is column c's own
+    # center. The first column starts at 0 and the last extends to 1, so the
+    # bands tile [0, 1].
+    left = np.concatenate(([0.0], x[:-1]))           # (num_cols,)
+
+    # For each temp-buffer x position, the containing source column. Bands are
+    # contiguous over [0, 1]; searchsorted on the *left* edges finds the index
+    # of the first left-edge > xpix, minus 1, i.e. the band containing xpix.
+    ssbuf_w = max(out_w * ss, 1)
+    xpix = np.arange(ssbuf_w, dtype=np.float64) / ssbuf_w   # [0, 1)
+    src_col = np.searchsorted(left, xpix, side='left') - 1
+    src_col = np.clip(src_col, 0, num_cols - 1)
+
+    # Gather the containing source column for every buffer pixel, for every row.
+    warped = image[:, src_col, :]                    # (n_rows, ssbuf_w, 3)
+
+    # Block-mean downsample to the output width: each output pixel is the mean
+    # of the `ss` buffer pixels that map to it. A column in a sub-pixel band
+    # still contributes its energy (averaged), so thin high-freq columns read
+    # as dimmer pixels rather than disappearing.
+    block = warped.reshape(n_rows, out_w, ss, channels)
+    return block.mean(axis=2).astype(np.uint8)       # (n_rows, out_w, 3)
+
+
+def render_frame(warped, img_top, height, n_rows, playhead_y, v_scale=1.0):
     """Compose one output frame (height x width x 3, uint8) for a given scroll.
 
-    The whole waterfall is treated as a continuous image whose full height is
-    `n_rows` rows. `img_top` is the y-coordinate (in output pixels) of the top
-    of the image's row 0; each row spans `height / n_rows` pixels, so the full
-    image spans `height` pixels. The visible window is a single vectorized
-    nearest-neighbor sample of that image, then stretched horizontally to the
-    output width. (With a positive slope, `img_top` grows over time, so the
-    image — and the newest rows at its top — scroll *downward*.)
+    `warped` is the whole waterfall already warped horizontally onto the output
+    width grid (shape `n_rows x width x 3`). Each data row occupies `v_scale *
+    height / n_rows` output pixels. `img_top` is the y-coordinate (in output
+    pixels) of the top of the image's row 0. The visible window is a single
+    vectorized nearest-neighbor sample of that image along the vertical axis.
+    (With a positive slope, `img_top` grows over time, so the image — and the
+    newest rows at its top — scroll *downward*.)
 
-    full_image : (n_rows, n_cols, 3) uint8 pre-colored waterfall.
+    The horizontal log-frequency warp and mean anti-aliasing are applied once
+    up front (see `build_warped`); `render_frame` only does the vertical
+    sampling. `width` is carried in `warped.shape[1]`.
+
+    warped     : (n_rows, width, 3) uint8 — color-mapped + log-warped waterfall.
     img_top    : float — y of the top of image row 0 in output pixels.
     """
-    img_h, img_w, _ = full_image.shape
+    img_h, width, _ = warped.shape
 
     # Output pixel y -> image row coordinate (continuous).
     # `v_scale` magnifies the image vertically by that factor relative to the
     # frame; each row therefore occupies `v_scale * height / n_rows` pixels.
-    # With v_scale=1 the image exactly fills the frame height. Increasing it
-    # (up to the point where the stretched image is taller than the frame)
-    # reveals more per-row vertical detail while keeping the same row-to-time
-    # mapping when the scroll slope is scaled identically.
+    # With v_scale=1 the image exactly fills the frame height.
     row_scale = n_rows / (float(height) * v_scale)  # image rows per output px
     y_idx = (np.arange(height) - img_top) * row_scale   # (height,)
     row_i = np.clip(np.round(y_idx).astype(np.int64), 0, img_h - 1)
-    band = full_image[row_i]                 # (height, img_w, 3)
-
-    # Nearest-neighbor horizontal stretch to `width`.
-    col_i = (np.arange(width) * img_w / float(width)).astype(np.int64)
-    col_i = np.clip(col_i, 0, img_w - 1)
-    frame = band[:, col_i]                   # (height, width, 3)
+    frame = warped[row_i]                       # (height, width, 3)
 
     # Playhead: a faint horizontal line at the vertical center.
     py = int(playhead_y)
@@ -414,6 +551,21 @@ def main():
     print("color-mapping waterfall ...", file=sys.stderr)
     full_image = render_waterfall_image(rows, reversed_=True)
 
+    # --- Horizontal log-frequency warp (display-only) ---
+    # The waterfall's columns are linear in frequency; for a human-friendly
+    # display we map each column's center frequency onto screen x on a log
+    # axis (F_MIN_HZ..F_MAX_HZ) and mean-anti-alias onto the output-width
+    # grid. This widens the low bands (where most musical energy lives) and
+    # compresses the high bands. The result is `warped`, shape
+    # (num_rows, out_w, 3) uint8 — the same row order as `full_image` (newest
+    # at row 0) but with the horizontal axis warped. See `build_warped` and
+    # the F_MIN_HZ / F_MAX_HZ / H_SUPERSAMPLE constants above.
+    col_freq, nyquist_hz = extract_col_freqs(header, num_cols)
+    print(f"log-frequency map: {F_MIN_HZ:.0f} Hz .. {F_MAX_HZ:.0f} Hz "
+          f"(nyquist {nyquist_hz:.0f} Hz, ss={H_SUPERSAMPLE})", file=sys.stderr)
+    warped = build_warped(full_image, col_freq, out_w,
+                          ss=H_SUPERSAMPLE)
+
     # --- FFmpeg command line. ---
     has_audio = has_audio_stream(args.audio_file)
     if not has_audio:
@@ -449,7 +601,7 @@ def main():
     try:
         for fidx in range(total_frames):
             img_top = img_top_start + slope * (fidx / FPS)
-            frame = render_frame(full_image, img_top, out_w, out_h,
+            frame = render_frame(warped, img_top, out_h,
                                  num_rows, playhead, v_scale=v_scale)
             proc.stdin.write(frame.tobytes())
             written += 1
