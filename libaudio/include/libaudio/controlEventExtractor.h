@@ -7,7 +7,7 @@
  *
  * @section control-events Control Change Events
  *
- * Common CC# values for piano (from `lode/MIDI.md`):
+ * Common CC# values for piano:
  * - 64 = Sustain Pedal (most important for piano)
  * - 66 = Soft Pedal
  * - 67 = Sostenuto Pedal
@@ -78,8 +78,7 @@ class ControlEventExtractor {
    //
    // @param reader Audio file reader (already opened).
    // @return Vector of sustain pedal ControlEvent objects.
-   std::vector<ControlEvent> extractSustainPedal(
-      AudioFileReader& reader);
+   std::vector<ControlEvent> extractSustainPedal(AudioFileReader& reader);
 
  private:
    // Private implementation — all analysis logic is isolated here.

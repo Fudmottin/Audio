@@ -36,7 +36,8 @@ class FFT {
  public:
    // Create an FFT with the given window size (must be a power of 2).
    //
-   // @param windowSize FFT window size (must be a power of 2, e.g., 1024, 2048, 4096).
+   // @param windowSize FFT window size (must be a power of 2, e.g., 1024, 2048,
+   // 4096).
    explicit FFT(uint32_t windowSize);
 
    // Destructor. Frees aubio FFT resources.

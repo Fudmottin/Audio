@@ -17,8 +17,7 @@
  * | mcomb | ★★★★☆ | Medium | Multiple-comb filter (polyphonic) |
  * | schmitt | ★★☆☆☆ | Very fast | Schmitt trigger (simple, noisy) |
  *
- * Default: YINfft (fast, accurate, good for piano). See
- * `lode/libaudio/decisions.md` for the full rationale.
+ * Default: YINfft (fast, accurate, good for piano).
  *
  */
 

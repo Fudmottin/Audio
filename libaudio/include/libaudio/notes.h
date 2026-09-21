@@ -70,8 +70,8 @@ class NoteDetector {
    // @param bufSize    FFT window size (e.g., 1024, 2048, 4096).
    // @param hopSize    Step size between frames (hop).
    // @param sampleRate Sample rate of the input signal.
-   NoteDetector(std::string_view method, uint32_t bufSize,
-                uint32_t hopSize, uint32_t sampleRate);
+   NoteDetector(std::string_view method, uint32_t bufSize, uint32_t hopSize,
+                uint32_t sampleRate);
 
    // Destructor. Frees aubio note detection resources.
    // RAII — resources are released automatically.

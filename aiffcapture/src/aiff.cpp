@@ -105,10 +105,9 @@ bool AiffWriter::close() {
 
 uint64_t AiffWriter::getBytesWritten() const {
    // framesWritten_ is in samples, convert to bytes:
-   // bytes = samples * (bytesPerFrame / channels) = samples * (bitsPerSample / 8)
+   // bytes = samples * (bytesPerFrame / channels) = samples * (bitsPerSample /
+   // 8)
    return framesWritten_ * (format_.bitsPerSample / 8);
 }
 
-bool AiffWriter::isOpen() const {
-   return sndfile_ != nullptr;
-}
+bool AiffWriter::isOpen() const { return sndfile_ != nullptr; }

@@ -87,8 +87,8 @@ class TemporalProcessor {
    // @param cutoffHz Cutoff frequency in Hz.
    // @param q Quality factor.
    // @return Biquad coefficients (3 coefficients: a0, a1, a2).
-   std::vector<std::vector<float>> biquadCoefficients(
-      std::string_view filterType, float cutoffHz, float q);
+   std::vector<std::vector<float>>
+   biquadCoefficients(std::string_view filterType, float cutoffHz, float q);
 
  private:
    // Private implementation — all aubio C API calls are isolated here.

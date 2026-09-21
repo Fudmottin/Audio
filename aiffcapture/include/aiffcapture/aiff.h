@@ -26,8 +26,8 @@
 #define AIFFCAPTURE_AIFF_H
 
 #include <aiffcapture/audio_types.h>
-#include <sndfile.h>
 #include <cstdint>
+#include <sndfile.h>
 #include <string>
 
 // ============================================================================

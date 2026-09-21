@@ -8,7 +8,7 @@
  *
  * @section midi-specifications MIDI Specifications
  *
- * Key specifications for Logic Pro compatibility (from `lode/MIDI.md`):
+ * Key specifications for Logic Pro compatibility:
  * - **Type 1** multi-track files (multiple independent tracks).
  * - **480 ticks per quarter note** (Logic Pro default).
  * - **Acoustic Grand Piano = patch 0** (GM patch #1, channel 0).

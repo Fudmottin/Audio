@@ -19,7 +19,6 @@
 #  * rubberband is optional: if it is not found, the library still builds
 #  * but the RubberbandProcessor module is excluded.
 #  *
-#  * @see lode/libaudio/summary.md — Module overview and API design
 #  */
 
 cmake_minimum_required(VERSION 3.20)

@@ -48,8 +48,6 @@
  * With 480 ticks per quarter note and 120 BPM:
  *   ticks = seconds × 960
  *
- * This is documented in `lode/MIDI.md`.
- *
  */
 
 #ifndef LIBAUDIO_HIR_H
@@ -98,14 +96,14 @@ struct Note {
     * 108 (C8).
     * Uint8_t because MIDI note numbers fit in 7 bits.
     */
-   uint8_t pitch = 60;  // Default: middle C
+   uint8_t pitch = 60; // Default: middle C
 
    /**
     * Note velocity (0–127). Derived from RMS energy of the note segment
     * during analysis.
     * Uint8_t because MIDI velocity fits in 7 bits.
     */
-   uint8_t velocity = 100;  // Default: medium velocity
+   uint8_t velocity = 100; // Default: medium velocity
 
    /**
     * MIDI channel (0–15). Default is 0 (channel 1, Acoustic Grand Piano).

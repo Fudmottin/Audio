@@ -10,11 +10,10 @@
  *
  * | Method | Description | Piano Suitability |
  * |--------|-------------|-------------------|
- * | specflux | Spectral flux (change in spectral envelope) | ★★★★★ (best for piano) |
- * | energy | Energy-based detection | ★★★☆☆ |
- * | hpsst | Harmonic product spectral flux | ★★★★☆ |
- * | phase | Phase vocoder-based | ★★★★☆ |
- * | combs | Comb filter-based | ★★★☆☆ |
+ * | specflux | Spectral flux (change in spectral envelope) | ★★★★★ (best for
+ * piano) | | energy | Energy-based detection | ★★★☆☆ | | hpsst | Harmonic
+ * product spectral flux | ★★★★☆ | | phase | Phase vocoder-based | ★★★★☆ | |
+ * combs | Comb filter-based | ★★★☆☆ |
  *
  * Default: "specflux" (spectral flux is most reliable for piano).
  *
@@ -54,8 +53,8 @@ class OnsetDetector {
    // @param bufSize   FFT window size (e.g., 1024, 2048, 4096).
    // @param hopSize   Step size between frames (hop).
    // @param sampleRate Sample rate of the input signal.
-   OnsetDetector(std::string_view method, uint32_t bufSize,
-                 uint32_t hopSize, uint32_t sampleRate);
+   OnsetDetector(std::string_view method, uint32_t bufSize, uint32_t hopSize,
+                 uint32_t sampleRate);
 
    // Destructor. Frees aubio onset detection resources.
    // RAII — resources are released automatically.

@@ -33,7 +33,7 @@
 // case — capturing uncompressed PCM for AIFF — we only need the fields
 // that describe raw sample layout.
 //
-// Key format decisions (see lode/aiffcapture/decisions.md):
+// Key format decisions:
 // - We capture as 16-bit signed integer PCM (CDDA standard), not 32-bit
 //   float. Core Audio always outputs 32-bit float, so main.cpp converts.
 // - We use 32-bit integer sample rate encoding (not 80-bit extended float)

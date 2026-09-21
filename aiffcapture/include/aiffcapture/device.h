@@ -17,7 +17,8 @@
  * 1. Keep the rest of the codebase framework-free (except for AudioDeviceID).
  * 2. Make it easy to swap in a different capture target (e.g., a microphone).
  * 3. Centralize error handling for device enumeration.
- * 4. Hide the Core Audio property query pattern (get size → allocate → read → free).
+ * 4. Hide the Core Audio property query pattern (get size → allocate → read →
+ * free).
  *
  * @section device-blackhole Why BlackHole?
  *

@@ -385,66 +385,66 @@ int main(int argc, char* argv[]) {
    // half-speed, low-pitched garbage (or a crash).
    //
    std::vector<int16_t> convertBuffer;
-   recorder.setOutputCallback([&aiffWriter, &format, &convertBuffer](
-                                 const AudioBufferList* inputData) {
-      // We convert 32-bit float samples from Core
-      // Audio to 16-bit signed integer for the AIFF file.
-      // libsndfile handles byte-order conversion (writes big-endian).
+   recorder.setOutputCallback(
+      [&aiffWriter, &format, &convertBuffer](const AudioBufferList* inputData) {
+         // We convert 32-bit float samples from Core
+         // Audio to 16-bit signed integer for the AIFF file.
+         // libsndfile handles byte-order conversion (writes big-endian).
 
-      // We assume there is only one buffer (stereo devices
-      // have two channels interleaved in a single buffer).
-      if (inputData->mNumberBuffers > 0) {
-         const AudioBuffer& buffer = inputData->mBuffers[0];
-         const float* floatData = static_cast<const float*>(buffer.mData);
-         // Calculate input frames from the 32-bit float
-         // input data (8 bytes/frame for stereo), not the 16-bit output
-         // format (4 bytes/frame). Using the output format's bytesPerFrame
-         // would double the frame count and read past the buffer.
-         //
-         // Domain context: This is a critical calculation. If we used
-         // format.bytesPerFrame (which is 4 for stereo 16-bit) instead of
-         // format.channels * 4 (which is 8 for stereo 32-bit float), we
-         // would calculate TWICE as many frames and read past the buffer.
-         // This was a critical bug in the original implementation that
-         // produced half-speed, low-pitched garbage.
-         uint32_t inputBytesPerFrame = format.channels * 4; // 32-bit float
-         uint32_t numFrames = buffer.mDataByteSize / inputBytesPerFrame;
+         // We assume there is only one buffer (stereo devices
+         // have two channels interleaved in a single buffer).
+         if (inputData->mNumberBuffers > 0) {
+            const AudioBuffer& buffer = inputData->mBuffers[0];
+            const float* floatData = static_cast<const float*>(buffer.mData);
+            // Calculate input frames from the 32-bit float
+            // input data (8 bytes/frame for stereo), not the 16-bit output
+            // format (4 bytes/frame). Using the output format's bytesPerFrame
+            // would double the frame count and read past the buffer.
+            //
+            // Domain context: This is a critical calculation. If we used
+            // format.bytesPerFrame (which is 4 for stereo 16-bit) instead of
+            // format.channels * 4 (which is 8 for stereo 32-bit float), we
+            // would calculate TWICE as many frames and read past the buffer.
+            // This was a critical bug in the original implementation that
+            // produced half-speed, low-pitched garbage.
+            uint32_t inputBytesPerFrame = format.channels * 4; // 32-bit float
+            uint32_t numFrames = buffer.mDataByteSize / inputBytesPerFrame;
 
-         // Resize the conversion buffer to hold all
-         // frames of 16-bit output data (interleaved L/R).
-         convertBuffer.resize(numFrames * format.channels);
+            // Resize the conversion buffer to hold all
+            // frames of 16-bit output data (interleaved L/R).
+            convertBuffer.resize(numFrames * format.channels);
 
-         // Convert each float sample to 16-bit integer.
-         // Core Audio guarantees samples are in [-1.0, 1.0],
-         // so no clamping is needed. Direct scale by 32767.0f.
-         //
-         // Domain context: Why 32767, not 32768? int16_t ranges
-         // from -32768 to +32767 (asymmetric in two's complement).
-         // If we scaled to 32768, a float of 1.0 would produce
-         // 32768, which overflows to -32768 (a loud, distorted
-         // sample). Using 32767 avoids this well-known gotcha.
-         //
-         // libsndfile handles byte-order conversion internally
-         // (writes big-endian for AIFF), so we write int16_t samples
-         // directly without manual byte-swapping.
-         for (uint32_t i = 0; i < numFrames; ++i) {
-            for (uint32_t ch = 0; ch < format.channels; ++ch) {
-               float sample = floatData[i * format.channels + ch];
-               // Core Audio guarantees [-1.0, 1.0] — no clamping
-               // needed. Direct scale by 32767.0f (not 32768).
-               convertBuffer[i * format.channels + ch] =
-                  static_cast<int16_t>(sample * 32767.0f);
+            // Convert each float sample to 16-bit integer.
+            // Core Audio guarantees samples are in [-1.0, 1.0],
+            // so no clamping is needed. Direct scale by 32767.0f.
+            //
+            // Domain context: Why 32767, not 32768? int16_t ranges
+            // from -32768 to +32767 (asymmetric in two's complement).
+            // If we scaled to 32768, a float of 1.0 would produce
+            // 32768, which overflows to -32768 (a loud, distorted
+            // sample). Using 32767 avoids this well-known gotcha.
+            //
+            // libsndfile handles byte-order conversion internally
+            // (writes big-endian for AIFF), so we write int16_t samples
+            // directly without manual byte-swapping.
+            for (uint32_t i = 0; i < numFrames; ++i) {
+               for (uint32_t ch = 0; ch < format.channels; ++ch) {
+                  float sample = floatData[i * format.channels + ch];
+                  // Core Audio guarantees [-1.0, 1.0] — no clamping
+                  // needed. Direct scale by 32767.0f (not 32768).
+                  convertBuffer[i * format.channels + ch] =
+                     static_cast<int16_t>(sample * 32767.0f);
+               }
             }
-         }
 
-         // libsndfile's sf_write_short expects the number of samples,
-         // not frames. For stereo, each frame = 2 samples (L+R).
-         // numFrames is the number of 32-bit float frames, so
-         // numFrames * channels is the number of 16-bit samples.
-         aiffWriter.writeSamples(convertBuffer.data(),
-                                 numFrames * format.channels);
-      }
-   });
+            // libsndfile's sf_write_short expects the number of samples,
+            // not frames. For stereo, each frame = 2 samples (L+R).
+            // numFrames is the number of 32-bit float frames, so
+            // numFrames * channels is the number of 16-bit samples.
+            aiffWriter.writeSamples(convertBuffer.data(),
+                                    numFrames * format.channels);
+         }
+      });
 
    // We use a timer to track the elapsed time.
    // This is the only place where we check the duration.
@@ -505,8 +505,7 @@ int main(int argc, char* argv[]) {
       uint64_t totalBytes = recorder.getTotalBytesReceived();
       // totalBytes is from Core Audio (32-bit float), so divide by
       // 32-bit float bytes per frame (channels * 4) to get frames.
-      uint64_t totalFrames =
-         totalBytes / (format.channels * 4);
+      uint64_t totalFrames = totalBytes / (format.channels * 4);
       double totalDuration = static_cast<double>(totalFrames) /
                              static_cast<double>(format.sampleRate);
 

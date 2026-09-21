@@ -31,19 +31,19 @@
 #define LIBAUDIO_LIBAUDIO_H
 
 #include "audioFile.h"
-#include "fft.h"
-#include "pitch.h"
-#include "onset.h"
 #include "beat.h"
-#include "notes.h"
-#include "spectral.h"
-#include "temporal.h"
+#include "controlEventExtractor.h"
+#include "fft.h"
 #include "hir.h"
 #include "midiFileWriter.h"
-#include "controlEventExtractor.h"
-#include "scoreBuilder.h"
-#include "velocityEstimator.h"
 #include "noteTrimmer.h"
+#include "notes.h"
+#include "onset.h"
+#include "pitch.h"
+#include "scoreBuilder.h"
+#include "spectral.h"
+#include "temporal.h"
+#include "velocityEstimator.h"
 
 #ifdef LIBAUDIO_HAS_RUBBERBAND
 #include "rubberband.h"

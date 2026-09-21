@@ -297,8 +297,8 @@ AudioFormat DeviceManager::getStreamFormat(AudioDeviceID deviceID) const {
    // kAudioDevicePropertyStreamConfiguration returns mData == nullptr
    // (e.g., when the device is not active).
    //
-   // This is a fallback method used when kAudioDevicePropertyStreamConfiguration
-   // fails to provide usable data.
+   // This is a fallback method used when
+   // kAudioDevicePropertyStreamConfiguration fails to provide usable data.
 
    AudioObjectPropertyAddress address = {
       kAudioDevicePropertyStreamFormat, kAudioObjectPropertyScopeInput,
@@ -307,8 +307,8 @@ AudioFormat DeviceManager::getStreamFormat(AudioDeviceID deviceID) const {
 
    // We first get the size of the AudioStreamBasicDescription.
    UInt32 size = sizeof(AudioStreamBasicDescription);
-   OSStatus status = AudioObjectGetPropertyDataSize(deviceID, &address, 0,
-                                                    nullptr, &size);
+   OSStatus status =
+      AudioObjectGetPropertyDataSize(deviceID, &address, 0, nullptr, &size);
 
    if (status != noErr || size == 0) {
       return {}; // Failed to get the stream format.
@@ -316,8 +316,8 @@ AudioFormat DeviceManager::getStreamFormat(AudioDeviceID deviceID) const {
 
    // We allocate the AudioStreamBasicDescription and read it.
    AudioStreamBasicDescription format;
-   status = AudioObjectGetPropertyData(deviceID, &address, 0, nullptr,
-                                       &size, &format);
+   status = AudioObjectGetPropertyData(deviceID, &address, 0, nullptr, &size,
+                                       &format);
 
    if (status != noErr) {
       return {}; // Failed to get the stream format.

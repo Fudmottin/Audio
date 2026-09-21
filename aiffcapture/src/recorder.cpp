@@ -47,8 +47,8 @@
 #include <chrono>
 #include <cstdio>
 #include <cstring>
-#include <iostream>
 #include <iomanip>
+#include <iostream>
 
 // ============================================================================
 // Forward declaration of AiffWriter (defined in aiff.cpp).
@@ -144,8 +144,7 @@ Recorder& Recorder::operator=(Recorder&& other) noexcept {
    // Move assignment operator. We release our current
    // resources and take ownership of the source object's resources.
 
-   if (this !=
-       &other) { // Self-assignment check (always check).
+   if (this != &other) { // Self-assignment check (always check).
       // We release our current resources first.
       if (deviceID_ != 0) {
          stop();

@@ -103,8 +103,7 @@ class AudioFileReader {
    // @param[out] rightOutput Output buffer for right channel.
    // @param hopSize Maximum number of frames to read.
    // @return Number of frames actually read (0 at EOF).
-   uint32_t readStereo(float* leftOutput, float* rightOutput,
-                       uint32_t hopSize);
+   uint32_t readStereo(float* leftOutput, float* rightOutput, uint32_t hopSize);
 
    // Downmix stereo to mono (average of L and R).
    //

@@ -8,7 +8,7 @@
  * that external tools (midicsv, timidity, Logic Pro) can parse and play,
  * regardless of how many notes it contains (even zero).
  *
- * Invariants (see lode/midicapture/summary.md):
+ * Invariants:
  * - Every event is preceded by a variable-length delta-time (>= 0).
  * - Channel events always include a status byte (no running status).
  * - Multi-byte fields are big-endian; the `MTrk` length equals the actual
@@ -82,7 +82,7 @@ struct MidiFileWriter::Impl {
             groups.push_back(static_cast<uint8_t>(v & 0x7F));
             v >>= 7;
          }
-         std::reverse(groups.begin(), groups.end());  // MSB group first.
+         std::reverse(groups.begin(), groups.end()); // MSB group first.
       }
       for (size_t i = 0; i < groups.size(); ++i) {
          if (i + 1 < groups.size()) {
@@ -149,7 +149,9 @@ struct MidiFileWriter::Impl {
       double bpm = (tempoBpm > 0.0) ? tempoBpm : 120.0;
       uint32_t microseconds =
          static_cast<uint32_t>(std::llround(60000000.0 / bpm));
-      return {0xFF, 0x51, 0x03,
+      return {0xFF,
+              0x51,
+              0x03,
               static_cast<uint8_t>((microseconds >> 16) & 0xFF),
               static_cast<uint8_t>((microseconds >> 8) & 0xFF),
               static_cast<uint8_t>(microseconds & 0xFF)};
@@ -173,10 +175,9 @@ struct MidiFileWriter::Impl {
       // Notes, sorted by start time. Each emits exactly one Note On
       // followed by one Note Off.
       std::vector<Note> notes = score.notes;
-      std::sort(notes.begin(), notes.end(),
-                 [](const Note& a, const Note& b) {
-                    return a.startTime < b.startTime;
-                 });
+      std::sort(notes.begin(), notes.end(), [](const Note& a, const Note& b) {
+         return a.startTime < b.startTime;
+      });
 
       for (const Note& note : notes) {
          uint8_t pitch = clamp7(note.pitch);
@@ -189,27 +190,26 @@ struct MidiFileWriter::Impl {
          uint32_t onTick = secondsToTicks(note.startTime, tempo);
          uint32_t offTick = secondsToTicks(note.endTime, tempo);
          if (offTick <= onTick) {
-            offTick = onTick + 1;  // Guarantee a non-zero-length note.
+            offTick = onTick + 1; // Guarantee a non-zero-length note.
          }
 
-         uint32_t onDelta =
-            (onTick > lastTick) ? (onTick - lastTick) : 0;
+         uint32_t onDelta = (onTick > lastTick) ? (onTick - lastTick) : 0;
          emit(track, onDelta, noteOn(pitch, velocity, channel));
 
          uint32_t offDelta = (offTick > onTick) ? (offTick - onTick) : 0;
          emit(track, offDelta, noteOff(pitch, velocity, channel));
 
          if (offTick > lastTick) {
-            lastTick = offTick;  // Keep the timeline monotonic.
+            lastTick = offTick; // Keep the timeline monotonic.
          }
       }
 
       // Score control events (pedals, etc.), sorted by time.
       std::vector<ControlEvent> controls = score.controls;
       std::sort(controls.begin(), controls.end(),
-                 [](const ControlEvent& a, const ControlEvent& b) {
-                    return a.time < b.time;
-                 });
+                [](const ControlEvent& a, const ControlEvent& b) {
+                   return a.time < b.time;
+                });
       for (const ControlEvent& control : controls) {
          uint32_t tick = secondsToTicks(control.time, tempo);
          uint32_t delta = (tick > lastTick) ? (tick - lastTick) : 0;
@@ -259,7 +259,7 @@ bool MidiFileWriter::write(const Score& score) {
    if (f == nullptr) {
       return false;
    }
-   impl_->file = f;  // Owned; closed in the Impl destructor on any path.
+   impl_->file = f; // Owned; closed in the Impl destructor on any path.
 
    // Header chunk: "MThd" + length(6) + format(1) + ntrks(1) + division(480).
    const uint8_t mthdId[] = {'M', 'T', 'h', 'd'};
@@ -269,14 +269,14 @@ bool MidiFileWriter::write(const Score& score) {
    if (!Impl::writeUint32(f, 6)) {
       return false;
    }
-   if (!Impl::writeUint16(f, 1)) {  // Format: 1 (multi-track).
+   if (!Impl::writeUint16(f, 1)) { // Format: 1 (multi-track).
       return false;
    }
-   if (!Impl::writeUint16(f, 1)) {  // Number of tracks: 1.
+   if (!Impl::writeUint16(f, 1)) { // Number of tracks: 1.
       return false;
    }
    if (!Impl::writeUint16(f, Impl::TICKS_PER_QUARTER_NOTE)) {
-      return false;  // Division: 480 ticks per quarter note.
+      return false; // Division: 480 ticks per quarter note.
    }
 
    // Track chunk: "MTrk" + length + event bytes. The length must equal the
