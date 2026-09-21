@@ -27,6 +27,9 @@ lode/midicapture/tmp
 *.swo
 *~
 
+# Python trash
+__pycache__/
+
 # Generated MIDI / audio outputs + vendored validation tool
 *.mid
 *.ogg
