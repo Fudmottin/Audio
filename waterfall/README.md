@@ -119,12 +119,13 @@ python3 waterfall_video.py <text_file> <audio_file> <height> <width> [-o out.mp4
   — value 0 is black, value 65535 is full yellow, and the hue arcs from blue
   through red to yellow (brightness is proportional to the sample). The arc is
   controlled by the `HUE_START` / `HUE_SWEEP` constants at the top of the script.
-- **Scroll & sync:** the whole waterfall spans one frame height and scrolls
-  downward past a playhead at the vertical center. Scroll speed is tied to the
+- **Scroll & sync:** the rows (listed in recording order, row 0 = the start) are
+  reversed and scrolled **downward** past a playhead at the vertical center —
+  the head (first row of the recording) begins on the playhead, newer rows enter
+  from the top, and the oldest leave from the bottom. Scroll speed is tied to the
   *real* per-row audio duration (`hopSize / sampleRate` from the header), so the
-  row at the playhead is the audio you hear at that instant. The audio starts
-  when the head reaches the playhead and runs to the end; the video ends when
-  the last row clears the bottom.
+  row at the playhead is the audio you hear at that instant. The audio plays for
+  the full clip; the video ends when the last row clears the bottom.
 - **Rendering:** numpy builds each frame (no Pillow / ImageMagick needed); raw
   RGB frames are piped to FFmpeg over stdin, which encodes H.264 and muxes the
   audio.

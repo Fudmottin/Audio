@@ -4,17 +4,20 @@ waterfall_video.py — render a waterfall text file into a scrolling MP4 video.
 
 Reads the text output produced by the `waterfall` C++ tool (one `name=value`
 header line, then one line per time slice of space-separated 16-bit hex values)
-and renders an animated, color waterfall that scrolls downward with an imaginary
-playhead at the vertical center of the frame. The audio is muxed in sync: it
-starts when the head of the waterfall reaches the playhead and plays through to
-the end of the clip. The video ends once the last row has fully scrolled off the
-bottom of the frame (which is when the audio ends, because the full waterfall
-spans exactly one frame height).
+and renders an animated, color waterfall that scrolls **downward** past an
+imaginary playhead at the vertical center of the frame.
+
+The text file lists rows in recording order (row 0 = the *start* of the
+recording). For a downward scroll the rows are reversed so the *latest* sample
+sits at the top of the image; the image then moves down, newest rows entering
+at the top and oldest leaving at the bottom. The clip starts with the head of
+the waterfall — the first row of the recording — aligned with the playhead, so
+the *start of the recording* plays at the start of the video. The video ends
+once the last (oldest) row clears the bottom of the frame.
 
 Because the scroll speed is tied to the *real* per-row audio duration
-(`hopSize / sampleRate`), the row that is at the playhead at time t is exactly
-the audio you hear at time t when the audio start is aligned to the head
-crossing the playhead.
+(`hopSize / sampleRate`), the row sitting on the playhead at time t is exactly
+the audio you hear at time t.
 
 Rendering:
     Each frame is a color-mapped grid built with numpy (no Pillow, no
@@ -129,12 +132,19 @@ def sample_to_rgb(samples):
     return np.stack([r, g, b], axis=1)
 
 
-def render_waterfall_image(rows):
+def render_waterfall_image(rows, reversed_):
     """Color-map the whole waterfall once.
 
     rows: (num_rows, num_cols) int array of 16-bit values.
+    reversed_: when True, flip the row order so the array's row 0 is the
+        *latest* sample (the original last row). The text file lists rows in
+        recording order (row 0 = earliest); for a downward scroll we want the
+        newest data to sit at the image top, hence the flip.
+
     Returns: (num_rows, num_cols, 3) uint8 RGB array (one pixel per cell).
     """
+    if reversed_:
+        rows = rows[::-1]
     flat = rows.ravel()
     rgb = sample_to_rgb(flat)                       # (N,3) float [0,1]
     return (rgb * 255.0).clip(0, 255).astype(np.uint8).reshape(rows.shape + (3,))
@@ -216,23 +226,25 @@ def has_audio_stream(path):
 # Frame synthesis
 # ============================================================================
 
-def render_frame(full_image, row_top, width, height, n_rows, playhead_y):
+def render_frame(full_image, img_top, width, height, n_rows, playhead_y):
     """Compose one output frame (height x width x 3, uint8) for a given scroll.
 
     The whole waterfall is treated as a continuous image whose full height is
-    `n_rows` rows; at scroll `row_top` the top of row 0 sits at y = row_top
-    (each row spans `height / n_rows` pixels, so the full image spans `height`
-    pixels). The visible window is a single vectorized nearest-neighbor sample
-    of that image, then stretched horizontally to the output width.
+    `n_rows` rows. `img_top` is the y-coordinate (in output pixels) of the top
+    of the image's row 0; each row spans `height / n_rows` pixels, so the full
+    image spans `height` pixels. The visible window is a single vectorized
+    nearest-neighbor sample of that image, then stretched horizontally to the
+    output width. (With a positive slope, `img_top` grows over time, so the
+    image — and the newest rows at its top — scroll *downward*.)
 
     full_image : (n_rows, n_cols, 3) uint8 pre-colored waterfall.
-    row_top    : float — y of the top of row 0 in output pixels.
+    img_top    : float — y of the top of image row 0 in output pixels.
     """
     img_h, img_w, _ = full_image.shape
 
     # Output pixel y -> image row coordinate (continuous).
     row_scale = n_rows / float(height)        # image rows per output pixel
-    y_idx = (np.arange(height) - row_top) * row_scale   # (height,)
+    y_idx = (np.arange(height) - img_top) * row_scale   # (height,)
     row_i = np.clip(np.round(y_idx).astype(np.int64), 0, img_h - 1)
     band = full_image[row_i]                 # (height, img_w, 3)
 
@@ -316,28 +328,32 @@ def main():
     row_h = out_h / float(num_rows)
     playhead = out_h / 2.0
 
-    # Linear scroll model. The full waterfall spans exactly one frame height,
-    # and each row spans row_h pixels. The scroll speed (px/s) is chosen so
-    # that one row passes a point on screen every `row_dur_s` seconds, keeping
-    # the waterfall's spectral content in real-time sync with the audio.
-    slope = -row_h / row_dur_s if row_dur_s > 0 else -1.0   # px/s (negative = down)
+    # Linear scroll model. We reverse the rows so the image's row 0 is the
+    # *latest* sample; the image then scrolls *downward* (positive slope) with
+    # the newest data entering at the top and the oldest leaving at the bottom.
+    # The head — the first row of the recording, i.e. the image's *last* row —
+    # therefore sits at the bottom of the image. At t=0 we place that last row
+    # on the playhead, so the *start of the recording* plays at the start of
+    # the clip and the row under the playhead is always the audio heard at t.
+    #
+    # Scroll speed (px/s) keeps one row passing a point every `row_dur_s`, so
+    # the waterfall stays in real-time sync with the audio.
+    slope = row_h / row_dur_s if row_dur_s > 0 else 1.0   # px/s (positive = down)
 
-    # Keyframes expressed as the required row_top (y of row 0's top).
-    rt_clip_start = -0.5 * row_h              # head entering the top edge
-    rt_audio_start = playhead - 0.5 * row_h   # row 0's center at the playhead
-    rt_video_end = 0.0                        # last row's bottom clears the frame
+    # The image's last row (recording head) lands exactly on the playhead.
+    img_top_start = playhead - (num_rows - 1) * row_h
+    # The video ends when the image's oldest row (recording tail, last row of
+    # the file) clears the bottom of the frame.
+    img_top_end = out_h
+    t_video_end = (img_top_end - img_top_start) / slope
 
-    # Invert the linear model: t = (rt_clip_start - rt_target) / (-slope).
-    t_audio_start = (rt_clip_start - rt_audio_start) / (-slope)
-    t_video_end = (rt_clip_start - rt_video_end) / (-slope)
-
-    if t_audio_start < 0.0:
-        # The head can only start playing once it has entered the frame.
-        t_audio_start = 0.0
-
-    # Safety: ensure the clip is at least as long as the audio needs to play.
-    if t_video_end <= t_audio_start:
-        t_video_end = t_audio_start + (num_rows * row_dur_s)
+    # Audio runs from 0 to t_video_end (the full clip): it starts in sync with
+    # the head on the playhead and ends exactly when the last row clears the
+    # bottom. Because the sample rate is constant, this is just a duration,
+    # and `atrim=start=0:end=<dur>` keys on the *sample count* — which sidesteps
+    # the unreliable (NaN) audio timestamp `t` in a multi-input rawvideo pipe.
+    a_end_s = max(0.0, t_video_end)
+    audio_filter = f"atrim=start=0:end={a_end_s:.6f}"
 
     total_frames = max(1, int(round(t_video_end * FPS)))
 
@@ -345,28 +361,14 @@ def main():
           f"row_dur={row_dur_s:.4f}s, audio={audio_dur:.3f}s", file=sys.stderr)
     print(f"video: {out_w}x{out_h} @ {FPS}fps, {total_frames} frames, "
           f"~{t_video_end:.2f}s", file=sys.stderr)
-    print(f"audio: starts @ {t_audio_start:.3f}s, runs to video end "
+    print(f"audio: plays from 0.000s to video end "
           f"({t_video_end:.3f}s)", file=sys.stderr)
 
     # --- Pre-render the waterfall image once (the perf win). ---
+    # Reversed so the newest sample is the image's row 0 (top). See the
+    # scroll model above for why.
     print("color-mapping waterfall ...", file=sys.stderr)
-    full_image = render_waterfall_image(rows)        # (num_rows, num_cols, 3) uint8
-
-    # --- Audio filter: start the audio when the head reaches the playhead. ---
-    # The C++ waterfall advances by one hop per row and the scroll is tied to
-    # the real per-row audio duration (hopSize/sampleRate), so the audio and
-    # the waterfall are already in sync: the row at the playhead at time t is
-    # the audio you hear at time t once the audio start is aligned to the head
-    # crossing the playhead. We therefore delay the audio by `t_audio_start`;
-    # it then runs for the rest of the clip (the tail leaving the playhead is
-    # also the video's end, since the full waterfall spans one frame height).
-    #
-    # `adelay` is used because it does not depend on the audio timestamp `t`,
-    # which is unreliable (NaN) in a multi-input pipeline that feeds rawvideo
-    # frames on stdin. `-shortest` (added below) ends the video when the audio
-    # stream does, which lands exactly on the tail clearing the bottom.
-    a_delay_ms = max(0, int(round(t_audio_start * 1000.0)))
-    audio_filter = f"adelay={a_delay_ms}|{a_delay_ms}"
+    full_image = render_waterfall_image(rows, reversed_=True)
 
     # --- FFmpeg command line. ---
     has_audio = has_audio_stream(args.audio_file)
@@ -389,8 +391,7 @@ def main():
     ffmpeg += ["-map", "0:v"]
     if has_audio:
         ffmpeg += ["-map", "1:a",
-                   "-c:a", "aac", "-b:a", "192k",
-                   "-shortest"]
+                   "-c:a", "aac", "-b:a", "192k"]
     ffmpeg += ["-c:v", "libx264", "-pix_fmt", "yuv420p",
                "-profile:v", "high", "-level", "4.0",
                "-preset", "medium", "-crf", "20",
@@ -403,8 +404,8 @@ def main():
     written = 0
     try:
         for fidx in range(total_frames):
-            row_top = rt_clip_start + slope * (fidx / FPS)
-            frame = render_frame(full_image, row_top, out_w, out_h,
+            img_top = img_top_start + slope * (fidx / FPS)
+            frame = render_frame(full_image, img_top, out_w, out_h,
                                  num_rows, playhead)
             proc.stdin.write(frame.tobytes())
             written += 1
