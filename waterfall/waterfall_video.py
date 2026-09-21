@@ -79,7 +79,25 @@ MAX_SAMPLE = 65535          # 16-bit unsigned full-scale.
 # interval, so the path starts as dark blue (black) and ends as full yellow.
 HUE_START = 240.0   # deg — blue (the low end of the waterfall)
 HUE_SWEEP = 180.0   # deg — total hue rotation from start to end (wraps past 360)
-# At t=1.0: hue = (240 + 180) % 360 = 60deg = yellow. At t~0.5: hue~330 (red apex).
+
+# Default vertical magnification applied to the waterfall image.
+#
+# The pre-rendered waterfall is stretched vertically by `DEFAULT_VSCALE`
+# times the frame height, so each data row occupies more screen space and
+# detail is revealed. To keep the audio in sync, the scroll speed is
+# increased by the same factor so that one row still crosses the playhead
+# every `row_dur_s` of real time. Tuning this constant (or passing `--vscale`
+# on the command line, which is multiplied against it) lets the user pick
+# the magnification. An effective scale above `num_rows / out_h` is
+# pointless: the stretched image is taller than the frame and additional
+# magnification only shows the same rows more zoomed in, not more of them.
+
+# The default vertical magnification for a bare `--vscale 1.0` invocation.
+# 2.0 means "the waterfall image is 2x taller than the frame" by default;
+# scroll slope is scaled by the same factor to preserve audio sync.
+# Bump this up to 3.0, 4.0, etc. if you want more detail by default.
+# Pass `--vscale` on the command line to scale this value (see above).
+DEFAULT_VSCALE = 2.0
 
 
 def hue_for_value(t):
@@ -227,7 +245,8 @@ def has_audio_stream(path):
 # Frame synthesis
 # ============================================================================
 
-def render_frame(full_image, img_top, width, height, n_rows, playhead_y):
+def render_frame(full_image, img_top, width, height, n_rows, playhead_y,
+                 v_scale=1.0):
     """Compose one output frame (height x width x 3, uint8) for a given scroll.
 
     The whole waterfall is treated as a continuous image whose full height is
@@ -244,7 +263,13 @@ def render_frame(full_image, img_top, width, height, n_rows, playhead_y):
     img_h, img_w, _ = full_image.shape
 
     # Output pixel y -> image row coordinate (continuous).
-    row_scale = n_rows / float(height)        # image rows per output pixel
+    # `v_scale` magnifies the image vertically by that factor relative to the
+    # frame; each row therefore occupies `v_scale * height / n_rows` pixels.
+    # With v_scale=1 the image exactly fills the frame height. Increasing it
+    # (up to the point where the stretched image is taller than the frame)
+    # reveals more per-row vertical detail while keeping the same row-to-time
+    # mapping when the scroll slope is scaled identically.
+    row_scale = n_rows / (float(height) * v_scale)  # image rows per output px
     y_idx = (np.arange(height) - img_top) * row_scale   # (height,)
     row_i = np.clip(np.round(y_idx).astype(np.int64), 0, img_h - 1)
     band = full_image[row_i]                 # (height, img_w, 3)
@@ -275,7 +300,17 @@ def main():
     ap.add_argument("width", type=int, help="output frame width (px)")
     ap.add_argument("-o", "--output", default=None,
                     help="output video path (default: <text_file>.mp4)")
+    ap.add_argument("--vscale", type=float, default=1.0,
+                    help=("vertical magnification of the waterfall image, "
+                          "multiplied against DEFAULT_VSCALE. 1.0 (default) "
+                          "yields DEFAULT_VSCALE; 0.5 halves it, 2.0 doubles it. "
+                          "The scroll speed is scaled identically so that audio "
+                          "stays in sync and the video still ends when the data "
+                          "tail passes the playhead. Must be positive."))
     args = ap.parse_args()
+
+    if args.vscale <= 0:
+        ap.error("--vscale must be positive")
 
     if args.height < 16 or args.width < 16:
         ap.error("height and width must each be at least 16")
@@ -326,7 +361,12 @@ def main():
     if row_dur_s <= 0:
         row_dur_s = audio_dur / num_rows if num_rows else 1.0 / FPS
 
-    row_h = out_h / float(num_rows)
+    # Effective vertical magnification: the named default (tweakable at the
+    # top of this file) times the user's --vscale multiplier. For --vscale 1.0
+    # this is just DEFAULT_VSCALE.
+    v_scale = DEFAULT_VSCALE * args.vscale
+
+    row_h = out_h * v_scale / float(num_rows)
     playhead = out_h / 2.0
 
     # Linear scroll model. We reverse the rows so the image's row 0 is the
@@ -410,7 +450,7 @@ def main():
         for fidx in range(total_frames):
             img_top = img_top_start + slope * (fidx / FPS)
             frame = render_frame(full_image, img_top, out_w, out_h,
-                                 num_rows, playhead)
+                                 num_rows, playhead, v_scale=v_scale)
             proc.stdin.write(frame.tobytes())
             written += 1
             if fidx % (FPS * 2) == 0:

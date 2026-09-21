@@ -105,13 +105,20 @@ A companion Python script animates the waterfall text output as a scrolling
 color video (H.264 / MP4, 30 fps) with the source audio muxed in sync:
 
 ```bash
-python3 waterfall_video.py <text_file> <audio_file> <height> <width> [-o out.mp4]
+python3 waterfall_video.py <text_file> <audio_file> <height> <width> [-o out.mp4] [--vscale N]
 ```
 
 - `<text_file>`   — the `waterfall` output (header line + one hex row per slice).
 - `<audio_file>`  — the same recording the waterfall was generated from.
 - `<height>` `<width>` — output frame size in pixels (rounded to even for `yuv420p`).
 - `-o/--output`  — output path (default: `<text_file>.mp4`).
+- `--vscale N`   — optional vertical magnification multiplier. The waterfall image
+  is stretched vertically by `DEFAULT_VSCALE × N` (a named constant at the top of
+  the script, default 2.0), so `--vscale 1.0` reproduces the default look, `0.5`
+  halves it, `2.0` doubles it, etc. The scroll speed is scaled by the same factor
+  so the audio stays in sync and the video still ends when the tail passes the
+  playhead. Higher values reveal more per-row detail (up to the number of data
+  rows); beyond that the rows are only zoomed, not multiplied.
 
 ### How it works
 
@@ -127,6 +134,10 @@ python3 waterfall_video.py <text_file> <audio_file> <height> <width> [-o out.mp4
   row at the playhead is the audio you hear at that instant. The audio plays for
   the full clip, and the video ends when the *tail of the data* passes the
   playhead — i.e. at the audio's duration.
+- **Vertical scale:** the waterfall image is magnified vertically by
+  `DEFAULT_VSCALE × --vscale` and the scroll speed is scaled identically, so audio
+  sync and the end-point (tail at the playhead) are unchanged — only the
+  per-row vertical resolution of the display changes.
 - **Rendering:** numpy builds each frame (no Pillow / ImageMagick needed); raw
   RGB frames are piped to FFmpeg over stdin, which encodes H.264 and muxes the
   audio.
