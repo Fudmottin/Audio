@@ -34,4 +34,4 @@ midicsv-1.1/
 
 # Generated test-midi WAV renders (timidity output); reference WAVs in
 # aiffcapture/test-audio/ remain tracked.
-midicapture/test-midi/*.wav
+midicapture/test-midi/*
