@@ -138,6 +138,13 @@ python3 waterfall_video.py <text_file> <audio_file> <height> <width> [-o out.mp4
   `DEFAULT_VSCALE × --vscale` and the scroll speed is scaled identically, so audio
   sync and the end-point (tail at the playhead) are unchanged — only the
   per-row vertical resolution of the display changes.
+- **Vertical anti-aliasing:** the scroll is continuous (sub-pixel) but the source
+  is one data row per pixel, so a nearest-neighbor sample steps in 1-row
+  increments and looks blocky. Each output row instead samples `V_SUPERSAMPLE`
+  sub-rows straddling its fractional position and block-means them (a `V_SUPERSAMPLE=1`
+  invocation disables it), smoothing the vertical stepping the way the horizontal
+  mean smooths the compressed high-frequency end. Constant at the top of the
+  script; the default 8 matches the horizontal factor.
 - **Horizontal (frequency) scale:** the waterfall's columns are *linear* in
   frequency (128 MIDI notes × `bands-per-note`), so most audible content sits on
   the left of the frame. The display warps the horizontal axis to a
@@ -151,7 +158,8 @@ python3 waterfall_video.py <text_file> <audio_file> <height> <width> [-o out.mp4
   output is block-averaged down) so they read as dimmer pixels instead of
   vanishing. All three constants (`F_MIN_HZ`, `F_MAX_HZ`, `H_SUPERSAMPLE`) are
   at the top of the script. This is a display-only transform: the underlying
-  waterfall text and data are untouched.
+  waterfall text and data are untouched. (Vertical anti-aliasing is a separate
+  transform, `V_SUPERSAMPLE`, documented above.)
 - **Rendering:** numpy builds each frame (no Pillow / ImageMagick needed); raw
   RGB frames are piped to FFmpeg over stdin, which encodes H.264 and muxes the
   audio.

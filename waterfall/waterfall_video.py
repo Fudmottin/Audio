@@ -126,6 +126,15 @@ F_MAX_HZ = 20000.0   # Hz — high end of the log frequency map (audible window)
 #       artifacts in the high-frequency (compressed) region at the cost of
 #       a few extra per-frame operations. 4 is a good default; 8 is sharper.
 H_SUPERSAMPLE = 8
+# V_SUPERSAMPLE: supersample factor for the vertical scroll. The scroll offset
+# is continuous (sub-pixel) but the source has one data row per pixel, so a
+# plain nearest-neighbor sample steps in 1-row increments and looks blocky.
+# Each output row instead samples `V_SUPERSAMPLE` sub-rows straddling its
+# fractional position and block-means them, smoothing the vertical stepping
+# the same way `H_SUPERSAMPLE` smooths the compressed high-frequency end.
+# 8 matches the horizontal factor; raise for a smoother look at the cost of
+# a little more per-frame work.
+V_SUPERSAMPLE = 8
 
 
 def hue_for_value(t):
@@ -387,7 +396,8 @@ def build_warped(image, col_freq_hz, out_w, f_min=None, f_max=None,
     return block.mean(axis=2).astype(np.uint8)       # (n_rows, out_w, 3)
 
 
-def render_frame(warped, img_top, height, n_rows, playhead_y, v_scale=1.0):
+def render_frame(warped, img_top, height, n_rows, playhead_y, v_scale=1.0,
+                 vss=1):
     """Compose one output frame (height x width x 3, uint8) for a given scroll.
 
     `warped` is the whole waterfall already warped horizontally onto the output
@@ -399,22 +409,45 @@ def render_frame(warped, img_top, height, n_rows, playhead_y, v_scale=1.0):
     newest rows at its top — scroll *downward*.)
 
     The horizontal log-frequency warp and mean anti-aliasing are applied once
-    up front (see `build_warped`); `render_frame` only does the vertical
-    sampling. `width` is carried in `warped.shape[1]`.
+    up front (see `build_warped`); `render_frame` does the vertical sampling
+    (nearest-neighbor when `vss` is 1, or a block-mean of `vss` sub-rows when
+    `vss` > 1 for a smoother scroll). `width` is carried in `warped.shape[1]`.
 
     warped     : (n_rows, width, 3) uint8 — color-mapped + log-warped waterfall.
     img_top    : float — y of the top of image row 0 in output pixels.
+    v_scale    : vertical magnification factor (see DEFAULT_VSCALE).
+    vss        : vertical supersample factor; 1 = nearest-neighbor, >1 = smooth.
     """
     img_h, width, _ = warped.shape
+    fimg = warped.astype(np.float64)            # float for fractional sampling
 
     # Output pixel y -> image row coordinate (continuous).
     # `v_scale` magnifies the image vertically by that factor relative to the
     # frame; each row therefore occupies `v_scale * height / n_rows` pixels.
     # With v_scale=1 the image exactly fills the frame height.
     row_scale = n_rows / (float(height) * v_scale)  # image rows per output px
-    y_idx = (np.arange(height) - img_top) * row_scale   # (height,)
-    row_i = np.clip(np.round(y_idx).astype(np.int64), 0, img_h - 1)
-    frame = warped[row_i]                       # (height, width, 3)
+
+    if vss <= 1:
+        # No vertical anti-aliasing: a single nearest-neighbor row sample.
+        y_idx = (np.arange(height) - img_top) * row_scale   # (height,)
+        row_i = np.clip(np.round(y_idx).astype(np.int64), 0, img_h - 1)
+        frame = warped[row_i]                       # (height, width, 3)
+    else:
+        # Fractional vertical anti-aliasing: for each output row, straddle its
+        # fractional position with `vss` sub-row samples and block-mean them.
+        # The scroll is continuous (img_top is a float), so the sub-row grid
+        # shifts smoothly between frames; averaging `vss` neighboring data rows
+        # damps the 1-row stepping that nearest-neighbor would produce.
+        # Edge rows (where the grid spills past the image) are clamped to the
+        # boundary row, matching the horizontal mean behavior.
+        base = (np.arange(height) - img_top) * row_scale   # (height,)
+        offsets = np.linspace(0.0, 1.0, vss) - 0.5        # (vss,) within-row
+        samples = base[:, None] + offsets[None, :]        # (height, vss)
+        row_i = np.clip(np.round(samples).astype(np.int64), 0, img_h - 1)
+        # Advanced index on axis 0 -> (height, vss, width, 3); mean over axis 1
+        # (the vss sub-rows) collapses to (height, width, 3).
+        frame = fimg[row_i, :, :].mean(axis=1)         # (height, width, 3)
+        frame = frame.astype(np.uint8)
 
     # Playhead: a faint horizontal line at the vertical center.
     py = int(playhead_y)
@@ -565,6 +598,9 @@ def main():
           f"(nyquist {nyquist_hz:.0f} Hz, ss={H_SUPERSAMPLE})", file=sys.stderr)
     warped = build_warped(full_image, col_freq, out_w,
                           ss=H_SUPERSAMPLE)
+    # Vertical supersample factor for the scroll (fractional sub-row block-mean,
+    # see render_frame). 1 disables it; 8 matches the horizontal factor.
+    vss = V_SUPERSAMPLE
 
     # --- FFmpeg command line. ---
     has_audio = has_audio_stream(args.audio_file)
@@ -602,7 +638,8 @@ def main():
         for fidx in range(total_frames):
             img_top = img_top_start + slope * (fidx / FPS)
             frame = render_frame(warped, img_top, out_h,
-                                 num_rows, playhead, v_scale=v_scale)
+                                 num_rows, playhead, v_scale=v_scale,
+                                 vss=vss)
             proc.stdin.write(frame.tobytes())
             written += 1
             if fidx % (FPS * 2) == 0:
