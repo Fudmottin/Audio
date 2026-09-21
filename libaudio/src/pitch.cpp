@@ -148,8 +148,16 @@ std::pair<float, float> PitchDetector::detect(const float* samples,
                            impl_->inputBuffer, impl_->candsBuffer);
    }
 
-   // Extract results.
-   float pitch = impl_->candsBuffer->data[0]; // MIDI note (float)
+   // Extract results. cands[0] is the fundamental in Hz (0.0 when no
+   // pitch was found); the confidence is reported separately.
+   //
+   // Domain context: the raw values are returned WITHOUT applying the
+   // confidence threshold. YINfft's confidence is unreliable for gating
+   // (it reads ~0 on clean piano notes yet can look plausible on
+   // silence), so the caller is expected to gate on its own silence or
+   // energy test. The stored threshold remains configurable for callers
+   // that do use it (see confidenceThreshold).
+   const float pitch = impl_->candsBuffer->data[0];
    float confidence = 0.0f;
 
    // Get confidence from the active detector.
@@ -167,11 +175,6 @@ std::pair<float, float> PitchDetector::detect(const float* samples,
    }
 
    impl_->lastConfidence = confidence;
-
-   // Return 0.0 pitch if confidence is below threshold.
-   if (confidence < impl_->confidenceThreshold) {
-      return {0.0f, confidence};
-   }
 
    return {pitch, confidence};
 }

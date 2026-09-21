@@ -70,10 +70,17 @@ class PitchDetector {
 
    // Detect pitch from a buffer of audio samples.
    //
+   // Domain context: aubio's YINfft (and YINfast) return a frequency
+   // in Hz in the candidates buffer — 0.0 when no fundamental was
+   // found — plus a separate confidence value. YINfft's confidence is
+   // unreliable for gating (it reads ~0 on clean piano notes and can
+   // look plausible on silence), so callers should gate on their own
+   // silence/energy test, not on the returned confidence.
+   //
    // @param samples  Input audio samples (length must equal bufSize).
-   // @return The detected pitch in MIDI note numbers (float),
-   //         or 0.0 if no pitch was detected.
-   //         Confidence is in [0.0, 1.0].
+   // @return The detected fundamental frequency in Hz, or 0.0 if none
+   //         was detected. The second value is the raw detector
+   //         confidence in [0.0, 1.0] (interpret per the note above).
    std::pair<float, float> detect(const float* samples, uint32_t length);
 
    // Configure the detection method.

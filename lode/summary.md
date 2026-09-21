@@ -11,6 +11,7 @@ Build a suite of local-first audio processing utilities targeting macOS (later P
 | **Audio → AIFF** (capture) | Complete | Capture audio from BlackHole 2ch to 16-bit signed integer AIFF files. |
 | **DSP Library** (libaudio) | Designed | DSP library wrapping aubio, libsndfile, rubberband. HIR defined. Not yet implemented. |
 | **Audio → MIDI** (transcription) | **In Progress** | Monophonic prototype using aubio (YINfft pitch, spectral flux onsets) → Type 1 MIDI. |
+| **Audio → Waterfall** (frequency analysis) | **In Progress** | SONAR-style spectral display: FFT per row, 16-bit quantized, text output. |
 | **MIDI → Sheet Music** | Planned | Generate readable sheet music from MIDI data. |
 | **Sheet Music → MIDI** | Planned | Generate playable audio from sheet music representations. |
 
@@ -21,6 +22,7 @@ Audio/
 ├── aiffcapture/          # Phase 1: BlackHole → AIFF capture utility
 ├── libaudio/             # Phase 0: DSP library (designed, not implemented)
 ├── midicapture/          # Phase 2: Audio → MIDI (in progress)
+├── waterfall/            # Phase 3: Audio → frequency waterfall (in progress)
 ├── lode/                 # Lode coding documentation (project knowledge)
 │   ├── summary.md        # This file
 │   ├── terminology.md    # Shared glossary
@@ -32,8 +34,11 @@ Audio/
 │       ├── summary.md    # Module overview, API design
 │       ├── decisions.md  # Library choices, wrapper pattern, defaults
 │       └── hir.md        # High-level Instrumentation Representation
-│   └── midicapture/      # Phase 2: transcription module
-│       └── summary.md    # Module overview, architecture, pipeline
+│   ├── midicapture/      # Phase 2: transcription module
+│   │   └── summary.md    # Module overview, architecture, pipeline
+│   └── waterfall/        # Phase 3: frequency analysis module
+│       ├── summary.md    # Module overview, architecture, pipeline, CLI
+│       └── decisions.md  # Design decisions (single file, auto-scale, hop=window)
 ├── README.md             # Project overview
 ├── LICENSE
 └── .clang-format         # Shared coding style

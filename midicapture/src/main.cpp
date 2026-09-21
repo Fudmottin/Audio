@@ -21,7 +21,6 @@
  * Options:
  *   --window-size <int>  FFT window size (default: 2048).
  *   --hop-size <int>     Hop size (default: 512).
- *   --confidence <float> Confidence threshold (default: 0.5).
  *   --silence <float>    Silence threshold in dB (default: -40).
  *   --tempo <float>      Tempo in BPM (default: 120).
  *   --method <string>    Pitch detection method (default: "yinfft").
@@ -32,7 +31,8 @@
  * The monophonic prototype assumes only one note at a time:
  * - Pitch detection runs YINfft on each audio frame.
  * - Onset detection (spectral flux) marks note starts.
- * - When confidence drops below threshold, the note ends.
+ * - When energy stays below the silence threshold for a few hops,
+ *   the note ends (hysteresis).
  * - Notes are sorted by start time and written to the MIDI file.
  *
  * Polyphony (chords) is a future enhancement: it will use spectral
@@ -65,7 +65,6 @@ static void printUsage(const char* programName) {
    // Options:
    //   --window-size <int>  FFT window size (default: 2048).
    //   --hop-size <int>     Hop size (default: 512).
-   //   --confidence <float> Confidence threshold (default: 0.5).
    //   --silence <float>    Silence threshold in dB (default: -40).
    //   --tempo <float>      Tempo in BPM (default: 120).
    //   --method <string>    Pitch detection method (default: "yinfft").
@@ -78,8 +77,6 @@ static void printUsage(const char* programName) {
    std::cerr
       << "  --window-size <int>       FFT window size (default: 2048).\n";
    std::cerr << "  --hop-size <int>          Hop size (default: 512).\n";
-   std::cerr << "  --confidence <float>      Confidence threshold (default: "
-             << "0.5).\n";
    std::cerr << "  --silence <float>         Silence threshold in dB (default: "
              << "-40).\n";
    std::cerr << "  --tempo <float>           Tempo in BPM (default: 120).\n";
@@ -91,7 +88,7 @@ static void printUsage(const char* programName) {
              << " (default: .).\n";
    std::cerr << "\nExamples:\n";
    std::cerr << "  " << programName << " input.aiff output.mid\n";
-   std::cerr << "  " << programName << " --window-size 1024 --confidence 0.7\n";
+   std::cerr << "  " << programName << " --window-size 1024 --silence -50\n";
    std::cerr << "     input.aiff output.mid\n";
    std::cerr << "  " << programName
              << " --method yinfast --tempo 144 input.aiff output.mid\n";
@@ -289,15 +286,15 @@ static int runGenerateTestMidiFiles(const std::string& outputDir) {
 // Domain context: The program flow is:
 // 1. Parse command-line arguments using Boost program_options.
 // 2. Open the input audio file and print its metadata.
-// 3. Run pitch detection and onset detection frame by frame.
+// 3. Run pitch detection and onset detection hop by hop.
 // 4. Build a HIR Score with detected notes.
 // 5. Write the Score to a Type 1 MIDI file.
 //
 // Key design decisions:
 // - Boost program_options is used for robust, extensible CLI parsing.
-// - The monophonic prototype processes audio frame by frame.
-// - Notes are detected when pitch confidence exceeds the threshold.
-// - Notes end when confidence drops below the threshold.
+// - The monophonic prototype processes audio hop by hop.
+// - Notes start on detected onsets; they end when energy stays below
+//   the silence threshold for a few hops (hysteresis).
 // - The output is a Type 1 MIDI file with 480 ticks per quarter note.
 //
 // @return 0 on success, 1 on error.
@@ -321,7 +318,6 @@ int main(int argc, char* argv[]) {
    std::string inputPath, outputPath;
    uint32_t windowSize = 2048;
    uint32_t hopSize = 512;
-   float confidenceThreshold = 0.5f;
    float silenceDb = -40.0f;
    double tempoBpm = 120.0;
    std::string pitchMethod = "yinfft";
@@ -350,10 +346,8 @@ int main(int argc, char* argv[]) {
       "window-size", po::value<uint32_t>(&windowSize)->default_value(2048),
       "FFT window size (power of 2, default: 2048).")(
       "hop-size", po::value<uint32_t>(&hopSize)->default_value(512),
-      "Hop size between frames (default: 512).")(
-      "confidence", po::value<float>(&confidenceThreshold)->default_value(0.5f),
-      "Pitch detection confidence threshold (0.0–1.0, default: 0.5).")(
-      "silence", po::value<float>(&silenceDb)->default_value(-40.0f),
+      "Hop size between frames (default: 512).")("silence",
+      po::value<float>(&silenceDb)->default_value(-40.0f),
       "Silence threshold in dB (default: -40).")(
       "tempo", po::value<double>(&tempoBpm)->default_value(120.0),
       "Tempo in BPM (default: 120).")(
@@ -407,9 +401,6 @@ int main(int argc, char* argv[]) {
             "2048).\n"
          << "  --hop-size arg (=512)     Hop size between frames (default: "
             "512).\n"
-         << "  --confidence arg (=0.5)   Pitch detection confidence threshold "
-            "(0.0–1.0,\n"
-         << "                            default: 0.5).\n"
          << "  --silence arg (=-40)      Silence threshold in dB (default: "
             "-40).\n"
          << "  --tempo arg (=120)        Tempo in BPM (default: 120).\n"
@@ -481,12 +472,6 @@ int main(int argc, char* argv[]) {
       return 1;
    }
 
-   // Validate confidence threshold (must be in [0.0, 1.0]).
-   if (confidenceThreshold < 0.0f || confidenceThreshold > 1.0f) {
-      std::cerr << "Error: confidence must be between 0.0 and 1.0.\n";
-      return 1;
-   }
-
    // =====================================================================
    // Open the input audio file and print its metadata.
    //
@@ -539,7 +524,6 @@ int main(int argc, char* argv[]) {
       std::cout << "Configuration:\n";
       std::cout << "  Window size: " << windowSize << "\n";
       std::cout << "  Hop size: " << hopSize << "\n";
-      std::cout << "  Confidence threshold: " << confidenceThreshold << "\n";
       std::cout << "  Silence threshold: " << silenceDb << " dB\n";
       std::cout << "  Tempo: " << tempoBpm << " BPM\n";
       std::cout << "  Pitch method: " << pitchMethod << "\n\n";
@@ -549,15 +533,14 @@ int main(int argc, char* argv[]) {
       //
       // Domain context: The Transcriber orchestrates the full transcription
       // pipeline:
-      // 1. Read audio frames from the file.
-      // 2. Run pitch detection (YINfft) on each frame.
-      // 3. Run onset detection (spectral flux) on each frame.
+      // 1. Read audio hops from the file.
+      // 2. Run pitch detection (YINfft) on each hop.
+      // 3. Run onset detection (spectral flux) on each hop.
       // 4. Build a HIR Score with detected notes.
       // 5. Write the Score to a Type 1 MIDI file.
       // =====================================================================
 
-      Transcriber transcriber(windowSize, hopSize, confidenceThreshold,
-                              silenceDb, pitchMethod);
+      Transcriber transcriber(windowSize, hopSize, silenceDb, pitchMethod);
 
       // Transcribe the audio file.
       Score score = transcriber.transcribe(inputPath);

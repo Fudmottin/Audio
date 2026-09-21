@@ -68,10 +68,15 @@ class OnsetDetector {
    OnsetDetector(OnsetDetector&& other) noexcept;
    OnsetDetector& operator=(OnsetDetector&& other) noexcept;
 
-   // Detect onsets in a buffer of audio samples.
+   // Detect an onset in the next hop of audio samples.
    //
-   // @param samples Input audio samples (length must equal bufSize).
-   // @return true if an onset was detected at this frame, false otherwise.
+   // The internal phase vocoder rotates a bufSize analysis window;
+   // each call advances it by one hop. Feed consecutive, non-overlapping
+   // chunks of exactly hopSize samples (aubio's own aubioonset CLI uses
+   // this contract).
+   //
+   // @param samples Input audio samples (length must equal hopSize).
+   // @return true if an onset was detected in this frame, false otherwise.
    bool detect(const float* samples, uint32_t length);
 
    // Get the timestamp of the last detected onset (in seconds).
@@ -103,6 +108,15 @@ class OnsetDetector {
    //
    // @return Minimum inter-onset interval in seconds.
    [[nodiscard]] double minIoI() const;
+
+   // Set the sample rate of the input signal.
+   //
+   // Rebuilds the internal onset object (the specflux descriptor and
+   // the minioi conversion depend on it). Call after the input file's
+   // sample rate is known and before the first detect() call.
+   //
+   // @param sampleRate Sample rate in Hz.
+   void setSampleRate(uint32_t sampleRate);
 
    // Get the current method name.
    //
