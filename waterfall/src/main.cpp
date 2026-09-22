@@ -9,6 +9,29 @@
  * integers on a log (grayscale-quantization) scale, and prints the result
  * as space-separated hex values.
  *
+ * @section modes Analysis modes
+ *
+ * waterfall runs in one of two modes, selected by the `--pcm` flag (MIDI is
+ * the default):
+ *
+ *  - **MIDI** (default): the column grid is **128 MIDI notes × bands-per-note
+ *    columns**. Each column's center frequency is the true exponential (equal-
+ *    tempered) frequency of its note, and each note's bands are distributed
+ *    logarithmically across that note's frequency span. This is the musically
+ *    faithful mapping: a 100 Hz source lights column 33, a 200 Hz source
+ *    lights column 65, a 440 Hz source lights column 89, etc.
+ *
+ *  - **PCM**: the legacy behavior — a **linear** frequency sweep. The full
+ *    Nyquist is divided into 128 equal *Hz* chunks ("notes"), each subdivided
+ *    into bands of equal *Hz* width. This produces a visually interesting
+ *    SONAR image but is *not* a faithful pitch mapping: a note is a fixed Hz
+ *    slice, so the same 100 Hz source lights different columns depending on
+ *    sample rate, and the mapping is sample-rate dependent.
+ *
+ * The active mode is reported in the output header (`mode=MIDI` or `mode=PCM`).
+ * A consumer that does not find a `mode` key should assume PCM (the legacy
+ * linear behavior), so older waterfall output remains interpretable.
+ *
  * @section output Output format
  *
  * Line 1 is a single line of `name=value` pairs describing the grid,
@@ -17,7 +40,7 @@
  * values as 4-hex-digit, space-separated integers.
  *
  * Example header (abridged):
- *   sampleRate=48000 timeSliceMs=10.0 hopSize=2048 ...  col0=0 col1=23.4 ...
+ *   sampleRate=48000 ... mode=MIDI ... col0=8.175758 col1=8.661642 ...
  *
  * @section cli-interface Command-Line Interface
  *
@@ -28,6 +51,8 @@
  *   --time-slice <float>  Row duration in milliseconds (default: 10).
  *   --bands-per-note <int> Bands per MIDI note (default: 8).
  *   --ref-db <float>      Full-scale reference level (dB, default: 0).
+ *   --pcm                 Use the legacy linear frequency mapping (default:
+ *                         the musically faithful MIDI mapping).
  *   --help                Print this message.
  *
  * @section analysis Analysis
@@ -35,9 +60,10 @@
  * For each row: read `hopSize` samples, forward-FFT them, map the
  * magnitude spectrum onto the column grid, convert each magnitude
  * to dB, then quantize dB to a 16-bit integer with a log mapping. The
- * column grid is (128 MIDI notes) x (bands-per-note) = numColumns, with
- * each column's center frequency laid out linearly across the Nyquist so
- * that column c falls within note c / bandsPerNote. The hop is a fixed
+ * column grid is (128 notes) x (bands-per-note) = numColumns. In MIDI mode
+ * each column's center frequency is the note's true exponential frequency;
+ * in PCM mode the columns are laid out linearly across the Nyquist so that
+ * column c falls within note c / bandsPerNote. The hop is a fixed
  * power of two (aubio requirement); advancing by one hop per row means
  * consecutive rows overlap when the window is wider than the hop, and
  * each row still contains at least one sample.
@@ -49,6 +75,7 @@
 #include <boost/program_options.hpp>
 #include <libaudio/fft.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <iostream>
@@ -59,6 +86,41 @@
 #include <vector>
 
 namespace po = boost::program_options;
+
+// ============================================================================
+// WaterfallMode — Selects how the column grid maps onto the frequency axis.
+//
+// Domain context: the column count is (128 notes) x (bands-per-note) in both
+// modes, but the *placement* of each column's center frequency differs. MIDI
+// is the faithful pitch mapping (exponential, sample-rate independent); PCM is
+// the legacy linear sweep (equal Hz per column chunk, sample-rate dependent).
+// ============================================================================
+enum class WaterfallMode {
+   Midi, ///< True exponential (equal-tempered) note-to-frequency mapping.
+   Pcm   ///< Legacy linear frequency sweep (equal Hz per column chunk).
+};
+
+// ============================================================================
+// midiNoteFrequency — Exponential (equal-tempered) MIDI note frequency.
+//
+// Domain context: MIDI note n has frequency 440 * 2^((n-69)/12) Hz, anchored
+// at A4 = note 69 = 440 Hz. This is the physically correct pitch-to-frequency
+// relationship; it is what makes a 100 Hz source land in column 33, a 200 Hz
+// source in column 65, and a 440 Hz source in column 89.
+//
+// @param midiNote MIDI note number, 0..127.
+// @return Frequency in Hz.
+// ============================================================================
+static float midiNoteFrequency(int midiNote) {
+   return 440.0f * std::pow(2.0f, (static_cast<float>(midiNote) - 69.0f) / 12.0f);
+}
+
+// ============================================================================
+// modeToHeaderValue — String form of a mode for the output header.
+// ============================================================================
+static const char* modeToHeaderValue(WaterfallMode mode) {
+   return mode == WaterfallMode::Midi ? "MIDI" : "PCM";
+}
 
 // ============================================================================
 // printUsage — Print usage information to stderr.
@@ -86,10 +148,24 @@ static void printUsage(const char* programName) {
              << " default: 0).\n";
    std::cerr << "  --no-auto-scale            Use --ref-db verbatim (default"
              << " auto-scales to the file peak).\n";
+   std::cerr << "  --pcm                      Use the legacy linear frequency"
+             << " mapping (default: MIDI mapping).\n";
+   std::cerr << "\nModes:\n";
+   std::cerr << "  MIDI   (default) Columns use the true exponential (equal-"
+             << "tempered)\n"
+             << "           note-to-frequency mapping; a 100 Hz source lights"
+             << " column\n"
+             << "           33, 200 Hz lights 65, 440 Hz lights 89, etc.\n";
+   std::cerr << "  PCM       (--pcm)   Legacy linear sweep: equal Hz per column"
+             << " chunk across the\n"
+             << "                   Nyquist. Visually interesting but not a"
+             << " faithful pitch\n"
+             << "                   mapping (sample-rate dependent).\n";
    std::cerr << "\nExamples:\n";
    std::cerr << "  " << programName << " recording.aiff\n";
    std::cerr << "  " << programName << " --time-slice 2.78 --window-size 4096"
              << " recording.aiff\n";
+   std::cerr << "  " << programName << " --pcm recording.aiff > legacy.txt\n";
 }
 
 // ============================================================================
@@ -131,17 +207,19 @@ static uint16_t quantizeTo16bit(float magnitude, float refDb) {
 // ============================================================================
 // mapSpectrumToColumns — Map an FFT magnitude spectrum onto the columns.
 //
-// Domain context: The FFT produces `numBins` bins covering 0..Nyquist. The
-// user requests a specific frequency range (freqMin..freqMax) and a specific
-// column count. We map each column to its center frequency, find the
-// matching bin, and take the maximum magnitude over the bins that fall in
-// the column's frequency band. This yields `numColumns` values where column
-// i represents the energy near `columnFrequencies[i]`.
+// Domain context: The FFT produces `numBins` bins covering 0..Nyquist. Each
+// column has a center frequency and a (per-column) band width in Hz; we find
+// the FFT bin(s) that fall within each column's band and take the maximum
+// magnitude. A per-column width is used so that bands that are narrow in Hz
+// (the high end in MIDI mode) are not widened to cover bins that belong to
+// the next column — a uniform width would smear content across adjacent
+// columns. This yields `numColumns` values where column i represents the
+// energy near `columnFrequencies[i]`.
 //
 // @param magnitudes         FFT magnitude spectrum (length numBins).
 // @param numBins            Number of FFT bins.
 // @param columnFrequencies  Center frequency of each column (Hz).
-// @param bandWidthHz        Width of each column's frequency band (Hz).
+// @param columnBandWidths   Per-column frequency band width (Hz).
 // @param binWidthHz         Width of each FFT bin (Hz).
 // @return Vector of one magnitude per column.
 // ============================================================================
@@ -149,7 +227,7 @@ static std::vector<float> mapSpectrumToColumns(
    const std::vector<float>& magnitudes,
    uint32_t numBins,
    const std::vector<float>& columnFrequencies,
-   float bandWidthHz,
+   const std::vector<float>& columnBandWidths,
    float binWidthHz) {
    const uint32_t numColumns = static_cast<uint32_t>(columnFrequencies.size());
    std::vector<float> columns(numColumns, 0.0f);
@@ -160,8 +238,9 @@ static std::vector<float> mapSpectrumToColumns(
 
    for (uint32_t c = 0; c < numColumns; ++c) {
       const float center = columnFrequencies[c];
-      const float low = center - bandWidthHz / 2.0f;
-      const float high = center + bandWidthHz / 2.0f;
+      const float half = columnBandWidths[c] / 2.0f;
+      const float low = center - half;
+      const float high = center + half;
 
       const uint32_t lowBin =
          static_cast<uint32_t>(std::max(0.0f, low) / binWidthHz);
@@ -215,7 +294,10 @@ int main(int argc, char* argv[]) {
        "Full-scale reference level (dB). Ignored when --auto-scale is on.")
       ("no-auto-scale",
        po::bool_switch()->default_value(false),
-       "Use --ref-db verbatim instead of auto-scaling to the file peak.");
+       "Use --ref-db verbatim instead of auto-scaling to the file peak.")
+      ("pcm",
+       po::bool_switch()->default_value(false),
+       "Use the legacy linear frequency mapping (default: MIDI mapping).");
 
    po::positional_options_description positional;
    positional.add("input", 1);
@@ -250,6 +332,11 @@ int main(int argc, char* argv[]) {
    const float refDbArg = vm["ref-db"].as<float>();
    const bool autoScale = !vm["no-auto-scale"].as<bool>();
 
+   // Analysis mode: MIDI (default) is the faithful pitch mapping; PCM is the
+   // legacy linear sweep selected with --pcm.
+   const WaterfallMode mode =
+      vm["pcm"].as<bool>() ? WaterfallMode::Pcm : WaterfallMode::Midi;
+
    // windowSize must be a power of two (aubio requirement).
    if (windowSizeArg < 2 || (windowSizeArg & (windowSizeArg - 1)) != 0) {
       std::cerr << "Error: --window-size must be a power of two.\n";
@@ -280,26 +367,54 @@ int main(int argc, char* argv[]) {
    const float binWidthHz = static_cast<float>(sampleRate) / 2.0f /
                             static_cast<float>(numBins);
 
-   // --- Derive column frequencies from the note/band scheme ---
-   // The README defines the columns as (128 MIDI notes) x (8 bands), so we
-   // generate the column grid from that scheme rather than a plain linear
-   // sweep: each note spans `bandsPerNote` contiguous bands across the full
-   // Nyquist. Column c therefore falls within note (c / bandsPerNote) and
-   // within that note's band (c % bandsPerNote).
+   // --- Derive the column grid (center frequencies + per-column band widths) ---
+   // Both modes use (128 notes) x (bands-per-note) columns; only the placement
+   // of each column's center frequency differs.
    const uint32_t kMidiNotes = 128;
    const uint32_t totalColumns = kMidiNotes * bandsPerNote; // e.g. 1024
 
    const float nyquist = static_cast<float>(sampleRate) / 2.0f;
-   const float noteWidth = nyquist / static_cast<float>(kMidiNotes);
-   const float bandWidthHz = noteWidth / static_cast<float>(bandsPerNote);
-
    std::vector<float> columnFrequencies(totalColumns);
-   for (uint32_t c = 0; c < totalColumns; ++c) {
-      const float noteIndex = static_cast<float>(c / bandsPerNote);
-      const float bandIndex = static_cast<float>(c % bandsPerNote);
-      columnFrequencies[c] =
-         (noteIndex + (bandIndex + 0.5f) / static_cast<float>(bandsPerNote)) *
-         noteWidth;
+   std::vector<float> columnBandWidths(totalColumns);
+
+   if (mode == WaterfallMode::Pcm) {
+      // Legacy linear sweep: divide the full Nyquist into 128 equal Hz
+      // chunks ("notes"), each subdivided into `bandsPerNote` equal-Hz bands.
+      const float noteWidth = nyquist / static_cast<float>(kMidiNotes);
+      const float bandWidthHz = noteWidth / static_cast<float>(bandsPerNote);
+
+      for (uint32_t c = 0; c < totalColumns; ++c) {
+         const float noteIndex = static_cast<float>(c / bandsPerNote);
+         const float bandIndex = static_cast<float>(c % bandsPerNote);
+         columnFrequencies[c] =
+            (noteIndex + (bandIndex + 0.5f) / static_cast<float>(bandsPerNote)) *
+            noteWidth;
+         columnBandWidths[c] = bandWidthHz; // uniform width in the linear case.
+      }
+   } else {
+      // MIDI: the true equal-tempered mapping. Each note n spans the frequency
+      // interval [midiNoteFrequency(n), midiNoteFrequency(n+1)) (a 12th of an
+      // octave), and its `bandsPerNote` bands are distributed logarithmically
+      // across that interval. The column's band width is its fractional slice
+      // of the note's interval, so adjacent bands stay adjacent without
+      // overlapping. Note 127 has no upper neighbor in MIDI; its high edge is
+      // the next (theoretical) note's frequency so the band stays a clean
+      // 12th-of-an-octave slice.
+      for (uint32_t c = 0; c < totalColumns; ++c) {
+         const uint32_t noteIndex = c / bandsPerNote;
+         const uint32_t bandIndex = c % bandsPerNote;
+         const float lo = midiNoteFrequency(static_cast<int>(noteIndex));
+         const float hi = midiNoteFrequency(static_cast<int>(noteIndex + 1));
+         // Logarithmically even band centers across [lo, hi].
+         const float loLog = std::log(lo);
+         const float hiLog = std::log(hi);
+         const float f =
+            std::exp(loLog +
+                     (static_cast<float>(bandIndex) + 0.5f) /
+                     static_cast<float>(bandsPerNote) * (hiLog - loLog));
+         columnFrequencies[c] = f;
+         columnBandWidths[c] = (hi - lo) / static_cast<float>(bandsPerNote);
+      }
    }
 
    // --- Allocate working buffers ---
@@ -333,6 +448,8 @@ int main(int argc, char* argv[]) {
    }
 
    // --- Print the header line (name=value pairs) ---
+   // A consumer that does not find a `mode` key should assume PCM (the legacy
+   // linear behavior) so older waterfall output stays interpretable.
    {
       std::ostringstream header;
       header << std::fixed;
@@ -344,8 +461,8 @@ int main(int argc, char* argv[]) {
       header << "numBins=" << numBins << " ";
       header << "midiNotes=128 bandsPerNote=" << bandsPerNote << " ";
       header << "nyquistHz=" << nyquist << " ";
-      header << "numColumns=" << totalColumns;
-      header << " bandWidthHz=" << bandWidthHz << " ";
+      header << "numColumns=" << totalColumns << " ";
+      header << "mode=" << modeToHeaderValue(mode) << " ";
       header << "refDb=" << refDb << " ";
       header << "autoScale=" << (autoScale ? 1 : 0) << " ";
 
@@ -372,7 +489,7 @@ int main(int argc, char* argv[]) {
 
       // Map the spectrum onto the column grid.
       const std::vector<float> columns = mapSpectrumToColumns(
-         magnitude, numBins, columnFrequencies, bandWidthHz, binWidthHz);
+         magnitude, numBins, columnFrequencies, columnBandWidths, binWidthHz);
 
       // Quantize and print one row.
       for (uint32_t c = 0; c < totalColumns; ++c) {

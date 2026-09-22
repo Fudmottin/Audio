@@ -13,9 +13,13 @@ magnitude spectrum quantized to 16-bit integers.
 
 The columns follow the MIDI note grid: **128 notes × 8 bands = 1024
 columns** (the 128 is the number of representable MIDI notes; each note is
-split into 8 bands from low to high). Each column's center frequency is laid
-out linearly across the Nyquist, so a column's position encodes both *which
+split into 8 bands from low to high). A column's position encodes both *which
 MIDI note* and *which band within that note*.
+
+There are two analysis modes (see [Modes](#modes)): by default the mapping is
+the musically faithful **MIDI** mode, where each column's center frequency is
+the true exponential (equal-tempered) frequency of its note; `--pcm` selects
+the legacy **PCM** linear sweep.
 
 `waterfall` shares its audio-file-reading layer with `midicapture`, so both
 tools analyze the same `libaudio` representation of a recording. The longer-
@@ -30,8 +34,15 @@ Output is a **text format** designed for scripting:
   a newline. It carries the grid geometry and one center frequency per column:
 
   ```
-  sampleRate=48000 timeSliceMs=10.000000 hopSize=2048 windowSize=2048 numBins=1025 midiNotes=128 bandsPerNote=8 nyquistHz=24000.000000 numColumns=1024 bandWidthHz=23.437500 refDb=38.295300 autoScale=1 col0=11.718750 col1=35.156250 ... col1023=23988.281250
+  sampleRate=48000 timeSliceMs=10.000000 hopSize=2048 windowSize=2048 numBins=1025 midiNotes=128 bandsPerNote=8 nyquistHz=24000.000000 numColumns=1024 mode=MIDI refDb=38.295300 autoScale=1 col0=8.175758 col1=8.661642 ... col1023=12543.733887
   ```
+
+  `mode` is `MIDI` (default) or `PCM`. A consumer that does **not** find a
+  `mode` key should assume **PCM** — the legacy linear behavior — so output
+  produced before the mode was introduced remains interpretable. The
+  `colN=` values are each column's center frequency in Hz; in MIDI mode they
+  are the true exponential note frequencies, in PCM mode they form the legacy
+  linear sweep.
 
 - **Each following line** — one time slice: `numColumns` values, each a 16-bit
   integer printed as **4 uppercase hex digits** (`0000`–`FFFF`), space-
@@ -52,13 +63,16 @@ Options:
   --bands-per-note <int>     Bands per MIDI note (default: 8).
   --ref-db <float>           Full-scale reference level in dB (default: 0).
   --no-auto-scale            Use --ref-db verbatim instead of auto-scaling.
+  --pcm                      Use the legacy linear frequency mapping
+                             (default: the musically faithful MIDI mapping).
 ```
 
 `<input.aiff>` may be any format libsndfile supports (AIFF, WAV, FLAC, OGG,
 etc.). The tool writes to **stdout**; redirect or pipe it:
 
 ```bash
-waterfall recording.aiff > waterfall.txt
+waterfall recording.aiff > waterfall.txt            # MIDI (default)
+waterfall --pcm recording.aiff > legacy.txt         # legacy linear sweep
 waterfall --time-slice 2.78 --window-size 4096 recording.aiff > fine.txt
 waterfall --no-auto-scale --ref-db -12 recording.aiff | less
 ```
@@ -85,6 +99,27 @@ FFT bin in the file, sets `refDb` to that level (in dB), and reports the
 resolved value plus `autoScale=1` in the header. This keeps the usable dynamic
 range visible instead of saturating a loud recording to `FFFF` everywhere.
 Pass `--no-auto-scale` to use `--ref-db` exactly as given (`autoScale=0`).
+
+## Modes
+
+`waterfall` runs in one of two modes, chosen by the `--pcm` flag. The column
+count is **128 notes × bands-per-note** in both; only the *placement* of each
+column's center frequency differs.
+
+| Mode | Selected by | Column frequencies |
+|---|---|---|
+| **MIDI** *(default)* | *(no flag)* | True exponential (equal-tempered): column for note *n* sits at `440·2^((n−69)/12)` Hz, with the note's bands spread log-evenly across its 12th-of-an-octave span. Sample-rate independent. |
+| **PCM** | `--pcm` | Legacy linear sweep: the full Nyquist is divided into 128 equal *Hz* chunks, each subdivided into equal-Hz bands. Sample-rate dependent; not a faithful pitch mapping. |
+
+In **MIDI** mode the mapping is what you'd expect: a 100 Hz source lights
+column 33, a 200 Hz source lights column 65 (one octave up, two MIDI notes
+higher), and a 440 Hz source lights column 89 (A4). In **PCM** mode a 100 Hz
+source lands in a different column depending on the file's sample rate — the
+linear sweep is a display choice, not a pitch model.
+
+The active mode is written to the header (`mode=MIDI` or `mode=PCM`). A
+consumer that does not find a `mode` key should assume **PCM** (the legacy
+behavior), so pre-mode output stays interpretable.
 
 ## Build
 
@@ -151,21 +186,27 @@ python3 waterfall_video.py <text_file> <audio_file> <height> <width> [-o out.mp4
   invocation disables it), smoothing the vertical stepping the way the horizontal
   mean smooths the compressed high-frequency end. Constant at the top of the
   script; the default 8 matches the horizontal factor.
-- **Horizontal (frequency) scale:** the waterfall's columns are *linear* in
-  frequency (128 MIDI notes × `bands-per-note`), so most audible content sits on
-  the left of the frame. The display warps the horizontal axis to a
+- **Horizontal (frequency) scale:** the display warps the horizontal axis to a
   **logarithmic** frequency map — each column's center frequency (from the
   header's `col_c` keys) is placed at `x = (ln f − ln F_MIN) / (ln F_MAX − ln F_MIN)`
   — which widens the low bands (where most musical energy lives) and compresses
-  the high bands, matching perceptual spacing. The map runs `F_MIN_HZ` (default
-  16 Hz) to `F_MAX_HZ` (default 16 kHz), so content outside that audible window
-  is dropped. Sub-pixel columns in the compressed high end
+  the high bands, matching perceptual spacing. It reads the column frequencies
+  *as reported by `waterfall`*, so it works in both modes: for **MIDI** output
+  the `col_c` keys are the true (already logarithmically spaced) note
+  frequencies and the map is effectively identity; for **PCM** output (legacy
+  linear sweep) the map is what widens the left-hand low bands. The map runs
+  `F_MIN_HZ` (default 16 Hz) to `F_MAX_HZ` (default 16 kHz), so content outside
+  that audible window is dropped. Sub-pixel columns in the compressed high end
   are **mean-anti-aliased** (a temporary buffer `H_SUPERSAMPLE`× wider than the
   output is block-averaged down) so they read as dimmer pixels instead of
   vanishing. All three constants (`F_MIN_HZ`, `F_MAX_HZ`, `H_SUPERSAMPLE`) are
   at the top of the script. This is a display-only transform: the underlying
   waterfall text and data are untouched. (Vertical anti-aliasing is a separate
   transform, `V_SUPERSAMPLE`, documented above.)
+
+  `waterfall_video.py` treats a missing `mode` key as **PCM** (the legacy
+  linear behavior), so it renders old output correctly and new output the same
+  way it has always looked.
 - **Rendering:** numpy builds each frame (no Pillow / ImageMagick needed); raw
   RGB frames are piped to FFmpeg over stdin, which encodes H.264 and muxes the
   audio.
