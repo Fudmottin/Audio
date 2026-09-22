@@ -120,7 +120,7 @@ DEFAULT_VSCALE = 2.0
 #       For 48 kHz audio (nyquist 24 kHz) we similarly clamp to 20 kHz, so
 #       the 20-24 kHz ultrasonic strip (aliasing) is also dropped.
 F_MIN_HZ = 16.0      # Hz — low end of the log frequency map
-F_MAX_HZ = 20000.0   # Hz — high end of the log frequency map (audible window)
+F_MAX_HZ = 16000.0   # Hz — high end of the log frequency map (audible window)
 # H_SUPERSAMPLE: supersample factor applied when down-sampling the temporary
 #       horizontal buffer to the output width. Higher values reduce aliasing
 #       artifacts in the high-frequency (compressed) region at the cost of
