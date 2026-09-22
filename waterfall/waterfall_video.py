@@ -10,24 +10,28 @@ imaginary playhead at the vertical center of the frame.
 The text file lists rows in recording order (row 0 = the *start* of the
 recording). For a downward scroll the rows are reversed so the *latest* sample
 sits at the top of the image; the image then moves down, newest rows entering
-at the top and oldest leaving at the bottom. The clip starts with the head of
-the waterfall — the first row of the recording — aligned with the playhead, so
-the *start of the recording* plays at the start of the video. The video ends
-when the *tail of the data* (the oldest row) passes the playhead, which by the
-sync model is exactly the audio's duration.
+at the top and oldest leaving at the bottom.
 
-Because the scroll speed is tied to the *real* per-row audio duration
-(`hopSize / sampleRate`), the row sitting on the playhead at time t is exactly
-the audio you hear at time t.
+The playhead is the **onset line**: a zero-duration instant of time drawn as a
+1-px line at the vertical center. The sounding band is **edge-anchored** to it
+rather than centered on it — at t=0 the *first* band's **bottom edge** sits on
+the playhead (so the start of the recording plays at the start of the clip),
+and the video ends when the *last* band's **top edge** reaches the playhead,
+i.e. the moment the band has fully passed below the line and there is no more
+audio. Scroll speed is the image's full height divided by the audio's duration,
+so the video's duration equals the audio file's duration; the `hopSize /
+sampleRate` value from the header is read only to label each row's duration.
 
 Rendering:
     Each frame is a color-mapped grid built with numpy (no Pillow, no
     ImageMagick). The whole waterfall is pre-rendered to a small (num_rows x
     num_cols x 3) RGB image ONCE, color-mapped. For each output frame we slice
-    the visible row band out of that pre-rendered image and stretch it to the
-    requested (width, height) with numpy.repeat (nearest-neighbor), then pipe
-    the raw bytes to FFmpeg's stdin. FFmpeg encodes H.264 / MP4 at 30 fps and
-    muxes the audio.
+    the visible row band out of that pre-rendered image, mean-anti-alias the
+    vertical scroll (`V_SUPERSAMPLE` sub-rows) and the horizontal axis
+    (a log-frequency warp, `H_SUPERSAMPLE`-wide buffer block-averaged to the
+    output width), stretch the result to the requested (width, height), and
+    pipe the raw bytes to FFmpeg's stdin. FFmpeg encodes H.264 / MP4 at 30 fps
+    and muxes the audio.
 
 Color mapping (per spec):
     value 0      -> black

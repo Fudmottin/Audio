@@ -127,13 +127,19 @@ python3 waterfall_video.py <text_file> <audio_file> <height> <width> [-o out.mp4
   through red to yellow (brightness is proportional to the sample). The arc is
   controlled by the `HUE_START` / `HUE_SWEEP` constants at the top of the script.
 - **Scroll & sync:** the rows (listed in recording order, row 0 = the start) are
-  reversed and scrolled **downward** past a playhead at the vertical center —
-  the head (first row of the recording) begins on the playhead, newer rows enter
-  from the top, and the oldest leave from the bottom. Scroll speed is tied to the
-  *real* per-row audio duration (`hopSize / sampleRate` from the header), so the
-  row at the playhead is the audio you hear at that instant. The audio plays for
-  the full clip, and the video ends when the *tail of the data* passes the
-  playhead — i.e. at the audio's duration.
+  reversed and scrolled **downward** at constant speed past a playhead drawn as a
+  1-px line at the vertical center — the playhead is the *onset line*, a zero
+  duration instant of time. Scroll speed is the image's full height divided by the
+  audio's duration, so the video's duration equals the audio file's duration. The
+  sounding band is **edge-anchored** to the playhead, not centered on it: at
+  t=0 the *first* band's **bottom edge** sits on the playhead (so the band lies
+  entirely above the line, and the start of the recording plays at the start of
+  the clip), and at the end the *last* band's **top edge** reaches the playhead —
+  the moment the band has fully passed and there is no more audio. At any instant
+  the row at the playhead is the audio you hear. (For short clips at high
+  `--vscale`, where a band spans multiple pixels, the edge anchoring is visible;
+  for longer files a band is ≤ 1 px and the shift is sub-pixel, so the two reads
+  the same.)
 - **Vertical scale:** the waterfall image is magnified vertically by
   `DEFAULT_VSCALE × --vscale` and the scroll speed is scaled identically, so audio
   sync and the end-point (tail at the playhead) are unchanged — only the
@@ -152,8 +158,8 @@ python3 waterfall_video.py <text_file> <audio_file> <height> <width> [-o out.mp4
   header's `col_c` keys) is placed at `x = (ln f − ln F_MIN) / (ln F_MAX − ln F_MIN)`
   — which widens the low bands (where most musical energy lives) and compresses
   the high bands, matching perceptual spacing. The map runs `F_MIN_HZ` (default
-  20 Hz) to `F_MAX_HZ` (default 20 kHz, the audible window), so ultrasonic
-  content above 20 kHz is dropped. Sub-pixel columns in the compressed high end
+  16 Hz) to `F_MAX_HZ` (default 16 kHz), so content outside that audible window
+  is dropped. Sub-pixel columns in the compressed high end
   are **mean-anti-aliased** (a temporary buffer `H_SUPERSAMPLE`× wider than the
   output is block-averaged down) so they read as dimmer pixels instead of
   vanishing. All three constants (`F_MIN_HZ`, `F_MAX_HZ`, `H_SUPERSAMPLE`) are
