@@ -547,30 +547,23 @@ def main():
     # on the playhead, so the *start of the recording* plays at the start of
     # the clip and the row under the playhead is always the audio heard at t.
     #
-    # Scroll speed (px/s) keeps one row passing a point every `row_dur_s`, so
-    # the waterfall stays in real-time sync with the audio.
-    slope = row_h / row_dur_s if row_dur_s > 0 else 1.0   # px/s (positive = down)
+    # Scroll speed (px/s). The image travels its full height (num_rows * row_h)
+    # over the audio's duration, so the first band's bottom edge reaches the
+    # playhead at t=0 and the last band's top edge reaches it at the end.
+    slope = (num_rows * row_h) / audio_dur if audio_dur > 0 else 1.0   # px/s
 
-    # The image's last row (recording head) lands exactly on the playhead.
-    #
-    # `img_top` is the y-coordinate of the top of the image's row 0 (the
-    # *newest* data, at the top). The head is the image's *last* (bottom) row;
-    # placing its center on the playhead gives the start position below. The
-    # image may be far taller than the frame (the normal case) and is simply
-    # cropped to the frame; the end position is derived from `t_video_end` so
-    # the tail (top row) lands on the playhead at the end. No clamping is done
-    # here: even when the image is taller than the frame the head stays exactly
-    # on the playhead at t=0 (most of the image sits below the frame bottom,
-    # outside the visible crop) and the newest data above the playhead fills the
-    # top of the frame.
-    img_top_start = playhead - (num_rows - 1) * row_h
+    # The playhead is the onset line: the bottom edge of the sounding band.
+    # `img_top` is the frame-y of the image's row 0 (the *newest* data, at the
+    # top). The first band is the image's *last* (bottom) row; we place its
+    # bottom edge on the playhead (not its center) so the band sits entirely
+    # above the line at t=0. The image may be taller than the frame (the normal
+    # case) and is simply cropped.
+    img_top_start = playhead - (num_rows - 1) * row_h - row_h / 2.0
 
-    # The video ends when the *tail of the data* passes the playhead. At that
-    # instant the tail row sits exactly on the playhead and everything below it
-    # is already dark (no data rows remain), so this is the last interesting
-    # frame — we do not wait for the empty space below the tail to clear the
-    # bottom of the frame. By the sync model (row at the playhead = audio at t)
-    # that instant is exactly t = audio duration.
+    # The video ends when the *top edge of the final band* reaches the playhead,
+    # i.e. when the last band has fully passed below the line and there is no
+    # more audio. With the full-height slope above, that instant is exactly the
+    # audio's duration.
     t_video_end = max(0.0, audio_dur)
 
     # Audio runs from 0 to the end of the clip (the audio's full duration): it
