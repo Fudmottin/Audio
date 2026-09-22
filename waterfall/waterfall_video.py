@@ -552,6 +552,17 @@ def main():
     slope = row_h / row_dur_s if row_dur_s > 0 else 1.0   # px/s (positive = down)
 
     # The image's last row (recording head) lands exactly on the playhead.
+    #
+    # `img_top` is the y-coordinate of the top of the image's row 0 (the
+    # *newest* data, at the top). The head is the image's *last* (bottom) row;
+    # placing its center on the playhead gives the start position below. The
+    # image may be far taller than the frame (the normal case) and is simply
+    # cropped to the frame; the end position is derived from `t_video_end` so
+    # the tail (top row) lands on the playhead at the end. No clamping is done
+    # here: even when the image is taller than the frame the head stays exactly
+    # on the playhead at t=0 (most of the image sits below the frame bottom,
+    # outside the visible crop) and the newest data above the playhead fills the
+    # top of the frame.
     img_top_start = playhead - (num_rows - 1) * row_h
 
     # The video ends when the *tail of the data* passes the playhead. At that
