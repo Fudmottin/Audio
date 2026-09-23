@@ -94,3 +94,62 @@ max", "yet to be determined time slice"). The implementation refines this:
 - **Run-tested** on `final-fantasy.aiff` (auto-scale shows a real spectral
   shape; `--no-auto-scale --ref-db 0` correctly clips a loud file to `FFFF`)
   and the `1000Hz` sine (silent lead-in → leading `0000` rows, as expected).
+
+## Video renderer equalizer (stackable) — added for `waterfall_video.py`
+
+The display equalizer was a single `--eq` flag (one per-note curve). It is now
+**three composable, stackable display-only transforms** in `waterfall_video.py`
+(the C++ `waterfall` tool is untouched and stays lossless):
+
+1. **`--eq-per-note [dB]`** — the legacy per-note curve, renamed. Peak-normalize
+   each of the 128 notes, then a raised-cosine bell (center 0 dB, edges rolled
+   off by up to `dB`, default `EQ_ROLLOFF_DB`=6). Optional dB overrides the
+   constant; a bare flag uses it. `--eq` is kept as a shorthand for this (the
+   legacy behavior is preserved exactly).
+2. **`--eq-per-octave [dB]`** — same two-step engine, but the group is 12 notes
+   (an octave) and the bell spans the octave. Balances octaves (low octaves
+   carry far more energy). Default `EQ_PER_OCTAVE_DB`=6.
+3. **`--eq-over-all [dB]`** — the whole width is one group; peak-normalize the
+   file, then a single bell across the full range. Coarse global balance.
+   Default `EQ_OVERALL_DB`=0 (a flat peak-normalized file).
+4. **`--preserve-energy`** — after shaping a note, rescale it by
+   `raw_total / shaped_total` so the note's **total energy** equals the
+   peak-normalized total (the "area under the curve" step the user asked
+   about). Because the bell's peak weight is 1.0, the rescale factor is ≤ 1.0
+   and the note's new peak stays ≤ full scale (no clipping). Applies to
+   `--eq-per-note` only. Trade-off (documented in README): restoring the energy
+   budget rescales the note up, which flattens the bell's taper — the user
+   keeps the note's energy at the cost of a less pronounced mids peak.
+
+**Composition:** transforms are composed in a fixed **coarse-to-fine** order
+(whole width → octaves → notes) regardless of how the flags are ordered on the
+command line. This is documented as the stacking model. `apply_eq_stack(rows,
+bands_per_note, [(name, kwargs), ...])` is the composition point; a `"eq"`
+entry expands to the per-note transform.
+
+**Implementation notes (for the next agent):**
+- One engine, `_apply_bell(rows, unit, size, rolloff_db, preserve_energy)`,
+  serves all three: `unit` assigns each column to its within-group position;
+  the group is `col // size`; the bell is driven by `unit % size`.
+  `per_note` uses `size=bands_per_note, unit=col % bands_per_note`; `per_octave`
+  uses `size=12*bands_per_note, unit=col // bands_per_note`; `over_all` uses
+  `size=num_cols, unit=col`. The raised-cosine `u = 2*(unit_in_group+0.5)/size
+  − 1` lands the center on a unit (the `+0.5` is load-bearing for even counts).
+- `_group_peaks` (per-group max via `np.maximum.at`) and `_group_sums`
+  (per-row, per-group sum via a row loop + `np.add.at`) are the vectorized
+  helpers. The energy rescale must pass the **full 2-D** arrays to
+  `_group_sums` (a 1-D per-row reduction is misread by the row loop); and the
+  result gather is `ratio[:, group]` (ratio is already 2-D) — adding an extra
+  `[None, :]` axis produces a 3-D array and a wrong-shape int cast.
+- All transform outputs are peak-normalized first (a pure scale, ≤ full scale
+  for groups already near full scale — *notes whose peak is a few dB below full
+  scale are legitimately raised up to full scale by this*; this is the intended
+  equalization, not a bug) and then bell-shaped (weight ≤ 1.0, so it only
+  reduces). Verified: every transform's output max ≤ 65535; energy preserved to
+  machine precision in float space (the ~1–3% int-space loss is int truncation
+  after clipping, inherent to 16-bit output, and only bites for notes already
+  near full scale).
+- `waterfall` still writes `mode=MIDI`/`mode=PCM` + per-column `colN=` center
+  frequencies; the renderer reads `mode` (missing → PCM) and `bandsPerNote`.
+  The `--window-size 1024` segfault in the C++ binary is a known, deferred bug
+  (works at 512/2048/4096); do not fix it here.

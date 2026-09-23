@@ -141,6 +141,8 @@ color video (H.264 / MP4, 30 fps) with the source audio muxed in sync:
 
 ```bash
 python3 waterfall_video.py <text_file> <audio_file> <height> <width> [-o out.mp4] [--vscale N]
+                             [--eq-per-note [dB]] [--eq-per-octave [dB]] [--eq-over-all [dB]]
+                             [--preserve-energy] [--eq]
 ```
 
 - `<text_file>`   — the `waterfall` output (header line + one hex row per slice).
@@ -154,6 +156,23 @@ python3 waterfall_video.py <text_file> <audio_file> <height> <width> [-o out.mp4
   so the audio stays in sync and the video still ends when the tail passes the
   playhead. Higher values reveal more per-row detail (up to the number of data
   rows); beyond that the rows are only zoomed, not multiplied.
+- `--eq-per-note [dB]` — per-note equalizer (default off): peak-normalize each
+  note, then a center bell (mids at 0 dB, edges down by up to `dB`, default
+  `EQ_ROLLOFF_DB`) so each note's core pops and its edge bands recede. Best with
+  MIDI output.
+- `--eq-per-octave [dB]` — per-octave equalizer (default off): peak-normalize
+  each octave, then a center bell across the octave. Balances the octaves (the
+  low ones carry far more energy).
+- `--eq-over-all [dB]` — whole-width equalizer (default off): peak-normalize the
+  file, then a single bell across the full width. A coarse global balance.
+- `--preserve-energy` — rescale each note after shaping so its **total energy**
+  is unchanged by the bell (the note's energy budget is restored; nothing clips).
+  Applies to `--eq-per-note`.
+- `--eq` — shorthand for `--eq-per-note` (the legacy per-note behavior).
+
+  The equalizer flags are **stackable**: any combination is composed in a fixed
+  coarse-to-fine order (whole width → octaves → notes). See
+  [Equalization](#equalization).
 
 There is no `--mode` flag: the script reads the `mode` key from the waterfall
 header to choose the horizontal layout (MIDI vs PCM; see [How it works](#how-it-works)).
@@ -222,6 +241,74 @@ produced before the mode was introduced is unchanged.
 - **Rendering:** numpy builds each frame (no Pillow / ImageMagick needed); raw
   RGB frames are piped to FFmpeg over stdin, which encodes H.264 and muxes the
   audio.
+
+### Equalization
+
+Real recordings — especially piano — read as a bright left side and a dim right
+side: the low octaves carry far more average energy, and each note's *edge*
+bands pick up bleed from the neighboring notes, muddying the center. The
+equalizer addresses both, and is now **stackable**: three composable transforms,
+each an optional CLI flag, applied in the order the flags appear on the command
+line.
+
+Every transform follows the same two steps, applied over a *group* of columns
+(a group is 12 notes = an octave, 1 note, or the whole width):
+
+1. **Peak-normalize** each group so its loudest sample across the whole file
+   reaches full scale. This equalizes the groups against one another *and*
+   enforces the core rule — **no value is ever boosted above that group's own
+   maximum**. A group that already peaks at full scale is left flat. This is a
+   pure scale, so it cannot introduce brightness beyond a group's true peak.
+2. Apply a smooth **raised-cosine bell** across the group: the group's *center*
+   stays at 0 dB (full), and the edges roll off by up to the transform's dB.
+   This is the "mids at 0, bass/treble down" shape of a graphic equalizer.
+   The bell's maximum weight is 1.0 (at the center), so it only ever *reduces*
+   edge energy relative to the peak-normalized result — it sharpens the core
+   and lets neighbor-bleed recede.
+
+| Flag | Group | Bell span | Default depth |
+|---|---|---|---|
+| `--eq-per-octave [dB]` | 12 notes (an octave) | across the octave | `EQ_PER_OCTAVE_DB` (6 dB) |
+| `--eq-per-note [dB]` | 1 note | across the note's bands | `EQ_ROLLOFF_DB` (6 dB) |
+| `--eq-over-all [dB]` | the whole width | across the full range | `EQ_OVERALL_DB` (0 dB = flat) |
+
+The optional dB argument overrides the named constant; a bare flag uses the
+constant. `--eq` is a shorthand for `--eq-per-note` (the legacy behavior).
+
+- **Energy preservation (`--preserve-energy`)**: the bell *redistributes* a
+  group's energy (the integral of its band amplitudes). By default the group's
+  total energy after shaping is whatever the bell leaves. Pass
+  `--preserve-energy` to rescale each group by `raw_total / shaped_total` after
+  shaping, restoring the group's total energy to exactly what peak-normalization
+  set. Because the peak weight is 1.0, the rescale factor is always ≤ 1.0, so
+  the bell *shape* (the pillow) is preserved, nothing clips, and the group's
+  new peak = `raw_total / sum(weights)` stays at or below full scale. Applies to
+  `--eq-per-note`. This is the "area under the curve" step: the note's energy
+  budget is restored to the peak-normalized level. (Note the trade-off: because
+  the bell *reduces* edge energy, restoring the total rescales the whole note up,
+  which flattens the bell's taper — you keep the note's energy, at the cost of a
+  less pronounced mids-only peak. Without the flag the bell's taper is left as
+  is.)
+- **Stacking**: transforms compose in a fixed **coarse-to-fine** order
+  (whole width → octaves → notes) regardless of how you order them on the
+  command line; each is a pure static transform, so the composition is
+  well-defined and deterministic. A typical stack is `--eq-over-all 3
+  --eq-per-octave 6 --eq-per-note 6 --preserve-energy`: a mild global tilt, an
+  octave balance, then a per-note sharpen (the last, finest stage) with the
+  note's energy budget preserved.
+- The curve is computed **once from the file** (a static model, not a dynamic
+  compressor), so the scroll stays stable and there are no pumping artifacts.
+- The equalization is **display-only**: the underlying waterfall text and data
+  are untouched. It operates on the raw 16-bit rows before color mapping.
+- The transforms are intended for **MIDI** output, where columns map cleanly
+  onto the 128-note grid. For PCM/legacy output the columns are a linear
+  frequency sweep, so the note/octave grouping is less meaningful (the flags
+  still work, but are best with MIDI).
+
+Anything that displays well this way is a good candidate for generating a MIDI
+file: the same per-note normalization that reveals each note's core (and tames
+the neighbor-bleed at its edges) is exactly the information a note-tracking step
+needs to see quiet upper-register onsets cleanly, not just the loudest lows.
 
 Requires **numpy** and **ffmpeg** on `PATH`.
 

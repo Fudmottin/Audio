@@ -147,6 +147,38 @@ F_MAX_HZ = 16000.0   # Hz — high end of the log frequency map (PCM mode)
 #       artifacts in the high-frequency (compressed) region at the cost of
 #       a few extra per-frame operations. 4 is a good default; 8 is sharper.
 H_SUPERSAMPLE = 8
+# --- Equalizer curves (display-only; see apply_eq_stack and the eq_* helpers) ---
+#
+# The equalizer is now *stackable*: a display-only transform applied to the raw
+# 16-bit rows, composed in the order the flags appear on the command line
+# (see apply_eq_stack). Each EQ_*_DB constant below is the default *depth* for
+# one transform; each corresponding CLI flag takes an optional dB value that
+# overrides the constant.
+#
+# EQ_ROLLOFF_DB (--eq-per-note): depth of the per-note roll-off. The transform
+# peak-normalizes each note (so no value is boosted above the note's own
+# maximum) and then applies a smooth bell that peaks at the note's *center band*
+# and rolls off toward the note's low and high edges by up to this many dB. This
+# is the "mids up, bass/treble down" shape of a graphic equalizer: it lifts the
+# center of every note so that each note's core energy pops, while its edge
+# bands (which pick up bleed from neighboring notes) recede. 6.0 dB is a good
+# default; 0 disables the curve (leaving the flat peak-normalized result), and
+# 10 gives a stronger taper.
+EQ_ROLLOFF_DB = 6.0   # dB — default max roll-off at a note's edges (--eq-per-note)
+
+# EQ_PER_OCTAVE_DB (--eq-per-octave): peak-normalize each *octave* (12 MIDI
+# notes) to full scale, then apply the same raised-cosine bell across the octave
+# with this edge roll-off. This balances the octaves (the low octaves carry far
+# more average energy) at a coarser grain than --eq-per-note. 6.0 dB matches the
+# per-note default; 0 disables the bell (leaving the flat peak-normalized
+# octave result).
+EQ_PER_OCTAVE_DB = 6.0   # dB — default edge roll-off when peaking per octave
+
+# EQ_OVERALL_DB (--eq-over-all): a single whole-width linear dB tilt (peak-
+# normalize the whole file, then lift the center and roll the two outer edges
+# by up to this many dB). A coarse global balance: 0 (default) = a flat
+# peak-normalized file, a small value brightens the mids across the full range.
+EQ_OVERALL_DB = 0.0     # dB — default edge roll-off of the whole-width tilt
 # V_SUPERSAMPLE: supersample factor for the vertical scroll. The scroll offset
 # is continuous (sub-pixel) but the source has one data row per pixel, so a
 # plain nearest-neighbor sample steps in 1-row increments and looks blocky.
@@ -156,6 +188,266 @@ H_SUPERSAMPLE = 8
 # 8 matches the horizontal factor; raise for a smoother look at the cost of
 # a little more per-frame work.
 V_SUPERSAMPLE = 8
+
+
+# ============================================================================
+# Equalizer (display-only) — composable per-group transforms
+# ============================================================================
+#
+# The equalizer sharpens a display that would otherwise read as a bright left
+# side and a dim right side: the low octaves carry far more average energy, and
+# each note's *edge* bands pick up bleed from neighboring notes, muddying the
+# center. It is **display-only** (it never touches the waterfall text or data)
+# and is applied to the raw 16-bit rows before color mapping. It is *stackable*:
+# `apply_eq_stack` composes any combination of the `eq_*` transforms below in
+# the order the user places them on the command line.
+#
+# Every transform follows the same two steps, applied over a *group* of columns
+# (a group is 12 notes = an octave, 1 note, or the whole width):
+#
+#   1. **Peak-normalize** each group to full scale (0 dB = 65535). This
+#      equalizes the groups against one another *and* enforces the core rule
+#      that **no value is ever boosted above the group's own maximum** — a group
+#      that already peaks at full scale is left flat. This pure scaling cannot
+#      introduce brightness beyond a group's true peak.
+#   2. Apply a smooth **raised-cosine bell** across the group: 0 dB (full) at
+#      the group's *center*, rolling off toward its edges by up to `rolloff_db`
+#      (the "mids at 0, bass/treble down" shape of a graphic equalizer). The
+#      bell's maximum weight is 1.0 (at the center), so it only ever *reduces*
+#      edge energy relative to the peak-normalized result — it sharpens the core
+#      and lets the neighbor-bleed recede.
+#
+# Optional **energy preservation**: shaping a group's bell *redistributes* its
+# total energy (the integral of the band amplitudes over the group). When a
+# transform is asked to `preserve_energy`, it rescales the whole group by
+# `raw_total / shaped_total` after shaping, restoring the group's total energy
+# to exactly what peak-normalization set. Because the peak weight is 1.0 the
+# rescale factor is always ≤ 1.0, so the bell *shape* (the pillow) is preserved
+# and the group's new peak = `raw_total / sum(weights)` stays at or below full
+# scale — nothing clips and the pillow never re-brightens.
+#
+# The transforms here are static (computed once from the file, applied to every
+# row), so the scroll stays stable with no pumping artifacts.
+# ---------------------------------------------------------------------------
+
+
+def _group_peaks(rows, group, max_group):
+    """Vectorized per-group peak across all rows.
+
+    `group` is an int array of shape (num_cols,) assigning each column to a
+    group 0..max_group. Returns a (max_group+1,) float array where entry `g`
+    is the maximum of `rows[:, group == g]` (0.0 for an empty group). Uses
+    `np.maximum.at` so no per-group Python loop is needed.
+    """
+    peaks = np.zeros(max_group + 1, dtype=np.float64)
+    peaks[group] = np.maximum(peaks[group], rows.max(axis=0))
+    return peaks
+
+
+def _apply_bell(rows, unit, size, rolloff_db, preserve_energy=False):
+    """Peak-normalize each group, apply a raised-cosine bell, clip, rescale.
+
+    The single engine behind `eq_per_note` / `eq_per_octave` / `eq_over_all`.
+    A *group* is a run of `size` contiguous columns (1 note, 12 notes = an
+    octave, or the entire width). `unit` assigns each column to its position
+    within a group; the bell's bell-curve is driven by `unit % size` (the unit's
+    index within its group), with the raised-cosine peaking at the group's
+    center. This lets the same math span 1, 12, or all of the columns.
+
+    Steps: peak-normalize each group to full scale -> multiply by a
+    raised-cosine bell that is 1.0 at the center and 10^(-rolloff/20) at the
+    edges -> (optionally) rescale each group by its pre-shape / post-shape
+    total energy to restore the group's total energy -> clip to 0..MAX_SAMPLE.
+
+    rows            : (num_rows, num_cols) float64 array.
+    unit            : (num_cols,) int array assigning each column to its unit
+                      (band within a note, note within an octave, or column
+                      within the whole width). The within-group position is
+                      `unit % size`; the group is `col // size`.
+    size            : int — number of units per group.
+    rolloff_db      : float — edge roll-off in dB; <= 0 disables the bell.
+    preserve_energy : bool — when True, rescale each group so its total energy
+                      is unchanged by the bell (see the module docstring above).
+
+    Returns a new (num_rows, num_cols) int64 array (0..MAX_SAMPLE).
+    """
+    rows = np.asarray(rows, dtype=np.float64)
+    num_rows, num_cols = rows.shape
+    if num_rows == 0 or num_cols == 0 or size < 1:
+        return rows.astype(np.int64)
+
+    col = np.arange(num_cols)
+    group = col // size                       # (num_cols,)
+    unit_in_group = unit % size               # position within its group
+    max_group = int(group.max())
+
+    # --- 1. Peak-normalize each group to full scale (static, from the file). ---
+    target = float(MAX_SAMPLE)                 # 0 dB = full scale
+    group_peak = _group_peaks(rows, group, max_group)
+    norm_gain = np.zeros(max_group + 1)
+    np.divide(target, group_peak, out=norm_gain, where=group_peak > 0.0)
+    normalized = rows * norm_gain[group][None, :]   # (num_rows, num_cols)
+
+    # --- 2. Raised-cosine bell: 1.0 at the center, 10^(-rolloff/20) at edges. ---
+    # u in [-1, 1] from the unit's within-group position, 0.5 -> u=0 (bell peak).
+    # The raised-cosine window W(u) = 0.5*(1+cos(pi*u)) is 1.0 at u=0 and 0.0
+    # at u=±1; the +0.5 offset lands the *center unit* at u=0 for any unit count,
+    # so the peak sits on a unit, not on a unit boundary.
+    u = 2.0 * (unit_in_group + 0.5) / size - 1.0
+    w = 0.5 * (1.0 + np.cos(np.pi * u))        # 1.0 at center, 0.0 at edges
+    if rolloff_db <= 0.0:
+        bell = np.ones(num_cols)               # disabled -> flat
+    else:
+        edge = 10.0 ** (-rolloff_db / 20.0)    # linear amplitude of the edge
+        bell = 1.0 + (edge - 1.0) * w          # center->1, edges->`edge`
+
+    shaped = normalized * bell[None, :]
+
+    # --- 3. Optional energy-preserving rescale (a pure per-group scale). ---
+    if preserve_energy:
+        # Each group is rescaled so its *post-shape* total equals its
+        # *peak-normalized* total (the bell only redistributes within a group,
+        # so this restores the group's energy to exactly the peak-normalized
+        # level). The peak weight is 1.0, so the factor is always <= 1.0 for a
+        # non-flat bell and the group's new peak stays <= full scale.
+        #
+        # We pass the full 2-D arrays to _group_sums so the per-row loop sums
+        # each row's columns into its group, giving (num_rows, max_group+1) —
+        # NOT the 1-D per-row reductions, which would be misinterpreted by the
+        # loop as one row per group and broadcast wrong.
+        shaped_total_g = _group_sums(shaped, group, max_group)
+        norm_total_g = _group_sums(normalized, group, max_group)
+        ratio = np.ones((num_rows, max_group + 1))
+        np.divide(norm_total_g, shaped_total_g, out=ratio,
+                  where=shaped_total_g > 0.0)
+        # `ratio` is already (num_rows, max_group+1); selecting `ratio[:, group]`
+        # gathers each column's group ratio, giving (num_rows, num_cols) — one
+        # scale factor per (row, column), matching `shaped`. No extra axis.
+        shaped = shaped * ratio[:, group]
+
+    return np.clip(shaped, 0.0, float(MAX_SAMPLE)).astype(np.int64)
+
+
+def _group_sums(arr, group, max_group):
+    """Per-group column sums: (num_rows, max_group+1) array of `arr` summed per
+    group (a vectorized sibling of `_group_peaks` for the energy-preserving
+    rescale in `_apply_bell`)."""
+    num_rows = arr.shape[0]
+    out = np.zeros((num_rows, max_group + 1), dtype=np.float64)
+    # Accumulate each row's per-column sums into its group. A direct fancy-
+    # index with a slice on axis 0 does not broadcast, so loop rows (a few
+    # hundred at most) and use np.add.at on the 1-D group axis.
+    for r in range(num_rows):
+        np.add.at(out[r], group, arr[r])
+    return out
+
+
+def eq_per_octave(rows, bands_per_note, peak_db=EQ_PER_OCTAVE_DB):
+    """Per-octave equalizer: peak-normalize each octave (12 notes), then bell.
+
+    Balances the octaves against one another (the low octaves carry far more
+    average energy) at a coarser grain than `eq_per_note`. Each column `c`
+    belongs to MIDI note `c // bands_per_note`; an octave is 12 consecutive
+    notes. `peak_db` sets the bell's edge roll-off (a positive value rolls the
+    octave's edges down, lifting its center); 0 keeps the octave flat after
+    peak-normalization (the raised-cosine at 0 dB is flat).
+    """
+    num_cols = rows.shape[1]
+    return _apply_bell(
+        rows,
+        unit=np.arange(num_cols) // bands_per_note,   # note index (0..127)
+        size=12 * bands_per_note,                    # 12 notes = one octave
+        rolloff_db=peak_db,
+        preserve_energy=False,
+    )
+
+
+def eq_per_note(rows, bands_per_note, rolloff_db=EQ_ROLLOFF_DB,
+                preserve_energy=False):
+    """Per-note equalizer: peak-normalize each note, then a raised-cosine bell.
+
+    Each column `c` belongs to MIDI note `c // bands_per_note` and to band
+    `c % bands_per_note`; 128 notes = the full MIDI range. The bell is 1.0 at
+    the note's *center band* and rolls off by up to `rolloff_db` at the edges
+    (a note's edge bands are where bleed from neighboring notes lives).
+
+    `preserve_energy` restores each note's total energy to the peak-normalized
+    level after shaping (see the module docstring); the pillow is preserved and
+    nothing clips. Best with MIDI output, where columns map cleanly onto the
+    128-note grid (for PCM output the note grouping is a linear-frequency
+    sweep and less meaningful, but the transform still runs).
+    """
+    num_cols = rows.shape[1]
+    return _apply_bell(
+        rows,
+        unit=np.arange(num_cols) % bands_per_note,         # band within the note
+        size=bands_per_note,                               # one note = its bands
+        rolloff_db=rolloff_db,
+        preserve_energy=preserve_energy,
+    )
+
+
+def eq_over_all(rows, bands_per_note, db=EQ_OVERALL_DB):
+    """Whole-width equalizer: peak-normalize the file, then a single bell.
+
+    A coarse global balance across the *entire* width (one 128-note group): the
+    loudest sample anywhere in the file reaches full scale, then a raised-
+    cosine lifts the center of the width and rolls the two outer edges by up to
+    `db`. `db = 0` (the default) leaves a flat peak-normalized file; a small
+    positive `db` brightens the mids across the full range. This is the coarsest
+    of the three transforms and is useful for a quick global lift/taper.
+
+    `bands_per_note` is accepted for signature symmetry with the other
+    transforms (so `apply_eq_stack` can call every transform uniformly) but is
+    unused here: the whole-width group is the entire column range.
+    """
+    num_cols = rows.shape[1]
+    return _apply_bell(
+        rows,
+        unit=np.arange(num_cols),                          # one unit per column
+        size=num_cols,                                     # the whole width = one group
+        rolloff_db=db,
+        preserve_energy=False,
+    )
+
+
+# Registry mapping a CLI flag name to its transform, for apply_eq_stack.
+_EQ_TRANSFORMS = {
+    "per_octave": eq_per_octave,
+    "per_note": eq_per_note,
+    "over_all": eq_over_all,
+}
+
+
+def apply_eq(rows, bands_per_note, rolloff_db=EQ_ROLLOFF_DB):
+    """Backward-compat: the per-note equalizer (now a stack of one transform)."""
+    return eq_per_note(rows, bands_per_note, rolloff_db=rolloff_db,
+                       preserve_energy=False)
+
+
+def apply_eq_stack(rows, bands_per_note, transforms):
+    """Compose a stack of equalizer transforms in order.
+
+    `transforms` is a list of (name, kwargs) pairs, e.g.
+    ``[("per_note", {"rolloff_db": 6.0}), ("per_octave", {"peak_db": 3.0})]``.
+    Each name is a key of `_EQ_TRANSFORMS` (``per_note`` / ``per_octave`` /
+    ``over_all``); a single ``"eq"`` entry is expanded to the per-note transform
+    (the legacy ``--eq`` behavior). Each transform receives `bands_per_note`
+    plus its kwargs; the transforms are applied in list order, so the last one
+    listed is applied last (on top of the earlier ones' output).
+
+    `bands_per_note` is passed to every transform; transforms that ignore it
+    (e.g. `over_all`) simply don't read it. Returns the final int64 array.
+    """
+    out = np.asarray(rows, dtype=np.float64)
+    for name, kwargs in transforms:
+        if name == "eq":
+            # Legacy preset: the per-note transform (the old --eq behavior).
+            out = eq_per_note(out, bands_per_note)
+        else:
+            fn = _EQ_TRANSFORMS[name]
+            out = fn(out, bands_per_note, **kwargs)
+    return out
 
 
 def hue_for_value(t):
@@ -563,6 +855,44 @@ def main():
                           "The scroll speed is scaled identically so that audio "
                           "stays in sync and the video still ends when the data "
                           "tail passes the playhead. Must be positive."))
+    # --- Stackable equalizer flags (display-only; see apply_eq_stack). ---
+    # Each flag takes an optional dB value (the constant at the top of the
+    # file is the default). `--preserve-energy` rescales each group after
+    # shaping so its total energy is unchanged (the bell pillow is preserved).
+    # `--eq` is a shorthand for the legacy per-note behavior (--eq-per-note).
+    ap.add_argument("--eq-per-note", nargs="?", type=float,
+                    default=None, const=None,
+                    metavar="dB",
+                    help=("per-note equalizer: peak-normalize each note, then "
+                          "apply a center bell (mids at 0 dB, edges down by up "
+                          "to dB) so each note's core pops and its edge bands "
+                          "recede. Optional dB value overrides EQ_ROLLOFF_DB. "
+                          "Best with MIDI output. (default off; the optional dB "
+                          "is EQ_ROLLOFF_DB)"))
+    ap.add_argument("--eq-per-octave", nargs="?", type=float,
+                    default=None, const=None,
+                    metavar="dB",
+                    help=("per-octave equalizer: peak-normalize each octave, "
+                          "then a center bell across the octave. Balances the "
+                          "octaves (the low ones carry far more energy). "
+                          "Optional dB value overrides EQ_PER_OCTAVE_DB. "
+                          "(default off)"))
+    ap.add_argument("--eq-over-all", nargs="?", type=float,
+                    default=None, const=None,
+                    metavar="dB",
+                    help=("whole-width equalizer: peak-normalize the file, then "
+                          "a single bell across the full width. A coarse global "
+                          "balance. Optional dB value overrides EQ_OVERALL_DB "
+                          "(default 0, which leaves a flat peak-normalized "
+                          "file). (default off)"))
+    ap.add_argument("--preserve-energy", action="store_true", default=False,
+                    help=("rescale each note after shaping so its total energy "
+                          "is unchanged by the bell (the note's energy budget is "
+                          "restored; nothing clips). Applies to --eq-per-note. "
+                          "(default off)"))
+    ap.add_argument("--eq", action="store_true", default=False,
+                    help=("shorthand for --eq-per-note (the legacy per-note "
+                          "equalizer). (default off)"))
     args = ap.parse_args()
 
     if args.vscale <= 0:
@@ -671,8 +1001,48 @@ def main():
     # --- Pre-render the waterfall image once (the perf win). ---
     # Reversed so the newest sample is the image's row 0 (top). See the
     # scroll model above for why.
+    display_rows = rows
+
+    # --- Equalizer (display-only). ---
+    # Build a stack of (name, kwargs) transforms from the CLI flags. The
+    # transforms are composed in a fixed coarse-to-fine order (whole width ->
+    # octaves -> notes) regardless of how the user ordered the flags; each is
+    # a pure static transform, so the composition is deterministic. `None`
+    # means the flag was not passed (argparse's default); a bare flag (no dB
+    # value) yields None here, which is resolved to the named constant below.
+    transforms = []
+    if args.eq_over_all is not None:
+        transforms.append(("over_all", {"db": args.eq_over_all}))
+    if args.eq_per_octave is not None:
+        transforms.append(("per_octave", {"peak_db": args.eq_per_octave}))
+    if args.eq_per_note is not None or args.eq:
+        # `--preserve-energy` rescales each note after shaping so its total energy
+        # is unchanged (the bell redistributes energy; this restores the budget).
+        # It applies to the per-note transform (the one the user tunes for a note's
+        # core); per-octave keeps the bell-shape-only behavior.
+        transforms.append(("per_note", {"rolloff_db": args.eq_per_note,
+                                        "preserve_energy": args.preserve_energy}))
+
+    if transforms:
+        bands_per_note = int(header.get("bandsPerNote", 8))
+        # Each transform carries only its own dB key (a bare flag is None -> the
+        # named constant). Resolve just that key so a transform never receives
+        # a stray keyword (e.g. `over_all` has no `rolloff_db`).
+        _dB_KEY = {"per_note": ("rolloff_db", EQ_ROLLOFF_DB),
+                   "per_octave": ("peak_db", EQ_PER_OCTAVE_DB),
+                   "over_all": ("db", EQ_OVERALL_DB)}
+        for name, kwargs in transforms:
+            key, const = _dB_KEY[name]
+            if kwargs.get(key) is None:
+                kwargs[key] = const
+            desc = {"per_note": "per-note", "per_octave": "per-octave",
+                    "over_all": "over-all"}[name]
+            extra = " (energy-preserving)" if kwargs.get("preserve_energy") else ""
+            print(f"applying {desc} equalizer{extra} ...", file=sys.stderr)
+        display_rows = apply_eq_stack(rows, bands_per_note, transforms)
+
     print("color-mapping waterfall ...", file=sys.stderr)
-    full_image = render_waterfall_image(rows, reversed_=True)
+    full_image = render_waterfall_image(display_rows, reversed_=True)
 
     # --- Horizontal log-frequency warp (display-only) ---
     # The waterfall's columns are linear in frequency; for a human-friendly
