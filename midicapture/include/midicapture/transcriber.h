@@ -66,8 +66,10 @@ class Transcriber {
    // @param hopSize    Hop size between frames (e.g., 512).
    // @param silenceDb  Silence threshold in dB (-40.0 = default).
    // @param pitchMethod  Pitch detection method ("yinfft", etc.).
+   // @param tempoBpm   Tempo in BPM of the output Score (drives the
+   //                   fragment-merge gap and the MIDI tick conversion).
    Transcriber(uint32_t bufSize, uint32_t hopSize, float silenceDb,
-               const std::string& pitchMethod);
+               const std::string& pitchMethod, double tempoBpm = 120.0);
 
    // Destructor. Frees all analysis resources.
    // RAII — resources are released automatically.
