@@ -18,12 +18,10 @@ Audio/
 │   ├── CMakeLists.txt   # Build configuration
 │   ├── README.md        # This file
 │   ├── include/midicapture/
-│   │   ├── transcriber.h         # High-level transcription API
-│   │   └── audioFile.h           # Audio file reading (libsndfile)
+│   │   └── transcriber.h         # High-level transcription API
 │   └── src/
 │       ├── main.cpp              # CLI entry point (Boost program_options)
-│       ├── transcriber.cpp       # Transcription pipeline (pitch + onset)
-│       └── audioFile.cpp         # Audio file I/O (libsndfile)
+│       └── transcriber.cpp       # Transcription pipeline (pitch + onset)
 └── lode/midicapture/    # Module documentation
 ```
 

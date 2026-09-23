@@ -14,6 +14,8 @@
 #include <memory>
 #include <optional>
 
+namespace libaudio {
+
 // ============================================================================
 // BeatTracker — Beat tracking via aubio (tempo estimation).
 //
@@ -81,5 +83,7 @@ class BeatTracker {
    struct Impl;
    std::unique_ptr<Impl> impl_;
 };
+
+} // namespace libaudio
 
 #endif // LIBAUDIO_BEAT_H

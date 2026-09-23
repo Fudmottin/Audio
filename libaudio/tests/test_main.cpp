@@ -37,6 +37,8 @@
 #include <string>
 #include <vector>
 
+using namespace libaudio;
+
 // ============================================================================
 // Assertion macro — counts passes and failures, prints summary.
 // ============================================================================

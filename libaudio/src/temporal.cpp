@@ -21,6 +21,8 @@
 // clang-format on
 #include <stdexcept>
 
+namespace libaudio {
+
 // Libsamplerate converter type constants.
 // SRC_SINC_best_quality is the highest quality resampler.
 #ifndef SRC_SINC_best_quality
@@ -158,8 +160,7 @@ std::vector<float> TemporalProcessor::lowPass(const std::vector<float>& samples,
    // The M_PI constant is double; use an explicit float pi so the
    // biquad coefficients are computed in float arithmetic.
    constexpr float kPi = 3.14159265358979323846f;
-   float ws =
-      std::tan(kPi * cutoffHz / static_cast<float>(impl_->sampleRate));
+   float ws = std::tan(kPi * cutoffHz / static_cast<float>(impl_->sampleRate));
    float norm = 1.0f / (1.0f + std::sqrt(2.0f) * ws + ws * ws);
    float b0 = ws * ws * norm;
    float b1 = 2.0f * b0;
@@ -201,8 +202,7 @@ TemporalProcessor::highPass(const std::vector<float>& samples, float cutoffHz) {
    // The M_PI constant is double; use an explicit float pi so the
    // biquad coefficients are computed in float arithmetic.
    constexpr float kPi = 3.14159265358979323846f;
-   float ws =
-      std::tan(kPi * cutoffHz / static_cast<float>(impl_->sampleRate));
+   float ws = std::tan(kPi * cutoffHz / static_cast<float>(impl_->sampleRate));
    float norm = 1.0f / (1.0f + std::sqrt(2.0f) * ws + ws * ws);
    float b0 = norm;
    float b1 = -2.0f * b0;
@@ -299,3 +299,5 @@ TemporalProcessor::biquadCoefficients(std::string_view filterType,
 
    return result;
 }
+
+} // namespace libaudio

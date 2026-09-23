@@ -16,6 +16,8 @@
 #include <string>
 #include <vector>
 
+namespace libaudio {
+
 // ============================================================================
 // SpectralAnalyzer — Spectral analysis via aubio (FFT, MFCC, chroma, etc.).
 //
@@ -111,5 +113,7 @@ class SpectralAnalyzer {
    struct Impl;
    std::unique_ptr<Impl> impl_;
 };
+
+} // namespace libaudio
 
 #endif // LIBAUDIO_SPECTRAL_H

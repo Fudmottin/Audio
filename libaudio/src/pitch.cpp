@@ -25,6 +25,8 @@
 #include <stdexcept>
 #include <unordered_map>
 
+namespace libaudio {
+
 // ============================================================================
 // PitchDetector::Impl — Private implementation (Pimpl pattern).
 //
@@ -262,3 +264,5 @@ void PitchDetector::setHopSize(uint32_t hopSize) {
       setMethod(impl_->currentMethod);
    }
 }
+
+} // namespace libaudio

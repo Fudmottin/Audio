@@ -16,6 +16,8 @@
 #include <libaudio/spectral.h>
 #include <vector>
 
+namespace libaudio {
+
 // ============================================================================
 // NoteTrimmer::Impl — Private implementation (Pimpl pattern).
 //
@@ -45,8 +47,8 @@ struct NoteTrimmer::Impl {
       // Convert dB threshold to RMS amplitude.
       // RMS = 10^(dB/20). The std::pow overload taking a float
       // exponent is not available, so cast explicitly to double.
-      float rmsThreshold =
-         static_cast<float>(std::pow(10.0, static_cast<double>(silenceThresholdDb) / 20.0));
+      float rmsThreshold = static_cast<float>(
+         std::pow(10.0, static_cast<double>(silenceThresholdDb) / 20.0));
 
       uint32_t currentFrame = startFrame;
 
@@ -182,3 +184,5 @@ double NoteTrimmer::minNoteDuration() const {
 
    return impl_ ? impl_->minNoteDuration : 0.05;
 }
+
+} // namespace libaudio

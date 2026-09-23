@@ -33,6 +33,8 @@
 #include <cstring>
 #include <stdexcept>
 
+namespace libaudio {
+
 // ============================================================================
 // OnsetDetector::Impl — Private implementation (Pimpl pattern).
 //
@@ -106,7 +108,8 @@ OnsetDetector::OnsetDetector(std::string_view method, uint32_t bufSize,
 
    // Set the peak-picking threshold and the minimum inter-onset interval.
    aubio_onset_set_threshold(impl_->detector, impl_->threshold);
-   aubio_onset_set_minioi_s(impl_->detector, static_cast<smpl_t>(impl_->minIoI));
+   aubio_onset_set_minioi_s(impl_->detector,
+                            static_cast<smpl_t>(impl_->minIoI));
 
    // Last-detection state (no detection yet).
    impl_->lastOnsetTime = -1.0;
@@ -127,8 +130,8 @@ void OnsetDetector::Impl::buildDetector() {
    if (detector) del_aubio_onset(detector);
    detector = new_aubio_onset(method.c_str(), bufSize, hopSize, sampleRate);
    if (detector == nullptr) {
-      throw std::runtime_error(
-         "Could not create onset detector ('" + method + "')");
+      throw std::runtime_error("Could not create onset detector ('" + method +
+                               "')");
    }
    // A rebuilt detector has no detections yet; reset the latch.
    prevOnsetSample = 0;
@@ -190,8 +193,8 @@ bool OnsetDetector::detect(const float* samples, uint32_t length) {
       if (lastSample == 0) return false;
    }
    if (lastSample > impl_->prevOnsetSample) {
-      impl_->lastOnsetTime =
-         static_cast<double>(lastSample) / static_cast<double>(impl_->sampleRate);
+      impl_->lastOnsetTime = static_cast<double>(lastSample) /
+                             static_cast<double>(impl_->sampleRate);
       impl_->lastConfidence = impl_->outputBuffer->data[0];
       impl_->prevOnsetSample = lastSample;
       return true;
@@ -231,14 +234,11 @@ void OnsetDetector::setMinIoI(double minIoI) {
    // seconds-based setter (a plain float value, in seconds).
    if (impl_ && impl_->detector) {
       impl_->minIoI = minIoI;
-      aubio_onset_set_minioi_s(impl_->detector,
-                               static_cast<smpl_t>(minIoI));
+      aubio_onset_set_minioi_s(impl_->detector, static_cast<smpl_t>(minIoI));
    }
 }
 
-double OnsetDetector::minIoI() const {
-   return impl_ ? impl_->minIoI : 0.012;
-}
+double OnsetDetector::minIoI() const { return impl_ ? impl_->minIoI : 0.012; }
 
 void OnsetDetector::setSampleRate(uint32_t sampleRate) {
    // Rebuild the internal aubio onset object with the new sample rate.
@@ -254,9 +254,12 @@ void OnsetDetector::setSampleRate(uint32_t sampleRate) {
    impl_->sampleRate = sampleRate;
    impl_->buildDetector();
    aubio_onset_set_threshold(impl_->detector, impl_->threshold);
-   aubio_onset_set_minioi_s(impl_->detector, static_cast<smpl_t>(impl_->minIoI));
+   aubio_onset_set_minioi_s(impl_->detector,
+                            static_cast<smpl_t>(impl_->minIoI));
 }
 
 std::string OnsetDetector::method() const {
    return impl_ ? impl_->method : "specflux";
 }
+
+} // namespace libaudio

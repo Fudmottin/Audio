@@ -53,12 +53,10 @@ add_subdirectory(${CMAKE_SOURCE_DIR}/../libaudio ${CMAKE_BINARY_DIR}/libaudio)
 # Core Guidelines: explicit source files. No wildcards.
 add_executable(waterfall
     src/main.cpp
-    src/audioFile.cpp
 )
 
 # Core Guidelines: public include directory for consumers of the library.
 target_include_directories(waterfall PRIVATE
-    ${CMAKE_SOURCE_DIR}/include
     ${AUBIO_INCLUDE_DIRS}
     ${SNDFILE_INCLUDE_DIRS}
     ${Boost_INCLUDE_DIRS}

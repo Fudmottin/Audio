@@ -17,8 +17,8 @@ forward FFT per row (via libaudio), with the magnitude spectrum quantized to
 16-bit integers and printed as hex.
 
 The module uses:
-- **libaudio `FFT`**: forward FFT (magnitude + phase) per row.
-- **libaudio `AudioFileReader`** (via the local `AudioFile` wrapper): audio I/O.
+- **`libaudio::FFT`**: forward FFT (magnitude + phase) per row.
+- **`libaudio::AudioFileReader`**: audio file I/O (via libsndfile).
 - **Boost program_options**: command-line argument parsing.
 
 ---
@@ -33,18 +33,15 @@ Audio/
 │       └── audioFile.h   # AudioFileReader (libsndfile wrapper)
 ├── waterfall/            # Phase 3: Audio → frequency waterfall (text)
 │   ├── CMakeLists.txt    # Build config (libaudio, Boost)
-│   ├── include/waterfall/
-│   │   └── audioFile.h   # AudioFile — shared file-reading wrapper
 │   └── src/
-│       ├── main.cpp      # Entry point: CLI, FFT loop, quantization, output
-│       └── audioFile.cpp # AudioFile implementation (libsndfile via libaudio)
+│       └── main.cpp      # Entry point: CLI, FFT loop, quantization, output
 └── lode/waterfall/       # Module documentation
 ```
 
-`main.cpp` is the entire analysis tool. `audioFile` is the one module shared
-conceptually with `midicapture` (each tool keeps its own copy, so the file I/O
-path stays identical). The libaudio classes are **not** namespaced — `FFT`,
-`AudioFileReader`, etc. are top-level classes in their own headers.
+`main.cpp` is the entire analysis tool. File I/O goes through
+`libaudio::AudioFileReader` directly (no per-module wrapper). All libaudio
+public types live in `namespace libaudio`; `main.cpp` uses
+`using namespace libaudio;` to bring them into scope.
 
 ---
 

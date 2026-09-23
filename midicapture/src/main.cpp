@@ -44,12 +44,14 @@
 
 #include <filesystem>
 #include <iostream>
+#include <libaudio/audioFile.h>
 #include <libaudio/hir.h>
 #include <libaudio/midiFileWriter.h>
-#include <midicapture/audioFile.h>
 #include <midicapture/transcriber.h>
 #include <string>
 #include <vector>
+
+using namespace libaudio;
 
 // ============================================================================
 // printUsage — Print usage information to stderr.
@@ -346,8 +348,8 @@ int main(int argc, char* argv[]) {
       "window-size", po::value<uint32_t>(&windowSize)->default_value(2048),
       "FFT window size (power of 2, default: 2048).")(
       "hop-size", po::value<uint32_t>(&hopSize)->default_value(512),
-      "Hop size between frames (default: 512).")("silence",
-      po::value<float>(&silenceDb)->default_value(-40.0f),
+      "Hop size between frames (default: 512).")(
+      "silence", po::value<float>(&silenceDb)->default_value(-40.0f),
       "Silence threshold in dB (default: -40).")(
       "tempo", po::value<double>(&tempoBpm)->default_value(120.0),
       "Tempo in BPM (default: 120).")(
@@ -475,9 +477,9 @@ int main(int argc, char* argv[]) {
    // =====================================================================
    // Open the input audio file and print its metadata.
    //
-   // Domain context: We use AudioFile (wrapping libsndfile via
-   // libaudio) to open the audio file. This supports AIFF, WAV, FLAC,
-   // and many other formats. We print the file metadata (sample rate,
+   // Domain context: AudioFileReader (from libaudio) opens the audio
+   // file via libsndfile. This supports AIFF, WAV, FLAC, OGG, and
+   // many other formats. We print the file metadata (sample rate,
    // channels, duration) to stdout for user feedback.
    // =====================================================================
 
@@ -510,14 +512,13 @@ int main(int argc, char* argv[]) {
    }
 
    try {
-      AudioFile audioReader(inputPath);
+      AudioFileReader audioReader(inputPath);
 
       std::cout << "Input file: " << inputPath << "\n";
       std::cout << "  Sample rate: " << audioReader.sampleRate() << " Hz\n";
       std::cout << "  Channels: " << audioReader.channels() << "\n";
       std::cout << "  Total frames: " << audioReader.totalFrames() << "\n";
-      double duration = static_cast<double>(audioReader.totalFrames()) /
-                        audioReader.sampleRate();
+      double duration = audioReader.duration();
       std::cout << "  Duration: " << duration << " seconds\n";
       std::cout << "  Format: " << audioReader.formatName() << "\n\n";
 

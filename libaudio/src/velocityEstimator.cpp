@@ -12,6 +12,8 @@
 #include <cmath>
 #include <libaudio/velocityEstimator.h>
 
+namespace libaudio {
+
 // ============================================================================
 // VelocityEstimator::Impl — Private implementation (Pimpl pattern).
 //
@@ -113,3 +115,5 @@ std::pair<float, float> VelocityEstimator::normalizationRange() const {
    }
    return {-40.0f, 0.0f};
 }
+
+} // namespace libaudio

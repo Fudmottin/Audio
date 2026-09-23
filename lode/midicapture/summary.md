@@ -30,12 +30,10 @@ Audio/
 ├── midicapture/          # Phase 2: Audio → MIDI
 │   ├── CMakeLists.txt   # Build config (libaudio, Boost)
 │   ├── include/midicapture/
-│   │   ├── transcriber.h         # High-level transcription API
-│   │   └── audioFile.h           # Audio file reading (libsndfile)
+│   │   └── transcriber.h         # High-level transcription API
 │   └── src/
 │       ├── main.cpp              # CLI entry point (Boost program_options)
-│       ├── transcriber.cpp       # Transcription pipeline (pitch + onset)
-│       └── audioFile.cpp         # Audio file I/O (libsndfile)
+│       └── transcriber.cpp       # Transcription pipeline (pitch + onset)
 └── lode/midicapture/    # Module documentation
 ```
 
@@ -45,7 +43,7 @@ Audio/
 
 ```mermaid
 graph LR
-    A[Input Audio File] --> B[AudioFile]
+    A[Input Audio File] --> B[libaudio::AudioFileReader]
     B --> C{Silent?}
     C -->|Yes| D[End current note]
     C -->|No| E[PitchDetector YINfft]

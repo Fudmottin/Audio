@@ -17,7 +17,7 @@ A macOS command-line utility that routes audio through the BlackHole virtual dev
 
 ### libaudio
 
-A C++ DSP library providing audio analysis (pitch, onsets, beats, notes), spectral features, and MIDI export. See the [module README](libaudio/README.md) for the full API.
+A C++ DSP library (in `namespace libaudio`) providing audio analysis (pitch, onsets, beats, notes), spectral features, audio file I/O (via libsndfile), and MIDI export. See the [module README](libaudio/README.md) for the full API.
 
 ### midicapture
 

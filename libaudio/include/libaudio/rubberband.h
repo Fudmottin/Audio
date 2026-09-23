@@ -15,6 +15,8 @@
 #include <memory>
 #include <vector>
 
+namespace libaudio {
+
 // ============================================================================
 // RubberbandProcessor — Time-stretching and pitch-shifting via rubberband.
 //
@@ -93,5 +95,7 @@ class RubberbandProcessor {
 };
 
 #endif // LIBAUDIO_HAS_RUBBERBAND
+
+} // namespace libaudio
 
 #endif // LIBAUDIO_RUBBERBAND_H

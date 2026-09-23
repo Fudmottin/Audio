@@ -27,6 +27,8 @@
 #include <optional>
 #include <string>
 
+namespace libaudio {
+
 // ============================================================================
 // OnsetDetector — Note onset detection via aubio.
 //
@@ -128,5 +130,7 @@ class OnsetDetector {
    struct Impl;
    std::unique_ptr<Impl> impl_;
 };
+
+} // namespace libaudio
 
 #endif // LIBAUDIO_ONSET_H

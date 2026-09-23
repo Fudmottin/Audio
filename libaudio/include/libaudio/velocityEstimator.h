@@ -14,6 +14,8 @@
 #include <memory>
 #include <vector>
 
+namespace libaudio {
+
 // Forward declaration (from hir.h).
 struct Note;
 
@@ -77,5 +79,7 @@ class VelocityEstimator {
    struct Impl;
    std::unique_ptr<Impl> impl_;
 };
+
+} // namespace libaudio
 
 #endif // LIBAUDIO_VELOCITYESTIMATOR_H

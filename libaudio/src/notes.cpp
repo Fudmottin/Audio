@@ -42,6 +42,8 @@
 #include <libaudio/notes.h>
 #include <stdexcept>
 
+namespace libaudio {
+
 // ============================================================================
 // NoteDetector::Impl — Private implementation (Pimpl pattern).
 //
@@ -203,3 +205,5 @@ void NoteDetector::setReleaseDropDb(float db) {
       aubio_notes_set_release_drop(impl_->detector, db);
    }
 }
+
+} // namespace libaudio

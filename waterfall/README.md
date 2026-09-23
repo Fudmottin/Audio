@@ -378,13 +378,10 @@ Requires **numpy** and **ffmpeg** on `PATH`.
 waterfall/
 ├── CMakeLists.txt              # Build config (libaudio, Boost program_options)
 ├── waterfall_video.py          # Optional: animate the text output as an MP4 video
-├── include/waterfall/
-│   └── audioFile.h             # AudioFile — shared file-reading wrapper
 └── src/
-    ├── main.cpp                # Entry point: CLI, FFT loop, quantization, output
-    └── audioFile.cpp           # AudioFile implementation (libsndfile via libaudio)
+    └── main.cpp                # Entry point: CLI, FFT loop, quantization, output
 ```
 
-`main.cpp` is the entire analysis tool. `audioFile` is the only module
-shared conceptually with `midicapture` (each tool has its own copy, so the
-file I/O path stays identical across both).
+`main.cpp` is the entire analysis tool. File I/O goes through
+`libaudio::AudioFileReader` directly (no per-module wrapper). All libaudio
+public types live in `namespace libaudio`.

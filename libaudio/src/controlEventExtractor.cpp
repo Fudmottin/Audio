@@ -16,6 +16,8 @@
 #include <libaudio/spectral.h>
 #include <vector>
 
+namespace libaudio {
+
 // ============================================================================
 // ControlEventExtractor::Impl — Private implementation (Pimpl pattern).
 //
@@ -69,14 +71,13 @@ struct ControlEventExtractor::Impl {
          // increase, raising the low-frequency energy.
          float rmsLowFreq = 0.0f;
          uint32_t lowFreqBins = static_cast<uint32_t>(
-            200.0f * static_cast<float>(windowSize) /
-            static_cast<float>(sr));
+            200.0f * static_cast<float>(windowSize) / static_cast<float>(sr));
 
          for (uint32_t i = 0; i < std::min(lowFreqBins, framesRead); ++i) {
             rmsLowFreq += buffer[i] * buffer[i];
          }
-         rmsLowFreq =
-            std::sqrt(rmsLowFreq / static_cast<float>(std::max(1u, lowFreqBins)));
+         rmsLowFreq = std::sqrt(rmsLowFreq /
+                                static_cast<float>(std::max(1u, lowFreqBins)));
 
          // Threshold-based detection.
          // A high RMS energy in the low-frequency range suggests the
@@ -160,3 +161,5 @@ ControlEventExtractor::extractSustainPedal(AudioFileReader& reader) {
 
    return impl_->detectSustainPedal(reader);
 }
+
+} // namespace libaudio

@@ -16,6 +16,8 @@
 #include <string>
 #include <vector>
 
+namespace libaudio {
+
 // ============================================================================
 // FFT — Wraps aubio's FFT for spectral analysis.
 //
@@ -83,5 +85,7 @@ class FFT {
    struct Impl;
    std::unique_ptr<Impl> impl_;
 };
+
+} // namespace libaudio
 
 #endif // LIBAUDIO_FFT_H

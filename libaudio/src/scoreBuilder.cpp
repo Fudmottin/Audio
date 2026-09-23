@@ -14,6 +14,8 @@
 #include <libaudio/hir.h>
 #include <libaudio/scoreBuilder.h>
 
+namespace libaudio {
+
 // ============================================================================
 // ScoreBuilder::Impl — Private implementation (Pimpl pattern).
 //
@@ -165,3 +167,5 @@ uint32_t ScoreBuilder::controlEventCount() const {
    // Simple accessor.
    return impl_ ? static_cast<uint32_t>(impl_->controls.size()) : 0;
 }
+
+} // namespace libaudio

@@ -6,6 +6,8 @@
 #include <rubberband/RubberBandStretcher.h>
 #include <stdexcept>
 
+namespace libaudio {
+
 // ============================================================================
 // RubberbandProcessor::Impl — Private implementation (Pimpl pattern).
 //
@@ -177,5 +179,7 @@ bool RubberbandProcessor::hasRemaining() const {
 
    return impl_->stretcher->available() > 0;
 }
+
+} // namespace libaudio
 
 #endif // LIBAUDIO_HAS_RUBBERBAND

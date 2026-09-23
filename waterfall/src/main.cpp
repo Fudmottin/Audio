@@ -70,20 +70,21 @@
  *
  */
 
-#include <waterfall/audioFile.h>
-
 #include <boost/program_options.hpp>
-#include <libaudio/fft.h>
 
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
-#include <iostream>
 #include <iomanip>
+#include <iostream>
+#include <libaudio/audioFile.h>
+#include <libaudio/fft.h>
 #include <numeric>
 #include <sstream>
 #include <string>
 #include <vector>
+
+using namespace libaudio;
 
 namespace po = boost::program_options;
 
@@ -112,7 +113,8 @@ enum class WaterfallMode {
 // @return Frequency in Hz.
 // ============================================================================
 static float midiNoteFrequency(int midiNote) {
-   return 440.0f * std::pow(2.0f, (static_cast<float>(midiNote) - 69.0f) / 12.0f);
+   return 440.0f *
+          std::pow(2.0f, (static_cast<float>(midiNote) - 69.0f) / 12.0f);
 }
 
 // ============================================================================
@@ -129,8 +131,7 @@ static const char* modeToHeaderValue(WaterfallMode mode) {
 // parsing fails. It mirrors the --help output exactly.
 // ============================================================================
 static void printUsage(const char* programName) {
-   std::cerr << "Usage: " << programName
-             << " [options] <input.aiff>\n";
+   std::cerr << "Usage: " << programName << " [options] <input.aiff>\n";
    std::cerr << "\n<input.aiff> may be any format libsndfile supports\n"
              << "(AIFF, WAV, FLAC, OGG, etc.). Output is a single line of\n"
              << "name=value pairs (header) followed by one line per time\n"
@@ -198,8 +199,7 @@ static uint16_t quantizeTo16bit(float magnitude, float refDb) {
 
    const float magDb = 20.0f * std::log10(magnitude);
    // Normalize dB to [0, 1]: kFloorDb -> 0, refDb -> 1.
-   const float normalized =
-      (magDb - kFloorDb) / (refDb - kFloorDb);
+   const float normalized = (magDb - kFloorDb) / (refDb - kFloorDb);
    const float clamped = std::max(0.0f, std::min(1.0f, normalized));
    return static_cast<uint16_t>(std::lround(clamped * 65535.0f));
 }
@@ -223,12 +223,11 @@ static uint16_t quantizeTo16bit(float magnitude, float refDb) {
 // @param binWidthHz         Width of each FFT bin (Hz).
 // @return Vector of one magnitude per column.
 // ============================================================================
-static std::vector<float> mapSpectrumToColumns(
-   const std::vector<float>& magnitudes,
-   uint32_t numBins,
-   const std::vector<float>& columnFrequencies,
-   const std::vector<float>& columnBandWidths,
-   float binWidthHz) {
+static std::vector<float>
+mapSpectrumToColumns(const std::vector<float>& magnitudes, uint32_t numBins,
+                     const std::vector<float>& columnFrequencies,
+                     const std::vector<float>& columnBandWidths,
+                     float binWidthHz) {
    const uint32_t numColumns = static_cast<uint32_t>(columnFrequencies.size());
    std::vector<float> columns(numColumns, 0.0f);
 
@@ -244,9 +243,9 @@ static std::vector<float> mapSpectrumToColumns(
 
       const uint32_t lowBin =
          static_cast<uint32_t>(std::max(0.0f, low) / binWidthHz);
-      const uint32_t highBin = std::min(
-         numBins - 1,
-         static_cast<uint32_t>(std::max(0.0f, high) / binWidthHz));
+      const uint32_t highBin =
+         std::min(numBins - 1,
+                  static_cast<uint32_t>(std::max(0.0f, high) / binWidthHz));
 
       float maxMag = 0.0f;
       for (uint32_t b = lowBin; b <= highBin; ++b) {
@@ -274,37 +273,32 @@ static void printHex(std::ostream& os, uint16_t value) {
 int main(int argc, char* argv[]) {
    // --- Command-line options ---
    po::options_description desc("waterfall options");
-   desc.add_options()
-      ("help,h", "Print this message.")
+   desc.add_options()("help,h", "Print this message.")
       // Positional-only option: bound to a single unnamed file argument.
       // Declared with a value type but no short flag so it accepts exactly
       // one positional argument (the input audio file).
-      ("input", po::value<std::string>(), "Input audio file path.")
-      ("window-size",
-       po::value<int>()->default_value(2048),
-       "FFT window size, power of two.")
-      ("time-slice",
-       po::value<double>()->default_value(10.0),
-       "Row duration in milliseconds.")
-      ("bands-per-note",
-       po::value<int>()->default_value(8),
-       "Bands per MIDI note.")
-      ("ref-db",
-       po::value<float>()->default_value(0.0f),
-       "Full-scale reference level (dB). Ignored when --auto-scale is on.")
-      ("no-auto-scale",
-       po::bool_switch()->default_value(false),
-       "Use --ref-db verbatim instead of auto-scaling to the file peak.")
-      ("pcm",
-       po::bool_switch()->default_value(false),
-       "Use the legacy linear frequency mapping (default: MIDI mapping).");
+      ("input", po::value<std::string>(),
+       "Input audio file path.")("window-size",
+                                 po::value<int>()->default_value(2048),
+                                 "FFT window size, power of two.")(
+         "time-slice", po::value<double>()->default_value(10.0),
+         "Row duration in milliseconds.")("bands-per-note",
+                                          po::value<int>()->default_value(8),
+                                          "Bands per MIDI note.")(
+         "ref-db", po::value<float>()->default_value(0.0f),
+         "Full-scale reference level (dB). Ignored when --auto-scale is on.")(
+         "no-auto-scale", po::bool_switch()->default_value(false),
+         "Use --ref-db verbatim instead of auto-scaling to the file peak.")(
+         "pcm", po::bool_switch()->default_value(false),
+         "Use the legacy linear frequency mapping (default: MIDI mapping).");
 
    po::positional_options_description positional;
    positional.add("input", 1);
 
    po::variables_map vm;
    try {
-      po::store(po::command_line_parser(argc, argv).options(desc)
+      po::store(po::command_line_parser(argc, argv)
+                   .options(desc)
                    .positional(positional)
                    .run(),
                 vm);
@@ -351,7 +345,7 @@ int main(int argc, char* argv[]) {
    const uint32_t hopSize = windowSize; // one hop per row.
 
    // --- Open the input file ---
-   AudioFile file(vm["input"].as<std::string>());
+   AudioFileReader file(vm["input"].as<std::string>());
    const uint32_t sampleRate = file.sampleRate();
    const uint32_t totalFrames = file.totalFrames();
 
@@ -364,12 +358,12 @@ int main(int argc, char* argv[]) {
    FFT fft(windowSize);
    const uint32_t numBins = fft.numBins();
    // Width of each FFT bin in Hz (bins span 0..Nyquist).
-   const float binWidthHz = static_cast<float>(sampleRate) / 2.0f /
-                            static_cast<float>(numBins);
+   const float binWidthHz =
+      static_cast<float>(sampleRate) / 2.0f / static_cast<float>(numBins);
 
-   // --- Derive the column grid (center frequencies + per-column band widths) ---
-   // Both modes use (128 notes) x (bands-per-note) columns; only the placement
-   // of each column's center frequency differs.
+   // --- Derive the column grid (center frequencies + per-column band widths)
+   // --- Both modes use (128 notes) x (bands-per-note) columns; only the
+   // placement of each column's center frequency differs.
    const uint32_t kMidiNotes = 128;
    const uint32_t totalColumns = kMidiNotes * bandsPerNote; // e.g. 1024
 
@@ -387,7 +381,8 @@ int main(int argc, char* argv[]) {
          const float noteIndex = static_cast<float>(c / bandsPerNote);
          const float bandIndex = static_cast<float>(c % bandsPerNote);
          columnFrequencies[c] =
-            (noteIndex + (bandIndex + 0.5f) / static_cast<float>(bandsPerNote)) *
+            (noteIndex +
+             (bandIndex + 0.5f) / static_cast<float>(bandsPerNote)) *
             noteWidth;
          columnBandWidths[c] = bandWidthHz; // uniform width in the linear case.
       }
@@ -408,10 +403,9 @@ int main(int argc, char* argv[]) {
          // Logarithmically even band centers across [lo, hi].
          const float loLog = std::log(lo);
          const float hiLog = std::log(hi);
-         const float f =
-            std::exp(loLog +
-                     (static_cast<float>(bandIndex) + 0.5f) /
-                     static_cast<float>(bandsPerNote) * (hiLog - loLog));
+         const float f = std::exp(
+            loLog + (static_cast<float>(bandIndex) + 0.5f) /
+                       static_cast<float>(bandsPerNote) * (hiLog - loLog));
          columnFrequencies[c] = f;
          columnBandWidths[c] = (hi - lo) / static_cast<float>(bandsPerNote);
       }
@@ -488,8 +482,9 @@ int main(int argc, char* argv[]) {
       (void)phase; // Not needed for intensity.
 
       // Map the spectrum onto the column grid.
-      const std::vector<float> columns = mapSpectrumToColumns(
-         magnitude, numBins, columnFrequencies, columnBandWidths, binWidthHz);
+      const std::vector<float> columns =
+         mapSpectrumToColumns(magnitude, numBins, columnFrequencies,
+                              columnBandWidths, binWidthHz);
 
       // Quantize and print one row.
       for (uint32_t c = 0; c < totalColumns; ++c) {

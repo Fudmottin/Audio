@@ -44,6 +44,8 @@
 #include <string>
 #include <vector>
 
+namespace libaudio {
+
 // Forward declaration of Score (from hir.h).
 struct Score;
 
@@ -113,5 +115,7 @@ class MidiFileWriter {
    struct Impl;
    std::unique_ptr<Impl> impl_;
 };
+
+} // namespace libaudio
 
 #endif // LIBAUDIO_MIDIFILEWRITER_H

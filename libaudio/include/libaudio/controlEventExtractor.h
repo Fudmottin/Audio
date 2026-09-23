@@ -24,6 +24,8 @@
 #include <string>
 #include <vector>
 
+namespace libaudio {
+
 // Forward declarations.
 struct ControlEvent;
 class AudioFileReader;
@@ -85,5 +87,7 @@ class ControlEventExtractor {
    struct Impl;
    std::unique_ptr<Impl> impl_;
 };
+
+} // namespace libaudio
 
 #endif // LIBAUDIO_CONTROLEVENTEXTRACTOR_H

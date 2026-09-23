@@ -15,6 +15,8 @@
 // clang-format on
 #include <stdexcept>
 
+namespace libaudio {
+
 // ============================================================================
 // BeatTracker::Impl — Private implementation (Pimpl pattern).
 //
@@ -138,3 +140,5 @@ uint32_t BeatTracker::beatCount() const {
    // Simple accessor.
    return impl_ ? impl_->beatCount_ : 0;
 }
+
+} // namespace libaudio

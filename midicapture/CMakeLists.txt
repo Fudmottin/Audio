@@ -52,7 +52,6 @@ add_subdirectory(${CMAKE_SOURCE_DIR}/../libaudio ${CMAKE_BINARY_DIR}/libaudio)
 add_executable(midicapture
     src/main.cpp
     src/transcriber.cpp
-    src/audioFile.cpp
 )
 
 # Core Guidelines: public include directory for consumers of the library.

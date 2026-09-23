@@ -57,6 +57,8 @@
 #include <string>
 #include <vector>
 
+namespace libaudio {
+
 // ============================================================================
 // Note — A single note event — the atomic unit of musical representation.
 //
@@ -212,5 +214,7 @@ struct Score {
    Score& operator=(const Score&) = default;
    Score& operator=(Score&&) = default;
 };
+
+} // namespace libaudio
 
 #endif // LIBAUDIO_HIR_H

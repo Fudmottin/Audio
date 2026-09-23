@@ -94,13 +94,14 @@ It's not needed for the core transcription pipeline (pitch detection, onset dete
 
 ---
 
-## 4. The Wrapper Pattern: `unique_ptr<Impl>`
+## 4. Namespace: `libaudio`
 
 ### The Core Choice
 
-All libaudio modules use the **Pimpl (Pointer to Implementation) pattern** with `std::unique_ptr<Impl>`:
+All public types in libaudio live in **`namespace libaudio`**:
 
 ```cpp
+namespace libaudio {
 class PitchDetector {
 public:
    PitchDetector(uint32_t bufSize, float tolerance = 0.15f);
@@ -110,7 +111,33 @@ private:
    struct Impl;
    std::unique_ptr<Impl> impl_;  // All aubio calls isolated here
 };
+} // namespace libaudio
 ```
+
+### Why a dedicated namespace?
+
+| Benefit | Explanation |
+|---|---|
+| **Single point of import** | Consumers write `using namespace libaudio;` once and get all types. No per-type imports. |
+| **No name collisions** | `libaudio::FFT` cannot collide with a local `FFT` or another library's `FFT`. |
+| **Clear ownership** | It's immediately obvious which types come from libaudio vs. the consuming module. |
+| **Forward compatibility** | Adding new types (e.g., a future `PolyphonicDetector`) requires no namespace changes. |
+
+### Affected types
+
+All 16 public types: `AudioFileReader`, `FFT`, `PitchDetector`, `OnsetDetector`, `BeatTracker`, `NoteDetector`, `Note`, `ControlEvent`, `Score`, `ScoreBuilder`, `MidiFileWriter`, `SpectralAnalyzer`, `TemporalProcessor`, `ControlEventExtractor`, `VelocityEstimator`, `RubberbandProcessor`.
+
+### Consumer pattern
+
+Consuming modules (midicapture, waterfall) add `using namespace libaudio;` in their `.cpp` files. Public headers that reference libaudio types (e.g., `transcriber.h`) use qualified names (`libaudio::Score`) to avoid leaking the namespace.
+
+---
+
+## 5. The Wrapper Pattern: `unique_ptr<Impl>`
+
+### The Core Choice
+
+All libaudio modules use the **Pimpl (Pointer to Implementation) pattern** with `std::unique_ptr<Impl>`:
 
 ### Why Pimpl?
 
@@ -132,7 +159,7 @@ private:
 
 ---
 
-## 5. Default Parameters
+## 6. Default Parameters
 
 ### Window Size: 2048
 
@@ -202,7 +229,7 @@ private:
 
 ---
 
-## 6. Summary
+## 7. Summary
 
 | Decision | Value | Rationale |
 |---|---|---|
@@ -219,7 +246,7 @@ private:
 
 ---
 
-## 7. API Compatibility Notes
+## 8. API Compatibility Notes
 
 ### aubio 0.4.9 API Corrections
 

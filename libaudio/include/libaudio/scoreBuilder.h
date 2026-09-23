@@ -16,6 +16,8 @@
 #include <string>
 #include <vector>
 
+namespace libaudio {
+
 // Forward declarations (from hir.h).
 struct Note;
 struct ControlEvent;
@@ -102,5 +104,7 @@ class ScoreBuilder {
    struct Impl;
    std::unique_ptr<Impl> impl_;
 };
+
+} // namespace libaudio
 
 #endif // LIBAUDIO_SCOREBUILDER_H

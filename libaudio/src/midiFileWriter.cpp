@@ -26,6 +26,8 @@
 #include <string>
 #include <vector>
 
+namespace libaudio {
+
 // ============================================================================
 // MidiFileWriter::Impl — Private implementation (Pimpl pattern).
 //
@@ -316,3 +318,5 @@ uint64_t MidiFileWriter::bytesWritten() const {
 bool MidiFileWriter::isOpen() const {
    return impl_ ? (impl_->file != nullptr) : false;
 }
+
+} // namespace libaudio

@@ -29,6 +29,8 @@
 #include <string>
 #include <utility>
 
+namespace libaudio {
+
 // ============================================================================
 // PitchDetector — Pitch detection via aubio (YIN variants, piano-focused).
 //
@@ -132,5 +134,7 @@ class PitchDetector {
    struct Impl;
    std::unique_ptr<Impl> impl_;
 };
+
+} // namespace libaudio
 
 #endif // LIBAUDIO_PITCH_H

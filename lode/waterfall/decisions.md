@@ -2,13 +2,12 @@
 
 ## Decisions Made Jointly with User
 
-1. **Single analysis source file.** The whole tool lives in `src/main.cpp`;
-   only `audioFile` is split out. Keeps the spectral-analysis path in one
-   readable place.
+1. **Single analysis source file.** The whole tool lives in `src/main.cpp`.
+   Keeps the spectral-analysis path in one readable place.
 
-2. **`audioFile` is the shared file-reading layer** with `midicapture`. Each
-   tool keeps its own copy so the libsndfile-via-libaudio I/O path stays
-   identical across both.
+2. **File I/O via `libaudio::AudioFileReader` directly** (no per-module
+   wrapper). The shared file-reading layer is libaudio itself, so both
+   midicapture and waterfall use the same code path with no redundancy.
 
 3. **Text output, 16-bit unsigned integers in hex, space-separated, one time
    slice per line.** Chosen for scripting ease over a binary or glyph-ramp

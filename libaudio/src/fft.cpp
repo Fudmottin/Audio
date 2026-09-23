@@ -25,6 +25,8 @@
 #include <cmath>
 #include <stdexcept>
 
+namespace libaudio {
+
 // ============================================================================
 // FFT::Impl — Private implementation (Pimpl pattern).
 //
@@ -161,3 +163,5 @@ uint32_t FFT::numBins() const {
    // Simple accessor.
    return impl_ ? impl_->numBins : 0;
 }
+
+} // namespace libaudio

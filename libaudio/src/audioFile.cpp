@@ -34,10 +34,15 @@
  *
  */
 
+#include <algorithm>
+#include <cctype>
 #include <cstring>
 #include <libaudio/audioFile.h>
 #include <sndfile.h>
 #include <stdexcept>
+#include <string>
+
+namespace libaudio {
 
 // ============================================================================
 // AudioFileReader::Impl — Private implementation (Pimpl pattern).
@@ -211,3 +216,75 @@ bool AudioFileReader::eof() const {
 
    return static_cast<uint32_t>(impl_->currentFrame) >= totalFrames();
 }
+
+std::string AudioFileReader::formatName() const {
+   // Map the file extension to a human-readable format name.
+   //
+   // Domain context: libsndfile stores the format as an opaque integer;
+   // the file extension is the most reliable human-readable signal. This
+   // is the one place both midicapture and waterfall need the format name
+   // for user-facing output, so we centralize it here rather than letting
+   // each tool re-derive it from the path.
+   if (impl_ == nullptr) {
+      return "unknown";
+   }
+
+   // Lower-case a copy of the path so the suffix check is
+   // case-insensitive ("FOO.WAV" and "foo.wav" are the same format).
+   std::string lower = impl_->filePath;
+   for (char& c : lower) {
+      c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+   }
+
+   // Suffix checks, longest match first (".aiff" is 5 chars, the others
+   // are 4; the order matters for the size guard, not the result).
+   if (lower.size() >= 5 && lower.ends_with(".aiff")) {
+      return "AIFF";
+   }
+   if (lower.size() >= 4 && lower.ends_with(".wav")) {
+      return "WAV";
+   }
+   if (lower.size() >= 5 && lower.ends_with(".flac")) {
+      return "FLAC";
+   }
+   if (lower.size() >= 4 && lower.ends_with(".ogg")) {
+      return "OGG";
+   }
+   return "unknown";
+}
+
+double AudioFileReader::duration() const {
+   // Duration in seconds = total frames / sample rate.
+   // Guard against a zero sample rate (file not open) to avoid div-by-zero.
+   if (impl_ == nullptr || impl_->info.samplerate == 0) {
+      return 0.0;
+   }
+   return static_cast<double>(impl_->info.frames) /
+          static_cast<double>(impl_->info.samplerate);
+}
+
+uint32_t AudioFileReader::readInto(uint32_t sampleCount, float* buffer) {
+   // Zero-fill the buffer, then read up to sampleCount frames into it.
+   //
+   // Domain context: a partial final row at EOF should become a fully
+   // zero-padded frame, because the downstream analyzer (FFT, etc.)
+   // expects a fixed-length window. This is the shape both midicapture
+   // (fixed hop) and waterfall (arbitrary window + overlap) want.
+   if (sampleCount == 0 || buffer == nullptr) {
+      return 0;
+   }
+
+   // std::fill_n zero-pads the whole buffer first, so a short read
+   // (or an already-closed file) leaves a safe, all-zero frame behind.
+   std::fill_n(buffer, static_cast<size_t>(sampleCount), 0.0f);
+
+   // If the file is at EOF, the buffer is already fully zeroed; return 0.
+   if (eof()) {
+      return 0;
+   }
+
+   // readMono downmixes stereo to mono and returns the real frames read.
+   return readMono(buffer, sampleCount);
+}
+
+} // namespace libaudio

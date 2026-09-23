@@ -16,7 +16,7 @@
 | Module | Path | Status |
 |--------|------|--------|
 | aiffcapture | [lode/aiffcapture/](aiffcapture/) | Phase 1 — Complete |
-| libaudio | [lode/libaudio/](libaudio/) | Phase 0 — Designed |
+| libaudio | [lode/libaudio/](libaudio/) | Phase 0 — Built (namespace `libaudio`) |
 | **midicapture** | **[lode/midicapture/](midicapture/)** | **Phase 2 — In Progress** |
 | **waterfall** | **[lode/waterfall/](waterfall/)** | **Phase 3 — In Progress** |
 
@@ -41,7 +41,7 @@
 | Document | Purpose |
 |----------|---------|
 | [summary.md](waterfall/summary.md) | Module overview, architecture, column grid, pipeline, quantization, CLI, verification |
-| [decisions.md](waterfall/decisions.md) | Design decisions (single file, shared audioFile, auto-scale, hop=window, README reconciliation) |
+| [decisions.md](waterfall/decisions.md) | Design decisions (single file, libaudio I/O, auto-scale, hop=window, README reconciliation) |
 
 ## Subsystem: midicapture
 

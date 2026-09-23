@@ -17,6 +17,8 @@
  *   more formats and is more general-purpose.
  * - The Pimpl pattern isolates all libsndfile C API calls.
  * - Reading returns float samples in the range [-1.0, 1.0].
+ * - Public types live in `namespace libaudio` so the whole library
+ *   shares one namespace.
  *
  */
 
@@ -26,6 +28,8 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+
+namespace libaudio {
 
 // ============================================================================
 // AudioFileReader — Reads audio files (AIFF, WAV, FLAC, etc.) via libsndfile.
@@ -40,6 +44,9 @@
 //   for DSP processing. Downstream modules convert to int16 if needed.
 // - Supports mono and stereo files. Stereo files can be read as
 //   interleaved (L, R, L, R...) or downmixed to mono.
+// - `readInto` is the block-reading convenience shared by both
+//   `midicapture` and `waterfall`: zero-fills the buffer, then reads,
+//   so a partial final row at EOF becomes a fully zero-padded frame.
 //
 // RAII resource management — resources are automatically
 // freed when the C++ object is destroyed (no manual sf_close() calls).
@@ -82,6 +89,22 @@ class AudioFileReader {
    // @return Total frames, or 0 if the file is not open.
    [[nodiscard]] uint32_t totalFrames() const;
 
+   // Get the audio format name (e.g., "AIFF", "WAV", "FLAC").
+   //
+   // Domain context: derived from the file extension (libsndfile's
+   // `format` is an opaque integer — we map the file extension to the
+   // human-readable name both midicapture and waterfall need for
+   // user-facing output). Falls back to "unknown" when the extension
+   // is not recognized.
+   //
+   // @return Format name string, or "unknown" if the file is not open.
+   [[nodiscard]] std::string formatName() const;
+
+   // Get the duration of the file in seconds.
+   //
+   // @return Duration in seconds, or 0 if the file is not open.
+   [[nodiscard]] double duration() const;
+
    // Read a block of samples (monophonic).
    //
    // Reads the next `hopSize` frames from the file, downmixing stereo
@@ -116,6 +139,22 @@ class AudioFileReader {
    // @return Number of frames actually read (0 at EOF).
    uint32_t readMono(float* monoOutput, uint32_t hopSize);
 
+   // Read a block of mono samples into a caller-provided buffer,
+   // zero-padding at EOF.
+   //
+   // Zero-fills the entire `sampleCount`-element buffer, then reads
+   // up to `sampleCount` frames from the file into it (downmixing
+   // stereo to mono). At EOF the buffer remains fully zero-filled.
+   // This is the shape both midicapture (fixed hop) and waterfall
+   // (arbitrary window + overlap) want: a fully-populated, fully-
+   // sized frame that is safe to feed to an FFT or other analysis.
+   //
+   // @param sampleCount Number of frames to read (must match the
+   //                    window size of the downstream analyzer).
+   // @param buffer      Destination buffer (length >= sampleCount).
+   // @return Number of real frames actually read (0 if at EOF).
+   uint32_t readInto(uint32_t sampleCount, float* buffer);
+
    // Seek to a specific frame position.
    //
    // @param frame Frame position to seek to (0-based).
@@ -134,5 +173,7 @@ class AudioFileReader {
    struct Impl;
    std::unique_ptr<Impl> impl_;
 };
+
+} // namespace libaudio
 
 #endif // LIBAUDIO_AUDIOFILE_H

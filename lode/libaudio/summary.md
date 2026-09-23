@@ -92,11 +92,13 @@ Audio/
 │       ├── temporal.cpp
 │       ├── rubberband.cpp
 │       └── hir.cpp
-├── midicapture/          # Phase 2: Audio → MIDI (PLANNED)
+├── midicapture/          # Phase 2: Audio → MIDI
 │   └── src/
+│       ├── main.cpp         # CLI entry point
 │       └── transcriber.cpp  # Orchestrates libaudio analysis → HIR
-├── midisheet/            # Phase 3: MIDI → sheet music
-├── sheetmidi/            # Phase 4: Sheet music → MIDI
+├── waterfall/            # Phase 3: Audio → frequency waterfall (text)
+│   └── src/
+│       └── main.cpp         # FFT loop, quantization, text output
 └── lode/                 # Documentation
 ```
 
@@ -352,9 +354,11 @@ See `decisions.md` for the full rationale.
 
 ### 6.1 Audio File I/O (`audioFile.h`)
 
-Wraps libsndfile for reading audio files:
+Wraps libsndfile for reading audio files. All public types live in `namespace libaudio`:
 
 ```cpp
+namespace libaudio {
+
 class AudioFileReader {
 public:
    AudioFileReader(std::string_view path);
@@ -364,6 +368,13 @@ public:
    uint32_t sampleRate() const;
    uint32_t channels() const;
    uint32_t totalFrames() const;
+
+   // Get the audio format name ("AIFF", "WAV", "FLAC", "OGG", "unknown").
+   // Derived from the file extension (libsndfile's format is opaque).
+   std::string formatName() const;
+
+   // Get the duration of the file in seconds.
+   double duration() const;
 
    // Read a block of samples (monophonic).
    // @param[out] buffer Output buffer (must be at least hopSize elements).
@@ -381,6 +392,10 @@ public:
    // @return Number of frames actually read.
    uint32_t readMono(float* monoOutput, uint32_t hopSize);
 
+   // Read a block of mono samples into a caller-provided buffer,
+   // zero-padding at EOF. Returns the number of real frames read.
+   uint32_t readInto(uint32_t sampleCount, float* buffer);
+
    // Seek to a specific frame position.
    void seek(uint32_t frame);
 
@@ -394,6 +409,8 @@ private:
    struct Impl;
    std::unique_ptr<Impl> impl_;
 };
+
+} // namespace libaudio
 ```
 
 **aubio alternative**: aubio also has `aubio_source_t` for file reading. However, libsndfile is more general-purpose, better documented, and already installed. We use libsndfile for file I/O and aubio for DSP.

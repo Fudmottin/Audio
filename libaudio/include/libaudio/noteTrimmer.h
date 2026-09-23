@@ -14,6 +14,8 @@
 #include <memory>
 #include <vector>
 
+namespace libaudio {
+
 // Forward declarations.
 struct Note;
 class AudioFileReader;
@@ -90,5 +92,7 @@ class NoteTrimmer {
    struct Impl;
    std::unique_ptr<Impl> impl_;
 };
+
+} // namespace libaudio
 
 #endif // LIBAUDIO_NOTETRIMMER_H

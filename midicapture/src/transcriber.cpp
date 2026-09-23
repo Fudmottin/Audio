@@ -62,6 +62,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <libaudio/audioFile.h>
 #include <libaudio/libaudio.h>
 #include <libaudio/onset.h>
 #include <stdexcept>
@@ -69,8 +70,9 @@
 #include <vector>
 
 // Forward declarations of our own modules.
-#include <midicapture/audioFile.h>
 #include <midicapture/transcriber.h>
+
+using namespace libaudio;
 
 // ============================================================================
 // Transcriber::Impl — Private implementation (Pimpl pattern).
@@ -212,8 +214,8 @@ struct Transcriber::Impl {
    // The note's lifetime mean fundamental (Hz), or 0 if none recorded.
    float meanHz() const {
       if (noteHzCount == 0) return 0.0f;
-      return static_cast<float>(std::sqrt(
-         noteHz2Sum / static_cast<double>(noteHzCount)));
+      return static_cast<float>(
+         std::sqrt(noteHz2Sum / static_cast<double>(noteHzCount)));
    }
 };
 
@@ -258,7 +260,7 @@ Score Transcriber::transcribe(const std::string& inputPath) const {
 
    auto* p = impl_.get();
 
-   AudioFile audioReader(inputPath);
+   AudioFileReader audioReader(inputPath);
    p->sampleRate_ = audioReader.sampleRate();
    p->onsetDetector->setSampleRate(p->sampleRate_);
 
@@ -275,9 +277,9 @@ Score Transcriber::transcribe(const std::string& inputPath) const {
    const bool diag = (std::getenv("MIDICAPTURE_DIAG") != nullptr);
 
    // [DIAG] last logged per-note state (for "notable hop" detection).
-   uint8_t  dbgLastPitch = 255;
-   double   dbgLastLogHz = -1.0;
-   double   dbgLastLogDb = -120.0;
+   uint8_t dbgLastPitch = 255;
+   double dbgLastLogHz = -1.0;
+   double dbgLastLogDb = -120.0;
    uint64_t dbgLastLogHop = 0;
 
    // Silence -Werror,-Wunused-variable for the diagnostic state while it
@@ -292,8 +294,8 @@ Score Transcriber::transcribe(const std::string& inputPath) const {
    // the user's silence level; the off threshold sits below it so a
    // decaying note that hovers near the on level cannot bounce on/off.
    const float onLinear = Impl::dbToLinear(p->silenceDb);
-   const float offLinear = Impl::dbToLinear(
-      p->silenceDb - Impl::kReleaseHysteresisDb);
+   const float offLinear =
+      Impl::dbToLinear(p->silenceDb - Impl::kReleaseHysteresisDb);
    uint32_t releaseRun = 0; // consecutive hops below the off threshold.
 
    // Pitch hysteresis: consecutive hops agreeing on a candidate class.
@@ -326,20 +328,19 @@ Score Transcriber::transcribe(const std::string& inputPath) const {
             // pitch class that is closest to the current note's pitch
             // (continuity), falling back to the mean-hz octave for the
             // first note of the file.
-            double base =
-               (p->currentNote_.pitch >= 21)
-                  ? static_cast<double>(p->currentNote_.pitch)
-                  : 60.0;
+            double base = (p->currentNote_.pitch >= 21)
+                             ? static_cast<double>(p->currentNote_.pitch)
+                             : 60.0;
             int midi = best;
             while (midi < 21) midi += 12;
             while (midi > 108) midi -= 12;
             // Move by whole octaves to the value nearest `base`.
-            while (midi + 12 <= 108 && std::abs(midi + 12 - base) <
-                                          std::abs(midi - base)) {
+            while (midi + 12 <= 108 &&
+                   std::abs(midi + 12 - base) < std::abs(midi - base)) {
                midi += 12;
             }
-            while (midi - 12 >= 21 && std::abs(midi - 12 - base) <
-                                         std::abs(midi - base)) {
+            while (midi - 12 >= 21 &&
+                   std::abs(midi - 12 - base) < std::abs(midi - base)) {
                midi -= 12;
             }
             p->currentNote_.pitch = static_cast<uint8_t>(midi);
@@ -357,11 +358,9 @@ Score Transcriber::transcribe(const std::string& inputPath) const {
       // EOF the tail of the buffer still holds stale samples from an
       // earlier full read. Zero the tail before any downstream use.
       if (framesRead < hopSize) {
-         std::fill(rawBuf.begin() + framesRead, rawBuf.begin() + hopSize,
-                   0.0f);
+         std::fill(rawBuf.begin() + framesRead, rawBuf.begin() + hopSize, 0.0f);
       }
-      std::copy(rawBuf.begin(), rawBuf.begin() + hopSize,
-                 p->hopBuf.begin());
+      std::copy(rawBuf.begin(), rawBuf.begin() + hopSize, p->hopBuf.begin());
 
       // Energy of this hop (computed before the window shift so all
       // state in this iteration describes the same hop).
@@ -383,13 +382,12 @@ Score Transcriber::transcribe(const std::string& inputPath) const {
 
       // Shift the hop into the rolling window.
       p->window.erase(p->window.begin(), p->window.begin() + hopSize);
-      p->window.insert(p->window.end(), p->hopBuf.begin(),
-                       p->hopBuf.end());
+      p->window.insert(p->window.end(), p->hopBuf.begin(), p->hopBuf.end());
 
       // Window-end timestamp: the window for hop i ends at sample
       // (i+1)*hop.
-      const double windowEnd = p->sampleToTimestamp(
-         (hopIndex + 1) * static_cast<uint64_t>(hopSize));
+      const double windowEnd =
+         p->sampleToTimestamp((hopIndex + 1) * static_cast<uint64_t>(hopSize));
 
       // Onset detection over this hop (edge-detected internally).
       const bool onset = p->onsetDetector->detect(p->hopBuf.data(), hopSize);
@@ -397,8 +395,8 @@ Score Transcriber::transcribe(const std::string& inputPath) const {
       // Velocity from the hop RMS, scaled so a rendered piano note
       // (~0.05 peak RMS) lands mid-scale (~90).
       auto velocityFromRms = [rms]() {
-         return static_cast<uint8_t>(std::max(1.0, std::min(127.0,
-                                                             rms * 1800.0)));
+         return static_cast<uint8_t>(
+            std::max(1.0, std::min(127.0, rms * 1800.0)));
       };
 
       if (onset && tonal) {
@@ -432,11 +430,10 @@ Score Transcriber::transcribe(const std::string& inputPath) const {
          else if (validPitch) {
             double mf = 0.0;
             int c = Impl::pitchClassOf(hz, mf);
-            const bool sameNote = (Impl::hzToMidiNote(hz) ==
-                                   p->currentNote_.pitch);
+            const bool sameNote =
+               (Impl::hzToMidiNote(hz) == p->currentNote_.pitch);
             if (!sameNote) {
-               candidateRun = (c == lastCandidateClass) ? candidateRun + 1
-                                                        : 1;
+               candidateRun = (c == lastCandidateClass) ? candidateRun + 1 : 1;
                lastCandidateClass = c;
                if (candidateRun >= Impl::kPitchStability) {
                   flushPending();

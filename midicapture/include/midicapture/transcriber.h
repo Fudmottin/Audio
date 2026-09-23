@@ -85,7 +85,7 @@ class Transcriber {
    // @param inputPath Path to the input audio file (AIFF, WAV, FLAC, etc.).
    // @return A HIR Score with detected notes and control events.
    // @throws std::runtime_error if the file cannot be opened.
-   Score transcribe(const std::string& inputPath) const;
+   libaudio::Score transcribe(const std::string& inputPath) const;
 
  private:
    // Private implementation — all analysis state is isolated here.

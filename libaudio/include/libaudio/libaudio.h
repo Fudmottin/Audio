@@ -5,6 +5,13 @@
  * This is the summary header that includes all public module headers.
  * Include this single header to use all libaudio functionality.
  *
+ * @section namespace Namespace
+ *
+ * All public types in libaudio live in `namespace libaudio`. The
+ * `libaudio` namespace is deliberately separate from the project's
+ * per-module namespaces (aiffcapture, midicapture, waterfall) so that
+ * tools can pick and choose libaudio types by qualified name.
+ *
  * @section pimpl-design Pimpl Pattern
  *
  * All libaudio classes use `std::unique_ptr<Impl>` to hide C library

@@ -15,6 +15,8 @@
 #include <string>
 #include <vector>
 
+namespace libaudio {
+
 // ============================================================================
 // TemporalProcessor — Time-domain processing via aubio (resampling, filtering).
 //
@@ -95,5 +97,7 @@ class TemporalProcessor {
    struct Impl;
    std::unique_ptr<Impl> impl_;
 };
+
+} // namespace libaudio
 
 #endif // LIBAUDIO_TEMPORAL_H

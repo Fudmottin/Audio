@@ -24,6 +24,8 @@
 #include <optional>
 #include <string>
 
+namespace libaudio {
+
 // ============================================================================
 // NoteEvent — A note event detected by the NoteDetector.
 //
@@ -131,5 +133,7 @@ class NoteDetector {
    struct Impl;
    std::unique_ptr<Impl> impl_;
 };
+
+} // namespace libaudio
 
 #endif // LIBAUDIO_NOTES_H
