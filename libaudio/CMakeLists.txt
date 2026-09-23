@@ -42,11 +42,11 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 # --- Find dependencies via pkg-config ---
 # Core Guidelines: find dependencies explicitly. Fail early with clear errors.
 find_package(PkgConfig REQUIRED)
-pkg_check_modules(AUBIO REQUIRED aubio)
-pkg_check_modules(SNDFILE REQUIRED sndfile)
+pkg_check_modules(AUBIO REQUIRED aubio IMPORTED_TARGET)
+pkg_check_modules(SNDFILE REQUIRED sndfile IMPORTED_TARGET)
 
 # rubberband is optional: if not found, the module is excluded.
-pkg_check_modules(RUBBERBAND rubberband)
+pkg_check_modules(RUBBERBAND rubberband IMPORTED_TARGET)
 
 # --- libaudio source files ---
 # Core Guidelines: explicit source files. No wildcards.
@@ -80,20 +80,21 @@ target_include_directories(libaudio
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:include>
     PRIVATE
-        ${AUBIO_INCLUDE_DIRS}
-        ${SNDFILE_INCLUDE_DIRS}
-        ${RUBBERBAND_INCLUDE_DIRS}
+        $<IF:$<BOOL:${AUBIO_FOUND}>,$<TARGET_PROPERTY:PkgConfig::AUBIO,INCLUDE_DIRECTORY>,>
+        $<IF:$<BOOL:${SNDFILE_FOUND}>,$<TARGET_PROPERTY:PkgConfig::SNDFILE,INCLUDE_DIRECTORY>,>
+        $<IF:$<BOOL:${RUBBERBAND_FOUND}>,$<TARGET_PROPERTY:PkgConfig::RUBBERBAND,INCLUDE_DIRECTORY>,>
 )
 
 # Core Guidelines: link against aubio and libsndfile (required).
-target_link_libraries(libaudio
-    PUBLIC
-        ${AUBIO_LIBRARIES}
-        ${SNDFILE_LIBRARIES}
-    PRIVATE
-        ${AUBIO_LDFLAGS}
-        ${SNDFILE_LDFLAGS}
-)
+# Using CMake imported targets (PkgConfig::*) so that CMake deduplicates
+# -L paths and -l flags automatically (avoids Apple ld duplicate-library
+# warnings that raw pkg-config flags would produce).
+if(AUBIO_FOUND)
+    target_link_libraries(libaudio PUBLIC PkgConfig::AUBIO)
+endif()
+if(SNDFILE_FOUND)
+    target_link_libraries(libaudio PUBLIC PkgConfig::SNDFILE)
+endif()
 
 # rubberband is excluded from the build (see note above).
 # No rubberband-specific compile definitions needed.

@@ -32,11 +32,9 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
-# --- Find dependencies via pkg-config ---
-# Core Guidelines: find dependencies explicitly. Fail early with clear errors.
-find_package(PkgConfig REQUIRED)
-pkg_check_modules(AUBIO REQUIRED aubio)
-pkg_check_modules(SNDFILE REQUIRED sndfile)
+# --- Dependencies ---
+# aubio and libsndfile are found by libaudio (via add_subdirectory below)
+# and propagate transitively. We only need Boost here.
 
 # --- Boost program_options (optional, but recommended) ---
 # Core Guidelines: find Boost components explicitly.
@@ -57,13 +55,11 @@ add_executable(midicapture
 # Core Guidelines: public include directory for consumers of the library.
 target_include_directories(midicapture PRIVATE
     ${CMAKE_SOURCE_DIR}/include
-    ${AUBIO_INCLUDE_DIRS}
-    ${SNDFILE_INCLUDE_DIRS}
     ${Boost_INCLUDE_DIRS}
 )
 
-# Core Guidelines: link against libaudio (which transitively links aubio
-# and libsndfile) and Boost program_options.
+# Core Guidelines: link against libaudio (which transitively provides
+# aubio + libsndfile include dirs and libs) and Boost program_options.
 target_link_libraries(midicapture PRIVATE
     libaudio
     ${Boost_LIBRARIES}
