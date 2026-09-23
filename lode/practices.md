@@ -97,6 +97,11 @@ checklist, what to document), see the standalone document.
 ## Build & Testing
 
 - CMake project with `bin/` output directory.
+- Compiler warnings are treated as **errors**: all CMake targets compile with
+  `-Werror` alongside `-Wall -Wextra -Wpedantic -Wconversion
+  -Wsign-conversion` (suppress `-Wno-unused-parameter`; Boost-using targets
+  also carry `-Wno-pragma-clang-attribute` for third-party header noise).
+  New code must build warning-free on Apple Clang.
 - Test with `file`, `ffprobe`, and macOS tools (`afinfo`, `afconvert`).
 - BlackHole 2ch must be installed (`brew install blackhole-2ch`) and active (requires reboot after installation).
 - Verify audio routing: macOS System Settings → Sound → Output → select BlackHole 2ch.

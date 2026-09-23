@@ -269,13 +269,24 @@ Score Transcriber::transcribe(const std::string& inputPath) const {
    std::vector<float> rawBuf(hopSize * std::max(1u, channels));
 
    // [DIAG] per-hop logging to stderr (enable with MIDICAPTURE_DIAG=1).
+   // The diagnostic logging was removed in a later revision; the env-var
+   // check and last-log state are retained only so the diagnostic
+   // instrumentation can be re-enabled by uncommenting the block below.
    const bool diag = (std::getenv("MIDICAPTURE_DIAG") != nullptr);
 
    // [DIAG] last logged per-note state (for "notable hop" detection).
-   uint8_t dbgLastPitch = 255;
-   double  dbgLastLogHz = -1.0;
-   double  dbgLastLogDb = -120.0;
+   uint8_t  dbgLastPitch = 255;
+   double   dbgLastLogHz = -1.0;
+   double   dbgLastLogDb = -120.0;
    uint64_t dbgLastLogHop = 0;
+
+   // Silence -Werror,-Wunused-variable for the diagnostic state while it
+   // is dormant. When the logging is re-enabled these will be read again.
+   (void)diag;
+   (void)dbgLastPitch;
+   (void)dbgLastLogHz;
+   (void)dbgLastLogDb;
+   (void)dbgLastLogHop;
 
    // Energy hysteresis thresholds, linear amplitude. The on threshold is
    // the user's silence level; the off threshold sits below it so a

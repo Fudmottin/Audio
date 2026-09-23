@@ -80,5 +80,9 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
         -Wconversion
         -Wsign-conversion
         -Wno-unused-parameter
+        # Boost headers emit unused-pragma warnings under -Wpedantic;
+        # they are not actionable in user code.
+        -Wno-pragma-clang-attribute
+        -Werror
     )
 endif()

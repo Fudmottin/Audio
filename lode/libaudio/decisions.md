@@ -299,3 +299,40 @@ dependencies.
 - **Confidence for fcomb/schmitt**: These methods (from the tuneit project) do not provide confidence scores. The implementation returns 0.0 confidence for these methods.
 - **Cvec polar coordinates**: aubio stores complex data as separate `norm[]` and `phas[]` arrays, not interleaved real/imag. The FFT module reads `.norm[i]` and `.phas[i]` directly.
 - **Libsndfile compatibility**: `SF_SEEK_FRAME` is not available in all libsndfile versions. The implementation uses standard `SEEK_SET` instead.
+
+---
+
+## Build: Treat Warnings as Errors (added with the waterfall bug fix)
+
+All three build configurations (`libaudio`, `waterfall`, `midicapture`) now
+compile with `-Werror` (in addition to the existing `-Wall -Wextra
+-Wpedantic -Wconversion -Wsign-conversion`). The implicit-conversion and
+unused-variable warnings surfaced by that pass were fixed with explicit
+casts rather than suppressed. The only warning that cannot be fixed in user
+code — `-Wpragma-clang-attribute` noise emitted by Boost headers under
+`-Wpedantic` — is suppressed with `-Wno-pragma-clang-attribute` in the two
+Boost-using targets, with a comment explaining why.
+
+## FFT: Constructor validates window size (the waterfall segfault)
+
+**Bug (reported):** `waterfall --window-size 1048` segfaulted inside libaudio.
+
+**Root cause:** `new_aubio_fft()` does not return an error for unsupported
+sizes — aubio 0.4.9's vDSP/Accelerate backend `abort()`s the whole process
+when the requested size is not `f * 2^n` (n > 4, f in {1,3,5,15}). On
+macOS with Apple Accelerate, a non-power-of-two size like 1048 therefore
+killed the process with SIGSEGV before `FFT` was ever constructed. (Reproduced
+standalone: `new_aubio_fft(1048)` → "AUBIO ERROR: fft: vDSP/Accelerate
+supports..." → SIGSEGV; 1024 and 2048 work.)
+
+**Why waterfall didn't catch it:** `main.cpp` validates `--window-size` is a
+power of two, so the current waterfall binary cannot reach `new_aubio_fft`
+with 1048. The reported crash came from a build without that validation.
+(1048 = 4 × 261.83 Hz: the 261.83 Hz sample count for the low A is not a
+power of two, so it is an easy number to reach for by accident.)
+
+**Fix:** `FFT::FFT()` now throws `std::invalid_argument` for a window size
+that is not a power of two (and is < 2). The library is self-defensive: a
+bad size fails loudly with a diagnosable exception instead of aborting deep
+inside a third-party library. This is a pure safety net — it cannot change
+behavior for any caller that was previously working.

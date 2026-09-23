@@ -107,6 +107,7 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
         -Wconversion
         -Wsign-conversion
         -Wno-unused-parameter
+        -Werror
     )
 endif()
 

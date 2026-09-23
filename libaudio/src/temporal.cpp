@@ -155,7 +155,11 @@ std::vector<float> TemporalProcessor::lowPass(const std::vector<float>& samples,
 
    // Set the filter to a biquad low-pass at cutoffHz.
    // Compute biquad coefficients using standard analog prototype.
-   float ws = std::tan(M_PI * cutoffHz / impl_->sampleRate);
+   // The M_PI constant is double; use an explicit float pi so the
+   // biquad coefficients are computed in float arithmetic.
+   constexpr float kPi = 3.14159265358979323846f;
+   float ws =
+      std::tan(kPi * cutoffHz / static_cast<float>(impl_->sampleRate));
    float norm = 1.0f / (1.0f + std::sqrt(2.0f) * ws + ws * ws);
    float b0 = ws * ws * norm;
    float b1 = 2.0f * b0;
@@ -194,7 +198,11 @@ TemporalProcessor::highPass(const std::vector<float>& samples, float cutoffHz) {
    }
 
    // Set the filter to high-pass biquad at cutoffHz.
-   float ws = std::tan(M_PI * cutoffHz / impl_->sampleRate);
+   // The M_PI constant is double; use an explicit float pi so the
+   // biquad coefficients are computed in float arithmetic.
+   constexpr float kPi = 3.14159265358979323846f;
+   float ws =
+      std::tan(kPi * cutoffHz / static_cast<float>(impl_->sampleRate));
    float norm = 1.0f / (1.0f + std::sqrt(2.0f) * ws + ws * ws);
    float b0 = norm;
    float b1 = -2.0f * b0;

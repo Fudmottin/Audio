@@ -92,7 +92,8 @@ SpectralAnalyzer::SpectralAnalyzer(uint32_t bufSize, uint32_t hopSize,
    // Create mel filterbank. Use new_aubio_filterbank
    // (n_filters, win_s) and then set mel coefficients.
    impl_->melFilterbank = new_aubio_filterbank(40, bufSize);
-   aubio_filterbank_set_mel_coeffs_slaney(impl_->melFilterbank, sampleRate);
+   aubio_filterbank_set_mel_coeffs_slaney(
+      impl_->melFilterbank, static_cast<smpl_t>(sampleRate));
 
    // Allocate input and spectrum buffers.
    impl_->inputBuffer = new_fvec(bufSize);
@@ -250,8 +251,9 @@ std::vector<float> SpectralAnalyzer::chroma(const float* samples) {
    uint32_t numBins = impl_->filterbankOutput->length;
 
    for (uint32_t i = 0; i < numBins; ++i) {
-      uint32_t bin = static_cast<uint32_t>(static_cast<float>(i) * 12.0f /
-                                           std::max(1u, numBins / 12u));
+      uint32_t bin = static_cast<uint32_t>(
+         static_cast<float>(i) * 12.0f /
+         static_cast<float>(std::max(1u, numBins / 12u)));
       if (bin < 12) {
          result[bin] += impl_->filterbankOutput->data[i];
       }

@@ -88,9 +88,15 @@ max", "yet to be determined time slice"). The implementation refines this:
 
 ## Verification
 
-- **Builds** warning-free for the two waterfall sources; links libaudio +
-  Boost program_options.
+- **Builds** warning-free under `-Werror`; links libaudio + Boost
+  program_options.
 - **All 84 libaudio unit tests pass.**
+- **`--window-size` validation verified:** 1048 (non-power-of-two) is
+  rejected with exit 1 and a clear message; 1024 and 2048 both run to
+  completion on a generated tone. `FFT`'s constructor validation (added to
+  libaudio) covers any other future caller: a bad size throws
+  `std::invalid_argument` instead of letting aubio abort the process (see
+  `lode/libaudio/decisions.md`).
 - **Run-tested** on `final-fantasy.aiff` (auto-scale shows a real spectral
   shape; `--no-auto-scale --ref-db 0` correctly clips a loud file to `FFFF`)
   and the `1000Hz` sine (silent lead-in → leading `0000` rows, as expected).

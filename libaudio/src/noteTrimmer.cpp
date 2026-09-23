@@ -43,8 +43,10 @@ struct NoteTrimmer::Impl {
       constexpr uint32_t HOP_SIZE = WINDOW_SIZE / 4;
 
       // Convert dB threshold to RMS amplitude.
-      // RMS = 10^(dB/20).
-      float rmsThreshold = std::pow(10.0, silenceThresholdDb / 20.0);
+      // RMS = 10^(dB/20). The std::pow overload taking a float
+      // exponent is not available, so cast explicitly to double.
+      float rmsThreshold =
+         static_cast<float>(std::pow(10.0, static_cast<double>(silenceThresholdDb) / 20.0));
 
       uint32_t currentFrame = startFrame;
 
@@ -123,8 +125,6 @@ std::vector<Note> NoteTrimmer::refine(const std::vector<Note>& notes,
    for (auto& note : refined) {
       uint32_t startFrame =
          static_cast<uint32_t>(note.startTime * impl_->sampleRate);
-      uint32_t endFrame =
-         static_cast<uint32_t>(note.endTime * impl_->sampleRate);
 
       // Find the actual note-off point.
       double actualOffTime =

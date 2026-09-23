@@ -55,7 +55,20 @@ struct FFT::Impl {
 
 FFT::FFT(uint32_t windowSize)
    : impl_(std::make_unique<Impl>()) {
-   // Validate that window size is a power of 2.
+   // Validate that window size is a power of 2. This is a hard aubio
+   // requirement: new_aubio_fft() aborts the process for unsupported
+   // sizes (the vDSP/Accelerate backend only handles f * 2^n, n > 4,
+   // f in {1, 3, 5, 15}; the reference backend only handles powers of
+   // two). Callers such as waterfall validate their --window-size
+   // option before constructing the FFT, but this guard makes the
+   // library self-defensive: a bad size throws instead of crashing
+   // the whole process deep inside a third-party library.
+   if (windowSize < 2 || (windowSize & (windowSize - 1)) != 0) {
+      throw std::invalid_argument(
+         "FFT window size must be a power of two (aubio requirement)"
+         " but was " +
+         std::to_string(windowSize));
+   }
 
    impl_->windowSize = windowSize;
    impl_->numBins = windowSize / 2 + 1;
