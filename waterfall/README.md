@@ -143,6 +143,7 @@ color video (H.264 / MP4, 30 fps) with the source audio muxed in sync:
 python3 waterfall_video.py <text_file> <audio_file> <height> <width> [-o out.mp4] [--vscale N]
                              [--eq-per-note [dB]] [--eq-per-octave [dB]] [--eq-over-all [dB]]
                              [--preserve-energy] [--eq] [--floor dB]
+                             [--color {hsv,ironbow}] [--ironbow] [--h-supersample N]
 ```
 
 - `<text_file>`   — the `waterfall` output (header line + one hex row per slice).
@@ -175,6 +176,13 @@ python3 waterfall_video.py <text_file> <audio_file> <height> <width> [-o out.mp4
   [Equalization](#equalization).
 - `--floor dB` — hard **noise gate** (default off): zero out any sample whose
   level is below a dB floor. See [Noise floor](#noise-floor).
+- `--color {hsv,ironbow}` — choose the **false-color ramp** (default `hsv`).
+  `hsv` is the original blue→red→yellow arc; `ironbow` is the FLIR/thermal
+  black→blue→purple→red→orange→yellow→white gradient. See [Color map](#color-map).
+- `--ironbow` — shorthand for `--color ironbow`.
+- `--h-supersample N` — horizontal supersample factor for the frequency warp
+  (default 8). Higher spreads more distinct colors across the compressed
+  high-frequency end at the cost of a little softness; 1 disables it.
 
 There is no `--mode` flag: the script reads the `mode` key from the waterfall
 header to choose the horizontal layout (MIDI vs PCM; see [How it works](#how-it-works)).
@@ -311,6 +319,31 @@ Anything that displays well this way is a good candidate for generating a MIDI
 file: the same per-note normalization that reveals each note's core (and tames
 the neighbor-bleed at its edges) is exactly the information a note-tracking step
 needs to see quiet upper-register onsets cleanly, not just the loudest lows.
+
+### Color map (`--color`)
+
+Each sample is mapped to a color on a **false-color ramp** — a *linear* map of the
+(dB-quantized) 16-bit value onto a fixed RGB path, so the data is unchanged, only
+the coloring. Two ramps are available:
+
+| `--color` | Look | Top end |
+|---|---|---|
+| `hsv` *(default)* | HSV hue arc: blue → magenta → red → yellow (saturation fixed at 1) | pure yellow |
+| `ironbow` | FLIR / weather-radar / "ironbow" gradient: black → blue → purple → magenta → red → orange → yellow → white | hot white |
+
+`ironbow` is the classic thermal / radar false-color look. It is a **piecewise-
+linear RGB gradient** (a 256-entry lookup table sampled by 8-bit brightness —
+zero per-frame cost), chosen over HSV because a multi-channel linear-in-value ramp
+spreads the full 0–255 range across distinct colors more evenly (less low-end
+banding than the HSV arc's dark-blue end) and ends on FLIR's signature **hot
+white** rather than pure yellow. Use `--ironbow` for the shorthand.
+
+**A/B'ing distinct-color density:** `--h-supersample N` (default 8) is the lever.
+Higher values block-average more neighboring source columns into each output pixel,
+which — because adjacent columns have slightly different colors — spreads the
+compressed high-frequency end over more distinct colors at the cost of a little
+anti-aliasing softness. Render the same file at, e.g., `--h-supersample 8` and
+`16` to compare. (Vertical scroll smoothing is a separate factor, `V_SUPERSAMPLE`.)
 
 ### Noise floor (`--floor`)
 

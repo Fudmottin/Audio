@@ -50,6 +50,11 @@ Usage:
     <width>       output frame width in pixels
     -o/--output   output video path (default: <text_file>.mp4)
 
+    Optional display flags (all display-only): --vscale N, the stackable EQ
+    flags (--eq-per-note [dB] --eq-per-octave [dB] --eq-over-all [dB]
+    --preserve-energy --eq), --floor dB, --color {hsv,ironbow} / --ironbow,
+    and --h-supersample N. See the in-file docstrings and the README.
+
 The script reads the waterfall header's `mode` key to pick a display layout:
 
   - **MIDI** (default when present): the 128 MIDI notes are given *equal*
@@ -197,6 +202,43 @@ K_FLOOR_DB = -60.0   # dB — the low end of the dB→16-bit map (matches main.c
 # 8 matches the horizontal factor; raise for a smoother look at the cost of
 # a little more per-frame work.
 V_SUPERSAMPLE = 8
+
+# --- Color maps (display-only; see sample_to_rgb / render_waterfall_image) ---
+#
+# Two false-color ramps are available, both a *linear* map of the (dB-quantized)
+# 16-bit sample onto a fixed RGB path, so neither changes the data:
+#
+#   * HSV (default) — the original "arc around through red" ramp: hue sweeps
+#     HUE_START -> HUE_START+HUE_SWEEP as brightness 0 -> 1 (blue -> red ->
+#     yellow), saturation fixed at 1. See hue_for_value / hsv_to_rgb.
+#
+#   * IRONBOW — the FLIR / weather-radar / "ironbow" false-color look:
+#     a piecewise-linear RGB gradient (black -> blue -> purple -> red ->
+#     orange -> yellow -> white). The ramp is built once into a 256-entry
+#     lookup table (IRONBOW_LUT) below and sampled per 8-bit brightness, so it
+#     costs essentially nothing per frame. Chosen over HSV because a linear-in-
+#     value multi-channel RGB ramp spreads the full 0..255 range across distinct
+#     colors more evenly (less low-end banding than the HSV arc) and ends on
+#     FLIR's signature "hot white" instead of pure yellow.
+#     --color ironbow selects it (or the `--ironbow` shorthand); --color hsv is
+#     the default, so a bare render is unchanged.
+#
+# Ironbow gradient stops as (position, r, g, b) in [0,1]; positions are the
+# fractional lightness at which each named color is reached. A short
+# blue/purple intro at the very dark end, then the warm core (red -> orange ->
+# yellow -> white) that carries most of the ramp — the shape of the classic
+# ironbow thermal palette.
+IRONBOW_STOPS = [
+    (0.00, 0.00, 0.00, 0.00),   # black
+    (0.08, 0.00, 0.00, 0.35),   # dark blue
+    (0.18, 0.25, 0.00, 0.75),   # blue
+    (0.30, 0.55, 0.00, 0.80),   # purple
+    (0.45, 0.85, 0.05, 0.45),   # magenta
+    (0.60, 0.98, 0.18, 0.10),   # red
+    (0.78, 1.00, 0.55, 0.05),   # orange
+    (0.90, 1.00, 0.90, 0.10),   # yellow
+    (1.00, 1.00, 1.00, 1.00),   # white (FLIR "hot" ceiling)
+]
 
 
 # ============================================================================
@@ -575,16 +617,54 @@ def hsv_to_rgb(h, s, v):
     return r, g, b
 
 
-def sample_to_rgb(samples):
-    """Map an int array of 16-bit samples to an (N,3) float RGB array in [0,1]."""
+def build_ironbow_lut(n=256):
+    """Build the ironbow false-color ramp as an (n,3) float RGB lookup table.
+
+    A piecewise-linear interpolation through `IRONBOW_STOPS`: at integer index
+    `i` the position is `i / (n-1)` (0 -> black, 255 -> white), and each RGB
+    channel is linearly interpolated between the bracketing stops. Building it
+    once and indexing by the 8-bit brightness keeps the per-frame color cost to
+    a single gather.
+    """
+    stops = np.asarray(IRONBOW_STOPS, dtype=np.float64)      # (k,4): pos, r, g, b
+    pos = stops[:, 0]
+    t = np.linspace(0.0, 1.0, n)                 # one entry per lut index (0..255)
+    # For each lut index, find the bracketing stops and lerp each channel.
+    seg = np.searchsorted(pos, t, side="right") - 1
+    seg = np.clip(seg, 0, len(pos) - 2)
+    span = pos[seg + 1] - pos[seg]
+    span = np.where(span <= 0.0, 1.0, span)               # guard degenerate
+    f = np.clip((t - pos[seg]) / span, 0.0, 1.0)
+    lut = stops[seg] + (stops[seg + 1] - stops[seg]) * f[:, None]
+    return lut[:, 1:4]                                     # drop the pos column -> (n,3)
+
+
+# Precompute the ironbow LUT once at import (a cheap 256x3 build).
+IRONBOW_LUT = build_ironbow_lut(256)
+
+
+def sample_to_rgb(samples, color="hsv"):
+    """Map an int array of 16-bit samples to an (N,3) float RGB array in [0,1].
+
+    `color` selects the false-color ramp:
+      * `"hsv"` (default) — the arc-around-through-red HSV ramp (hue +
+        brightness both linear in the sample; saturation fixed at 1).
+      * `"ironbow"` — the FLIR/thermal-style piecewise-linear RGB gradient
+        (black -> blue -> purple -> red -> orange -> yellow -> white), sampled
+        from `IRONBOW_LUT` by 8-bit brightness.
+    """
     s = np.asarray(samples, dtype=np.int64)
     t = np.clip(s / float(MAX_SAMPLE), 0.0, 1.0)   # normalized value
+    if color == "ironbow":
+        # 8-bit brightness -> gather from the precomputed LUT (one lookup).
+        idx = np.clip(np.round(t * 255.0).astype(np.int64), 0, 255)
+        return IRONBOW_LUT[idx]
     h = hue_for_value(t)
     r, g, b = hsv_to_rgb(h, np.ones_like(t), t)   # saturation = 1 (v=0 -> black)
     return np.stack([r, g, b], axis=1)
 
 
-def render_waterfall_image(rows, reversed_):
+def render_waterfall_image(rows, reversed_, color="hsv"):
     """Color-map the whole waterfall once.
 
     rows: (num_rows, num_cols) int array of 16-bit values.
@@ -592,13 +672,14 @@ def render_waterfall_image(rows, reversed_):
         *latest* sample (the original last row). The text file lists rows in
         recording order (row 0 = earliest); for a downward scroll we want the
         newest data to sit at the image top, hence the flip.
+    color: "hsv" (default) or "ironbow" false-color ramp (see sample_to_rgb).
 
     Returns: (num_rows, num_cols, 3) uint8 RGB array (one pixel per cell).
     """
     if reversed_:
         rows = rows[::-1]
     flat = rows.ravel()
-    rgb = sample_to_rgb(flat)                       # (N,3) float [0,1]
+    rgb = sample_to_rgb(flat, color)               # (N,3) float [0,1]
     return (rgb * 255.0).clip(0, 255).astype(np.uint8).reshape(rows.shape + (3,))
 
 
@@ -985,6 +1066,22 @@ def main():
                           "a 16-bit integer using the file's refDb, and any "
                           "sample below that integer is zeroed. Display-only. "
                           "(default off; 0 disables the gate)"))
+    # --- Color map (display-only). ---
+    ap.add_argument("--color", choices=["hsv", "ironbow"], default="hsv",
+                    help=("false-color ramp: 'hsv' (default) is the original "
+                          "blue->red->yellow arc; 'ironbow' is the FLIR/thermal "
+                          "black->blue->purple->red->orange->yellow->white "
+                          "gradient (a hot-white ceiling, less low-end banding). "
+                          "Display-only."))
+    ap.add_argument("--ironbow", action="store_true", default=False,
+                    help=("shorthand for --color ironbow (default off)."))
+    ap.add_argument("--h-supersample", type=int, default=H_SUPERSAMPLE,
+                    metavar="N",
+                    help=("horizontal supersample factor for the frequency warp "
+                          "(anti-aliasing). Higher N spreads more distinct colors "
+                          "across the compressed high-frequency end at the cost of "
+                          "a little more per-frame work; 1 disables it. "
+                          "(default %d; must be >= 1)" % H_SUPERSAMPLE))
     args = ap.parse_args()
 
     if args.vscale <= 0:
@@ -992,6 +1089,9 @@ def main():
 
     if args.height < 16 or args.width < 16:
         ap.error("height and width must each be at least 16")
+
+    if args.h_supersample < 1:
+        ap.error("--h-supersample must be >= 1")
 
     if shutil.which("ffmpeg") is None:
         sys.exit("error: ffmpeg not found on PATH")
@@ -1154,8 +1254,12 @@ def main():
               f"zeroed {int(before - after)} of {int(before)} non-zero samples",
               file=sys.stderr)
 
-    print("color-mapping waterfall ...", file=sys.stderr)
-    full_image = render_waterfall_image(display_rows, reversed_=True)
+    # `--ironbow` (the shorthand) implies --color ironbow unless the user gave
+    # an explicit --color.
+    color = "ironbow" if (args.ironbow and args.color == "hsv") else args.color
+
+    print(f"color-mapping waterfall ({color}) ...", file=sys.stderr)
+    full_image = render_waterfall_image(display_rows, reversed_=True, color=color)
 
     # --- Horizontal log-frequency warp (display-only) ---
     # The waterfall's columns are linear in frequency; for a human-friendly
@@ -1173,7 +1277,7 @@ def main():
         bands_per_note = int(header.get("bandsPerNote", 8))
         left_edges = midi_band_left_edges(bands_per_note, num_cols)
         print(f"MIDI layout: 128 equal notes x {bands_per_note} bands "
-              f"(equal-width bands, ss={H_SUPERSAMPLE})", file=sys.stderr)
+              f"(equal-width bands, ss={args.h_supersample})", file=sys.stderr)
     else:
         # PCM layout (legacy, default when `mode` is absent): map each column's
         # center frequency onto a log axis (F_MIN_HZ..F_MAX_HZ) for a
@@ -1182,9 +1286,9 @@ def main():
         x = log_xfrac(col_freq, F_MIN_HZ, F_MAX_HZ)
         left_edges = np.concatenate(([0.0], x[:-1]))
         print(f"PCM log-frequency map: {F_MIN_HZ:.0f} Hz .. {F_MAX_HZ:.0f} Hz "
-              f"(nyquist {nyquist_hz:.0f} Hz, ss={H_SUPERSAMPLE})", file=sys.stderr)
+              f"(nyquist {nyquist_hz:.0f} Hz, ss={args.h_supersample})", file=sys.stderr)
     warped = build_warped(full_image, left_edges, out_w,
-                          ss=H_SUPERSAMPLE)
+                          ss=args.h_supersample)
     # Vertical supersample factor for the scroll (fractional sub-row block-mean,
     # see render_frame). 1 disables it; 8 matches the horizontal factor.
     vss = V_SUPERSAMPLE

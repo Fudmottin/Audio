@@ -208,3 +208,59 @@ file's peak to `FFFF` (0 dB); the floor gates the *low* end.
   valid H.264/AAC MP4s (video duration == audio duration). The user's chord test
   AIFF is not in the repo (copyright); test with `final-fantasy.aiff` or a
   generated tone.
+
+## Video renderer color map (`--color`) + `--h-supersample` — added for `waterfall_video.py`
+
+A **display-only** choice of false-color ramp plus a horizontal-anti-alias A/B
+lever (C++ `waterfall` untouched; stays lossless). The user's stated goal was
+the *FLIR / weather-radar / thermal* "false color" look — much more legible than
+grayscale — and they had chosen HSV for it. We expose both ramps so the user can
+A/B them, and a supersample flag to A/B distinct-color density.
+
+**User-approved (explicit this turn):**
+- `--color {hsv,ironbow}`, **default `hsv`** (so a bare render is byte-identical
+  to before).
+- `--ironbow` — a boolean **shorthand** for `--color ironbow`.
+- `--h-supersample N`, **default 8** (the existing `H_SUPERSAMPLE` constant);
+  validated `>= 1`.
+
+**Ramp designs (agent-chosen, NOT user-confirmed on the specific stops — tasteable
+in `IRONBOW_STOPS`):**
+- **HSV** — the original arc-around-through-red: `t = sample/65535`,
+  `hue = (HUE_START + HUE_SWEEP·t) % 360` (240°→60°), saturation 1. Ends on pure
+  yellow. (Behavior unchanged; now just one branch of `sample_to_rgb`.)
+- **Ironbow** — a **piecewise-linear RGB gradient** (not an HSV rotation): the
+  9 stops `black→darkblue→blue→purple→magenta→red→orange→yellow→white` in
+  `IRONBOW_STOPS`. Built once at import into a 256-entry `IRONBOW_LUT` via
+  `build_ironbow_lut()` (position `i/255`, `searchsorted` for the bracketing
+  stops, per-channel lerp). Sampled per 8-bit brightness in `sample_to_rgb` by a
+  single gather (`IRONBOW_LUT[idx]`) — zero per-frame cost beyond the gather.
+  Rationale over HSV: a multi-channel linear-in-value ramp uses all three channels
+  monotonically, so the full 0..255 spans more distinct colors with less low-end
+  banding, and ends on FLIR's signature hot **white** (all channels 255) rather
+  than pure yellow.
+
+**Precedence:** `color = "ironbow" if (args.ironbow and args.color == "hsv")
+else args.color` — i.e. `--ironbow` implies ironbow *only when no explicit
+`--color` was given*; an explicit `--color` always wins. (Verified all four
+flag combinations.)
+
+**Wiring:** `sample_to_rgb(samples, color="hsv")` and
+`render_waterfall_image(rows, reversed_, color="hsv")` take the ramp; `main()`
+computes `color` and passes it, and threads `args.h_supersample` into
+`build_warped(ss=...)` (replacing the hardcoded `H_SUPERSAMPLE`) and the two
+layout log lines.
+
+**Implementation notes (for the next agent):**
+- Both ramps are a *linear* map of the dB-quantized value, so neither touches
+  the data — purely coloring. The whole path is still a 1-D curve through RGB;
+  `--h-supersample` is the real lever for *more distinct colors* (block-mean of
+  adjacent columns with slightly different colors) at the cost of softness.
+- Verified: `py_compile` clean; `IRONBOW_LUT` is (256,3) float, `[0]=black`,
+  `[255]=white`, monotonic warm core; `sample_to_rgb` gives black/white at the
+  extremes for ironbow and FFFF→(1,1,0) yellow for hsv (unchanged);
+  precedence table passes all 4 combos. End-to-end renders on a generated 2.5 s
+  chord sample (`--window-size 2048`) in hsv/ss8, ironbow/ss8 (`--ironbow`), and
+  ironbow/ss16 (`--color ironbow --h-supersample 16`) all produced valid
+  H.264/AAC MP4s (256x128, duration == audio). The user's chord test AIFF is not
+  in the repo; A/B against `final-fantasy.aiff` or a generated tone.
