@@ -50,8 +50,8 @@ The binary will be at `build/bin/midicapture`.
 # Basic usage (monophonic prototype):
 ./build/bin/midicapture input.aiff output.mid
 
-# With custom parameters:
-./build/bin/midicapture --window-size 1024 --confidence 0.7 \
+# With custom parameters (silence level drives note gating):
+./build/bin/midicapture --window-size 1024 --silence -35 \
     input.aiff output.mid
 
 # With custom method and tempo:
@@ -71,8 +71,7 @@ The binary will be at `build/bin/midicapture`.
 | `--output, -o` | string | (required) | Output MIDI file (.mid). |
 | `--window-size` | int | 2048 | FFT window size (power of 2). |
 | `--hop-size` | int | 512 | Hop size between frames. |
-| `--confidence` | float | 0.5 | Pitch detection confidence threshold (0.0–1.0). |
-| `--silence` | float | -40 | Silence threshold in dB. |
+| `--silence` | float | -40 | Silence threshold in dB (note on/off hysteresis). |
 | `--tempo` | float | 120 | Tempo in BPM. |
 | `--method` | string | "yinfft" | Pitch detection method. |
 
@@ -104,24 +103,28 @@ The output is a **Type 1 MIDI file** with 480 ticks per quarter note, compatible
 
 ## Design Notes
 
-### Monophonic Prototype
+### Monophonic Pipeline (current)
 
-The current implementation is a **monophonic prototype** — it assumes only one note at a time:
+The current implementation is a **monophonic prototype** — it tracks one note at a time. The pipeline runs a single sequential read of the file, and per hop (512 samples, 10.7 ms):
 
-1. **Pitch detection**: YINfft runs on each audio frame, returning a MIDI note number (float) and confidence (0.0–1.0).
-2. **Onset detection**: Spectral flux detects note onsets (transients).
-3. **State machine**: Two states — IDLE (waiting for onset) and PLAYING (note active).
-   - **IDLE → PLAYING**: When pitch confidence exceeds threshold AND onset is detected.
-   - **PLAYING → IDLE**: When pitch confidence drops below threshold (note-off).
-4. **Note duration**: From onset timestamp to confidence-drop timestamp.
-5. **Note velocity**: Estimated from RMS energy of the note segment (scaled to 0–127).
+1. **Energy gate (hysteresis)**: A hop is *tonal* when its RMS is above `--silence`. A note *arms* at the on threshold and *disarms* only after the energy has stayed below `--silence − 10 dB` for 3 consecutive hops. The pitch detector's confidence is **not** used to gate boundaries (YINfft reports a usable fundamental even for noise; on rendered piano it reads ~0).
+2. **Onsets**: Spectral flux marks note starts (aubio CLI parity: 0.3 peak, 12 ms min IoI).
+3. **Pitch**: The note's *chroma* is a majority vote over all its valid YIN estimates (stable across a note's lifetime); the *octave* is anchored to the loudest hop. Note *changes* require 5 consecutive hops to agree on a new pitch class (pitch hysteresis).
+4. **Defragmentation**: A *decaying* note is closed and re-opened hop to hop by its own wobble, so a single physical note arrives as a run of short same-pitch fragments. Two stages undo that: notes shorter than 5 hops are dropped, and consecutive same-pitch fragments closer than a quarter-note gap are merged into one note.
+5. **Velocity**: The loudest hop's RMS over the note's lifetime (a single attack-and-decay, not a per-hop tremolo).
+6. **MIDI**: The notes are written to a Type 1 file; the tempo comes from `--tempo`.
+
+### Known Limitations
+
+- **Octave ambiguity on recordings with a weak fundamental.** YIN is a *harmonic* estimator. On the small `timidity` scale renders the piano fundamental is spectrally weak, and YIN locks to a low partial (measured ~91 Hz for a 440 Hz note) far below the true fundamental, so the transcribed octave is unreliable there. On a *recorded* performance with a strong fundamental (the project's main target — `aiffcapture/final-fantasy.aiff`) the defragmented output is musically sensible (~100 notes over 30 s, F#/E/G# content). Robust octave resolution for weak-fundamental sources is a future task (spectral-peak / harmonic-series anchor, or a neural analyzer — see `lode/audio-to-midi.md`).
+- **First note of a file** is frequently missed (aubio's first-frame artifact: onset detection needs a spectral *change*, and a file that begins with audio has none on its first frames).
+- **Monophonic**: chords are not resolved (YIN tracks one fundamental). Polyphony is a future phase.
 
 ### Future Enhancements
 
-- **Polyphony**: Spectral peak tracking + multiple pitch detection for chords.
-- **Pedal detection**: Infer sustain pedal from audio analysis (characteristic string damping sound).
-- **Velocity refinement**: RMS energy of the full note segment (not just the onset frame).
-- **Note trimming**: Remove spurious short notes (< 50ms).
+- **Polyphony**: per-stem transcription after source separation, or a polyphonic analyzer (basic-pitch / Onsets&Frames).
+- **Tempo tracking**: estimate the source tempo (`aubio_tempo`) rather than taking `--tempo`.
+- **Pedal detection**: infer sustain pedal from spectral flux / decay patterns.
 
 ### Key Design Decisions
 
