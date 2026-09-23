@@ -6,15 +6,16 @@
 
 ## 1. Purpose
 
-libaudio provides the **signal processing pipeline** that converts raw PCM audio samples into analysis results (pitch, onsets, beats, note events). It is a thin, modern C++ wrapper around the C library **aubio**, providing:
+libaudio is the **single place** for all audio file I/O and DSP in this project (except aiffcapture, which is exempt). All public types live in `namespace libaudio`. It provides:
 
+- **Audio file I/O** via libsndfile (`AudioFileReader`) — reading AIFF, WAV, FLAC, OGG, etc.
+- **Signal processing** via aubio — pitch, onsets, beats, notes, spectral analysis, temporal processing
+- **MIDI export** (`MidiFileWriter`) — HIR Score → Standard MIDI File
+- **Optional time-stretching** via rubberband (`RubberbandProcessor`)
 - RAII resource management (no manual `new_`/`del_` calls)
-- A clean C++ interface (no C-style function pointers)
-- Integration with the project's **HIR (High-level Instrumentation Representation)** — see `hir.md`
-- Optional use of **libsndfile** for audio file I/O
-- Optional use of **rubberband** for time-stretching/pitch-shifting
+- A clean C++ interface — public headers include only standard C++ types; all C library internals are hidden behind Pimpl
 
-The output of libaudio feeds into the HIR, which then produces both MIDI files and (optionally) LilyPond source.
+Consuming modules (midicapture, waterfall) include `<libaudio/*.h>` and must never include `<sndfile.h>` or aubio headers directly. See `lode/practices.md` → "Audio Library Boundary" for the full rule.
 
 ---
 

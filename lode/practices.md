@@ -40,6 +40,22 @@ project/
 └── build/                  # CMake build output (gitignored)
 ```
 
+## Audio Library Boundary
+
+All audio file I/O and DSP functionality lives in **libaudio** (`namespace libaudio`).
+
+- **Consuming modules** (midicapture, waterfall, any future tool) include
+  `<libaudio/*.h>` and use `using namespace libaudio;` in their `.cpp` files.
+  They must **never** include `<sndfile.h>`, aubio headers, or rubberband
+  headers directly.
+- **libaudio public headers** (`include/libaudio/*.h`) include only standard
+  C++ headers. All C library types (SNDFILE, aubio_\*\_t, fvec_t, etc.) are
+  confined to `Impl` structs inside `.cpp` files (Pimpl pattern).
+- **aiffcapture is exempt**: it predates libaudio, uses its own Core Audio →
+  AIFF writer, and is intentionally left as-is.
+- The rule: if you need to read/write an audio file or run any DSP, go
+  through libaudio. Do not add per-module wrappers or re-implement file I/O.
+
 ## Core Audio Development
 
 - Use **IO proc-based** pattern (not deprecated synchronous `AudioDeviceRead`).
