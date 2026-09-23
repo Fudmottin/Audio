@@ -50,6 +50,21 @@ Usage:
     <width>       output frame width in pixels
     -o/--output   output video path (default: <text_file>.mp4)
 
+The script reads the waterfall header's `mode` key to pick a display layout:
+
+  - **MIDI** (default when present): the 128 MIDI notes are given *equal*
+    horizontal screen width, and each note's internal bands are laid out on a
+    logarithmic (equal-tempered) frequency scale so the intra-note pitch
+    spacing is perceptually correct. This is the musically faithful display.
+  - **PCM** (legacy, or when `mode` is absent): the old behavior — every column
+    is mapped onto a *log frequency* axis across the full frame
+    (F_MIN_HZ..F_MAX_HZ), so a linear-Hz waterfall is warped to be
+    perceptually even. This is what made recordings of vocal singing so
+    legible before the mode existed, and it is preserved bit-for-bit.
+
+    Files produced before the `mode` key was added therefore render exactly
+    as they always did.
+
 Requires: numpy, ffmpeg on PATH.
 """
 
@@ -105,26 +120,28 @@ DEFAULT_VSCALE = 2.0
 
 # --- Horizontal (frequency) scaling ---
 #
-# The waterfall's columns are LINEAR in frequency (128 MIDI notes x bands-per-
-# note, sweeping 0..nyquist), so most audible content sits on the left of the
-# frame. To spread it the way human hearing does, the display maps each
-# column's center frequency to screen x on a LOGARITHMIC axis:
+# The horizontal layout is mode-dependent (see `extract_mode`):
 #
-#     x_frac = (ln(f) - ln(F_MIN)) / (ln(F_MAX) - ln(F_MIN))
+#   * MIDI — the 128 MIDI notes are given equal screen width. Each note's
+#       internal bands are laid out on a logarithmic (equal-tempered) frequency
+#       scale, so the intra-note pitch spacing is perceptually correct.
 #
-# This widens the low bands (where most musical energy lives) and compresses
-# the high bands, matching perceptual spacing. The two bounds are the only
-# tunables here.
+#   * PCM (legacy, default when `mode` is absent) — the columns are LINEAR in
+#       frequency (128 MIDI notes x bands-per-note, sweeping 0..nyquist), so
+#       most audible content sits on the left of the frame. To spread it the
+#       way human hearing does, the display maps each column's center frequency
+#       to screen x on a LOGARITHMIC axis:
 #
-# F_MIN: the low end of the audible map. Columns below this collapse to the
-#       left edge (e.g. 20 Hz means sub-20 Hz bass is squished off-screen).
-# F_MAX: the high end of the audible map (option "b": audible window).
-#       The default is a constant 20 kHz; if the audio is 96 kHz+ (nyquist
-#       above 20 kHz) we clamp to F_MAX = 20 kHz and drop ultrasonic content.
-#       For 48 kHz audio (nyquist 24 kHz) we similarly clamp to 20 kHz, so
-#       the 20-24 kHz ultrasonic strip (aliasing) is also dropped.
-F_MIN_HZ = 16.0      # Hz — low end of the log frequency map
-F_MAX_HZ = 16000.0   # Hz — high end of the log frequency map (audible window)
+#           x_frac = (ln(f) - ln(F_MIN)) / (ln(F_MAX) - ln(F_MIN))
+#
+#       This widens the low bands (where most musical energy lives) and
+#       compresses the high bands, matching perceptual spacing.
+#
+# F_MIN / F_MAX bound the *PCM* log map. F_MIN is the low end (columns below
+# it collapse to the left edge); F_MAX is the high end (the audible window) —
+# the PCM map is clamped to it so ultrasonic content is dropped.
+F_MIN_HZ = 16.0      # Hz — low end of the log frequency map (PCM mode)
+F_MAX_HZ = 16000.0   # Hz — high end of the log frequency map (PCM mode)
 # H_SUPERSAMPLE: supersample factor applied when down-sampling the temporary
 #       horizontal buffer to the output width. Higher values reduce aliasing
 #       artifacts in the high-frequency (compressed) region at the cost of
@@ -222,6 +239,36 @@ def parse_header(line):
             k, _, v = tok.partition("=")
             out[k] = v
     return out
+
+
+def midi_note_frequency(note):
+    """True equal-tempered frequency (Hz) of MIDI note `note`.
+
+    440 * 2 ** ((note - 69) / 12), anchored at A4 = note 69 = 440 Hz. This is
+    the physically correct pitch-to-frequency relationship and is what lets
+    MIDI mode lay out a note's bands on a perceptually (logarithmically) even
+    scale.
+    """
+    return 440.0 * (2.0 ** ((note - 69.0) / 12.0))
+
+
+def extract_mode(header):
+    """Resolve the display mode from the waterfall header.
+
+    Returns ``"MIDI"`` or ``"PCM"``.
+
+    The `waterfall` tool writes ``mode=MIDI`` or ``mode=PCM`` into the header.
+    A consumer that does *not* find a ``mode`` key should assume **PCM** — the
+    legacy linear behavior — so output produced before the mode was introduced
+    stays interpretable (and renders exactly as it always did).
+    """
+    raw = str(header.get("mode", "")).strip().upper()
+    if raw == "MIDI":
+        return "MIDI"
+    if raw == "PCM":
+        return "PCM"
+    # Missing / unknown value -> legacy PCM behavior.
+    return "PCM"
 
 
 def load_waterfall(path):
@@ -342,51 +389,86 @@ def log_xfrac(col_freq_hz, f_min, f_max):
     return np.clip(x, 0.0, 1.0)
 
 
-def build_warped(image, col_freq_hz, out_w, f_min=None, f_max=None,
-                 ss=1):
+def midi_band_left_edges(bands_per_note, num_cols):
+    """Fractional left edge of each MIDI column, tiling [0, 1] in equal bands.
+
+    The 128 MIDI notes are given *equal* horizontal screen width (a note spans a
+    12th of an octave, so equal notes get equal width on a log axis). Within each
+    note, the `bands_per_note` bands are placed at **equal pixel width**.
+
+    Equal-width band edges are the right choice here: because the MIDI columns'
+    center frequencies (from `waterfall`) are already *log-even* within each
+    note, equal pixel widths reproduce the correct equal-tempered *frequency*
+    spacing — a band that spans a 2× frequency ratio (the lowest band of an
+    octave) is not over-widened the way a linear-Hz split would be. Equal-width
+    bands also match the legacy PCM look, so familiar displays are unchanged.
+
+    Column `c` is assigned to note `c // bands_per_note` and to band
+    `c % bands_per_note`. Note `n` occupies the x-range
+    `[n / 128, (n+1) / 128)`, and its bands tile that range in equal
+    `bands_per_note` pieces, so the returned left edges monotonically tile
+    [0, 1] (the 128th note extends to 1.0).
+
+    bands_per_note : int — number of bands per MIDI note (from `bandsPerNote`).
+    num_cols       : int — number of columns to lay out.
+    Returns a float array of shape (num_cols,) with values in [0, 1).
+    """
+    if bands_per_note < 1:
+        bands_per_note = 1
+    col = np.arange(num_cols, dtype=np.float64)
+    note = np.floor(col / bands_per_note)
+    band = col - np.floor(col / bands_per_note) * bands_per_note
+    # 128 notes tile [0, 1]; each note's bands tile its 1/128 share equally.
+    left = (note + band / bands_per_note) / 128.0
+    return np.clip(left, 0.0, 1.0)
+
+
+def build_warped(image, left_edges, out_w, ss=1):
     """Horizontally warp the color-mapped waterfall onto the output-width grid.
 
     `image` is the color-mapped waterfall, shape `(n_rows, num_cols, 3)` uint8
     (one pixel per data column, 16-bit values mapped to RGB).
 
-    Each column `c` occupies a band on the horizontal axis from `x_{c-1}` to
-    `x_c` (its own log-mapped center, bounded by its neighbors), giving the
-    column an *irregular* width that widens in the low end and narrows in the
-    high end. The band is painted into a temporary buffer `ss` times wider than
-    the output using the containing source column, then the buffer is
-    downsampled to the output width by block **mean**. This keeps sub-pixel
-    columns visible (their energy is averaged into the nearest output pixel)
-    instead of vanishing.
+    `left_edges` is a `(num_cols,)` float array giving, for each column `c`, the
+    left edge of its band as a fractional position in [0, 1]. Column `c`
+    occupies the band from `left_edges[c]` to `left_edges[c + 1]` (the first
+    starts at 0, the last extends to 1), so the bands tile [0, 1]. The caller
+    supplies these edges to choose the layout:
+
+      * **PCM**  — edges derived from each column's log-mapped *center frequency*
+                   (a perceptual, irregular-width sweep; see `log_xfrac`).
+      * **MIDI** — edges that tile [0, 1] in *equal* bands, one per column
+                   (`midi_band_left_edges`); each of the 128 notes gets equal
+                   width and each note's bands are equal-width within it.
+
+    Each band is painted into a temporary buffer `ss` times wider than the
+    output using the containing source column, then the buffer is downsampled to
+    the output width by block **mean**. This keeps sub-pixel columns visible
+    (their energy is averaged into the nearest output pixel) instead of
+    vanishing.
 
     Returns: `(n_rows, out_w, 3)` uint8 — the warped waterfall ready for the
     vertical sampling in `render_frame`.
 
-    col_freq_hz : (num_cols,) center frequency of each column, Hz.
-    out_w       : output frame width in pixels (must be even for yuv420p).
-    ss          : horizontal supersample factor (integer >= 1). 4 is a good
-                  default; 8 is sharper. 1 disables anti-aliasing (fast, but
-                  sub-pixel columns will flicker/vanish).
+    left_edges : (num_cols,) fractional left edge of each column, in [0, 1].
+    out_w      : output frame width in pixels (must be even for yuv420p).
+    ss         : horizontal supersample factor (integer >= 1). 4 is a good
+                 default; 8 is sharper. 1 disables anti-aliasing (fast, but
+                 sub-pixel columns will flicker/vanish).
     """
     n_rows, num_cols, channels = image.shape
-    if f_min is None:
-        f_min = F_MIN_HZ
-    if f_max is None:
-        f_max = F_MAX_HZ
-
-    x = log_xfrac(col_freq_hz, f_min, f_max)         # (num_cols,)
-
-    # Band edges: column c spans [left[c], right[c]) where left is the
-    # log-mapped center of the *previous* column and right is column c's own
-    # center. The first column starts at 0 and the last extends to 1, so the
-    # bands tile [0, 1].
-    left = np.concatenate(([0.0], x[:-1]))           # (num_cols,)
+    left_edges = np.asarray(left_edges, dtype=np.float64)
+    if left_edges.size != num_cols:
+        raise SystemExit(
+            f"error: {left_edges.size} layout edges for {num_cols} columns")
+    left_edges = np.clip(left_edges, 0.0, 1.0)
 
     # For each temp-buffer x position, the containing source column. Bands are
     # contiguous over [0, 1]; searchsorted on the *left* edges finds the index
     # of the first left-edge > xpix, minus 1, i.e. the band containing xpix.
     ssbuf_w = max(out_w * ss, 1)
     xpix = np.arange(ssbuf_w, dtype=np.float64) / ssbuf_w   # [0, 1)
-    src_col = np.searchsorted(left, xpix, side='left') - 1
+    src_col = np.searchsorted(left_edges, xpix, side='left') - 1
     src_col = np.clip(src_col, 0, num_cols - 1)
 
     # Gather the containing source column for every buffer pixel, for every row.
@@ -601,10 +683,24 @@ def main():
     # (num_rows, out_w, 3) uint8 — the same row order as `full_image` (newest
     # at row 0) but with the horizontal axis warped. See `build_warped` and
     # the F_MIN_HZ / F_MAX_HZ / H_SUPERSAMPLE constants above.
-    col_freq, nyquist_hz = extract_col_freqs(header, num_cols)
-    print(f"log-frequency map: {F_MIN_HZ:.0f} Hz .. {F_MAX_HZ:.0f} Hz "
-          f"(nyquist {nyquist_hz:.0f} Hz, ss={H_SUPERSAMPLE})", file=sys.stderr)
-    warped = build_warped(full_image, col_freq, out_w,
+    mode = extract_mode(header)
+    if mode == "MIDI":
+        # MIDI layout: 128 equal-width notes, each subdivided into equal-width
+        # bands (log-even frequency centers within a note, from `waterfall`).
+        bands_per_note = int(header.get("bandsPerNote", 8))
+        left_edges = midi_band_left_edges(bands_per_note, num_cols)
+        print(f"MIDI layout: 128 equal notes x {bands_per_note} bands "
+              f"(equal-width bands, ss={H_SUPERSAMPLE})", file=sys.stderr)
+    else:
+        # PCM layout (legacy, default when `mode` is absent): map each column's
+        # center frequency onto a log axis (F_MIN_HZ..F_MAX_HZ) for a
+        # perceptually even sweep; band edges come from the log-mapped centers.
+        col_freq, nyquist_hz = extract_col_freqs(header, num_cols)
+        x = log_xfrac(col_freq, F_MIN_HZ, F_MAX_HZ)
+        left_edges = np.concatenate(([0.0], x[:-1]))
+        print(f"PCM log-frequency map: {F_MIN_HZ:.0f} Hz .. {F_MAX_HZ:.0f} Hz "
+              f"(nyquist {nyquist_hz:.0f} Hz, ss={H_SUPERSAMPLE})", file=sys.stderr)
+    warped = build_warped(full_image, left_edges, out_w,
                           ss=H_SUPERSAMPLE)
     # Vertical supersample factor for the scroll (fractional sub-row block-mean,
     # see render_frame). 1 disables it; 8 matches the horizontal factor.

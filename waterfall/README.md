@@ -155,6 +155,11 @@ python3 waterfall_video.py <text_file> <audio_file> <height> <width> [-o out.mp4
   playhead. Higher values reveal more per-row detail (up to the number of data
   rows); beyond that the rows are only zoomed, not multiplied.
 
+There is no `--mode` flag: the script reads the `mode` key from the waterfall
+header to choose the horizontal layout (MIDI vs PCM; see [How it works](#how-it-works)).
+A header without a `mode` key renders as **PCM** (the legacy layout), so output
+produced before the mode was introduced is unchanged.
+
 ### How it works
 
 - **Color:** each sample is mapped through an **arc of the HSV color wheel**
@@ -186,27 +191,34 @@ python3 waterfall_video.py <text_file> <audio_file> <height> <width> [-o out.mp4
   invocation disables it), smoothing the vertical stepping the way the horizontal
   mean smooths the compressed high-frequency end. Constant at the top of the
   script; the default 8 matches the horizontal factor.
-- **Horizontal (frequency) scale:** the display warps the horizontal axis to a
-  **logarithmic** frequency map — each column's center frequency (from the
-  header's `col_c` keys) is placed at `x = (ln f − ln F_MIN) / (ln F_MAX − ln F_MIN)`
-  — which widens the low bands (where most musical energy lives) and compresses
-  the high bands, matching perceptual spacing. It reads the column frequencies
-  *as reported by `waterfall`*, so it works in both modes: for **MIDI** output
-  the `col_c` keys are the true (already logarithmically spaced) note
-  frequencies and the map is effectively identity; for **PCM** output (legacy
-  linear sweep) the map is what widens the left-hand low bands. The map runs
-  `F_MIN_HZ` (default 16 Hz) to `F_MAX_HZ` (default 16 kHz), so content outside
-  that audible window is dropped. Sub-pixel columns in the compressed high end
-  are **mean-anti-aliased** (a temporary buffer `H_SUPERSAMPLE`× wider than the
-  output is block-averaged down) so they read as dimmer pixels instead of
-  vanishing. All three constants (`F_MIN_HZ`, `F_MAX_HZ`, `H_SUPERSAMPLE`) are
-  at the top of the script. This is a display-only transform: the underlying
-  waterfall text and data are untouched. (Vertical anti-aliasing is a separate
-  transform, `V_SUPERSAMPLE`, documented above.)
+- **Horizontal (frequency) scale — mode-dependent:** the script reads the
+  waterfall header's `mode` key to choose the layout. A missing `mode` key is
+  treated as **PCM** (the legacy behavior), so old output renders exactly as it
+  always did.
+  - **MIDI** (`mode=MIDI`): the 128 MIDI notes are given **equal horizontal
+    width** — each note is a 12th of an octave, so equal notes get equal width
+    on a log axis. Each note's internal bands are placed at **equal pixel
+    width** within the note. Because `waterfall` already lays each band's center
+    frequency out log-evenly within a note, equal-width pixels reproduce the
+    true equal-tempered *frequency* spacing (a band spanning a 2× ratio isn't
+    over-widened the way a linear-Hz split would be). This is the musically
+    faithful display: a singer's fundamental and its harmonics land on the
+    correct notes across the full width.
+  - **PCM** (legacy, `mode=PCM` or absent): the old behavior — each column's
+    center frequency (from the header's `col_c` keys) is placed on a
+    **logarithmic** axis at `x = (ln f − ln F_MIN) / (ln F_MAX − ln F_MIN)`,
+    which widens the low bands (where most musical energy lives) and compresses
+    the high bands. The map runs `F_MIN_HZ` (default 16 Hz) to `F_MAX_HZ`
+    (default 16 kHz), so content outside that audible window is dropped. This is
+    what made recordings of vocal singing so legible before the mode existed.
 
-  `waterfall_video.py` treats a missing `mode` key as **PCM** (the legacy
-  linear behavior), so it renders old output correctly and new output the same
-  way it has always looked.
+  Both layouts are **display-only**: the underlying waterfall text and data are
+  untouched. In each case sub-pixel columns are **mean-anti-aliased** (a
+  temporary buffer `H_SUPERSAMPLE`× wider than the output is block-averaged
+  down) so thin columns read as dimmer pixels instead of vanishing; `H_SUPERSAMPLE`
+  and the `F_MIN_HZ` / `F_MAX_HZ` bounds (PCM only) are constants at the top of
+  the script. (Vertical anti-aliasing is a separate transform, `V_SUPERSAMPLE`,
+  documented above.)
 - **Rendering:** numpy builds each frame (no Pillow / ImageMagick needed); raw
   RGB frames are piped to FFmpeg over stdin, which encodes H.264 and muxes the
   audio.
