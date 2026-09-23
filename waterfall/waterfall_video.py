@@ -179,6 +179,15 @@ EQ_PER_OCTAVE_DB = 6.0   # dB — default edge roll-off when peaking per octave
 # by up to this many dB). A coarse global balance: 0 (default) = a flat
 # peak-normalized file, a small value brightens the mids across the full range.
 EQ_OVERALL_DB = 0.0     # dB — default edge roll-off of the whole-width tilt
+
+# K_FLOOR_DB: the noise floor the `waterfall` C++ tool used to map dB onto the
+# 16-bit range. `quantizeTo16bit` in main.cpp normalizes dB as
+# (db − K_FLOOR_DB) / (refDb − K_FLOOR_DB), where K_FLOOR_DB is −60 dB and
+# refDb is the file's resolved reference (in the header). We reuse the same
+# constant + mapping in the renderer's `--floor` gate so a floor in dB lands on
+# exactly the integer the C++ tool would have written.
+K_FLOOR_DB = -60.0   # dB — the low end of the dB→16-bit map (matches main.cpp)
+
 # V_SUPERSAMPLE: supersample factor for the vertical scroll. The scroll offset
 # is continuous (sub-pixel) but the source has one data row per pixel, so a
 # plain nearest-neighbor sample steps in 1-row increments and looks blocky.
@@ -425,6 +434,44 @@ def apply_eq(rows, bands_per_note, rolloff_db=EQ_ROLLOFF_DB):
                        preserve_energy=False)
 
 
+def resolve_ref_db(header, rows):
+    """Resolve the file's full-scale reference in dB (see `K_FLOOR_DB`).
+
+    The C++ `waterfall` tool writes the *resolved* reference into the header as
+    `refDb=...` (the auto-scaled file peak, or the `--ref-db` value). We read
+    that so the `--floor` gate maps a dB floor onto the exact 16-bit integer
+    the tool used when it wrote the rows (the same `K_FLOOR_DB..refDb` span
+    that `quantizeTo16bit` normalizes over).
+
+    Fallback for a header without a usable `refDb` (a hand-crafted or legacy
+    text file): the file was normalized so its peak reached full scale (0 dB /
+    `FFFF`), so we recover the reference as `20*log10(max/65535)` from the
+    data. If the file's peak is already at full scale (typical after auto-scale)
+    the recovered reference is ~0 dB; if the data is all zeros the gate is a
+    no-op (there is nothing below a floor to zero). A warning is printed for any
+    non-header reference so the user knows the map is approximate.
+
+    Returns the reference in dB (a float; `K_FLOOR_DB` is the fixed low end).
+    """
+    try:
+        ref = float(header.get("refDb"))
+        if ref > K_FLOOR_DB:                  # finite, above the floor
+            return ref
+    except (TypeError, ValueError):
+        pass
+
+    # Defensive fallback: derive the reference from the file's own peak.
+    mx = float(np.max(rows)) if rows.size else 0.0
+    if mx <= 0.0:
+        print("note: no refDb in header and the file has no energy; "
+              "--floor has nothing to gate", file=sys.stderr)
+        return K_FLOOR_DB                      # degenerate -> no-op gate
+    ref = 20.0 * np.log10(mx / float(MAX_SAMPLE))
+    print(f"warning: header has no usable refDb; deriving reference "
+          f"{ref:.2f} dB from the file's peak sample ({int(mx)})", file=sys.stderr)
+    return float(max(ref, K_FLOOR_DB))
+
+
 def apply_eq_stack(rows, bands_per_note, transforms):
     """Compose a stack of equalizer transforms in order.
 
@@ -448,6 +495,42 @@ def apply_eq_stack(rows, bands_per_note, transforms):
             fn = _EQ_TRANSFORMS[name]
             out = fn(out, bands_per_note, **kwargs)
     return out
+
+
+def apply_floor(rows, floor_db, ref_db):
+    """Hard noise gate: zero every sample below a dB floor. (Display-only.)
+
+    `floor_db` is a *signed* dB level, already resolved from the user's argument
+    (`main` computes it as `-abs(args.floor)`, so `--floor 60` and `--floor -60`
+    both read as −60 dB; `--floor 0` is 0 dB = full scale = `FFFF`). `ref_db` is
+    the file's full-scale reference (0 dB = `FFFF`).
+
+    The floor is mapped onto the 16-bit range with the *same* normalization
+    `quantizeTo16bit` in main.cpp uses to write the file:
+
+        int_val = round( clamp( (floor_db − K_FLOOR_DB) / (ref_db − K_FLOOR_DB), 0, 1 )
+                         * 65535 )
+
+    and every sample strictly below `int_val` is set to 0. The floor is the
+    inverse of auto-scale: auto-scale lifted the file's peak to `FFFF`; the floor
+    now gates the *low* end, removing the dim noise the equalizer's
+    peak-normalization can surface. It is applied to the (possibly equalized)
+    rows before color mapping; the waterfall text and data are untouched.
+
+    rows      : (num_rows, num_cols) int array of 16-bit values.
+    floor_db  : signed dB level of the gate (e.g. −60.0).
+    ref_db    : the file's full-scale reference in dB.
+    Returns an int64 array of the same shape with sub-floor samples zeroed.
+    """
+    rows = np.asarray(rows, dtype=np.int64)
+    span = ref_db - K_FLOOR_DB
+    if span <= 0.0:
+        return rows                            # degenerate map -> no gate
+    norm = (floor_db - K_FLOOR_DB) / span
+    int_val = int(round(np.clip(norm, 0.0, 1.0) * float(MAX_SAMPLE)))
+    if int_val <= 0:
+        return rows                            # at/below the floor -> nothing to zero
+    return np.where(rows < int_val, 0, rows)
 
 
 def hue_for_value(t):
@@ -893,6 +976,15 @@ def main():
     ap.add_argument("--eq", action="store_true", default=False,
                     help=("shorthand for --eq-per-note (the legacy per-note "
                           "equalizer). (default off)"))
+    ap.add_argument("--floor", type=float, default=None,
+                    metavar="dB",
+                    help=("hard noise gate: zero out any sample whose level is "
+                          "below this floor. The argument is a dB magnitude and "
+                          "is interpreted as -abs(dB) (so --floor 60 and "
+                          "--floor -60 both mean -60 dB); the floor is mapped to "
+                          "a 16-bit integer using the file's refDb, and any "
+                          "sample below that integer is zeroed. Display-only. "
+                          "(default off; 0 disables the gate)"))
     args = ap.parse_args()
 
     if args.vscale <= 0:
@@ -1040,6 +1132,27 @@ def main():
             extra = " (energy-preserving)" if kwargs.get("preserve_energy") else ""
             print(f"applying {desc} equalizer{extra} ...", file=sys.stderr)
         display_rows = apply_eq_stack(rows, bands_per_note, transforms)
+
+    # --- Noise floor (display-only). ---
+    # A hard gate: zero every sample below the user's dB floor. Applied to the
+    # final (possibly equalized) rows, right before color mapping, so it cleans
+    # the low-level noise the equalizer's peak-normalization can surface without
+    # fighting the EQ's shaping. `--floor` is a dB magnitude read as -abs(dB)
+    # (0 = full scale = FFFF = no gate). The floor maps onto the 16-bit range
+    # with the same normalization the C++ tool used to write the file, so a dB
+    # floor lands on exactly the integer the tool would have written.
+    if args.floor is not None and abs(args.floor) > 0.0:
+        ref_db = resolve_ref_db(header, rows)
+        floor_db = -abs(args.floor)
+        before = (display_rows > 0).sum()
+        display_rows = apply_floor(display_rows, floor_db, ref_db)
+        after = (display_rows > 0).sum()
+        span = ref_db - K_FLOOR_DB
+        int_val = (int(round(np.clip((floor_db - K_FLOOR_DB) / span, 0.0, 1.0)
+                              * float(MAX_SAMPLE))) if span > 0.0 else 0)
+        print(f"applying floor gate at {floor_db:.1f} dB (int 0x{int_val:04X} = {int_val}); "
+              f"zeroed {int(before - after)} of {int(before)} non-zero samples",
+              file=sys.stderr)
 
     print("color-mapping waterfall ...", file=sys.stderr)
     full_image = render_waterfall_image(display_rows, reversed_=True)

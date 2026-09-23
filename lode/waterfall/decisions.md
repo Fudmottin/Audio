@@ -153,3 +153,58 @@ entry expands to the per-note transform.
   frequencies; the renderer reads `mode` (missing → PCM) and `bandsPerNote`.
   The `--window-size 1024` segfault in the C++ binary is a known, deferred bug
   (works at 512/2048/4096); do not fix it here.
+
+## Video renderer noise floor (`--floor`) — added for `waterfall_video.py`
+
+A **display-only hard noise gate** in `waterfall_video.py` (the C++ `waterfall`
+tool is untouched and stays lossless). It zeros every sample below a dB floor,
+removing the dim background noise a recording carries (hiss, room noise, the
+faint bleed under a note). It is the inverse of auto-scale: auto-scale lifted the
+file's peak to `FFFF` (0 dB); the floor gates the *low* end.
+
+**User-approved rule (exact):**
+- `--floor` takes a **float dB**; the gate level is `floorDb = -abs(args.floor)`
+  (so `--floor 60` and `--floor -60` both mean −60 dB; `--floor 0` is 0 dB =
+  `FFFF` = the no-op gate).
+- Map `floorDb` onto the 16-bit range with the **same** normalization
+  `quantizeTo16bit` in main.cpp uses: `int_val = round(clamp((floorDb − (−60)) /
+  (refDb − (−60)), 0, 1) * 65535)`, where `refDb` is read from the header.
+- **Any sample strictly below `int_val` is set to 0** (`np.where(rows < int_val,
+  0, rows)`). Display-only; works in both MIDI and PCM layouts.
+- Reusing the tool's own dB↔16-bit map guarantees a floor set in dB lands on
+  exactly the integer the tool would have written, so a −30 dB floor is −30 dB.
+
+**Agent decisions (flag: NOT user-confirmed — confirm before relying on them):**
+- **Placement: after the equalizer stack, before color mapping.** The user did
+  not specify ordering vs EQ; inferred from "a floor cleans noise the EQ's
+  peak-normalization surfaced." `main()` applies `apply_floor(display_rows, ...)`
+  immediately after `apply_eq_stack`. If the user wants the floor first (before
+  EQ), move the block above the EQ block — `resolve_ref_db`/`apply_floor` are
+  self-contained so it is a two-line relocation. **Confirm with the user.**
+- **`refDb` fallback** (`resolve_ref_db`): the C++ tool always emits `refDb=`, so
+  this is defensive only. For a header lacking a usable `refDb` (hand-crafted /
+  legacy text file), the reference is derived as `20*log10(max/65535)` from the
+  file's peak (a peak-normalized file's peak is ~full scale → ~0 dB), with a
+  warning; an all-zero file or a degenerate span (`refDb ≤ K_FLOOR_DB`) makes the
+  gate a no-op. **Confirm the fallback is acceptable.**
+
+**Implementation notes (for the next agent):**
+- `K_FLOOR_DB = -60.0` constant (matches `kFloorDb` in main.cpp) sits in the
+  constants block after `EQ_OVERALL_DB`.
+- Two small helpers sit in the transform section: `resolve_ref_db(header, rows)`
+  (read/fallback the reference) and `apply_floor(rows, floor_db, ref_db)` (map to
+  int, zero-below). `apply_floor` is a pure static transform like the EQ
+  transforms, so it composes cleanly.
+- In `main()`: `--floor` defaults to `None` (off) → existing renders are
+  byte-identical; it is applied only when `abs(args.floor) > 0.0`, and prints a
+  one-line stderr note with the computed int (hex + decimal) and the count of
+  samples zeroed.
+- Verified: `py_compile` clean; the int mapping matches `quantizeTo16bit` exactly
+  for `refDb ∈ {0, 5, 38}` across floors; zero-below is strict and exact;
+  `--floor 0` is a no-op (guard `abs(0)==0`); `60 == -60` (symmetry); floor at
+  the low end (`−60`) and a degenerate span are no-ops. End-to-end render on a
+  generated MIDI sample (48 kHz, 1.2 s, `--window-size 2048` to dodge the 1024
+  segfault) with `--floor 30` and with `--eq-per-note 6 --floor 24` produced
+  valid H.264/AAC MP4s (video duration == audio duration). The user's chord test
+  AIFF is not in the repo (copyright); test with `final-fantasy.aiff` or a
+  generated tone.

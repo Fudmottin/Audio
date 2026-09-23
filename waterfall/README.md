@@ -142,7 +142,7 @@ color video (H.264 / MP4, 30 fps) with the source audio muxed in sync:
 ```bash
 python3 waterfall_video.py <text_file> <audio_file> <height> <width> [-o out.mp4] [--vscale N]
                              [--eq-per-note [dB]] [--eq-per-octave [dB]] [--eq-over-all [dB]]
-                             [--preserve-energy] [--eq]
+                             [--preserve-energy] [--eq] [--floor dB]
 ```
 
 - `<text_file>`   — the `waterfall` output (header line + one hex row per slice).
@@ -173,6 +173,8 @@ python3 waterfall_video.py <text_file> <audio_file> <height> <width> [-o out.mp4
   The equalizer flags are **stackable**: any combination is composed in a fixed
   coarse-to-fine order (whole width → octaves → notes). See
   [Equalization](#equalization).
+- `--floor dB` — hard **noise gate** (default off): zero out any sample whose
+  level is below a dB floor. See [Noise floor](#noise-floor).
 
 There is no `--mode` flag: the script reads the `mode` key from the waterfall
 header to choose the horizontal layout (MIDI vs PCM; see [How it works](#how-it-works)).
@@ -309,6 +311,31 @@ Anything that displays well this way is a good candidate for generating a MIDI
 file: the same per-note normalization that reveals each note's core (and tames
 the neighbor-bleed at its edges) is exactly the information a note-tracking step
 needs to see quiet upper-register onsets cleanly, not just the loudest lows.
+
+### Noise floor (`--floor`)
+
+A hard noise gate that removes the dim background a recording carries (room
+noise, hiss, the faint bleed under a note). It is the inverse of the
+auto-scaling `waterfall` performs: auto-scale lifts the file's *peak* to full
+scale (`FFFF` = 0 dB); the floor gates the *low* end, zeroing the quiet noise
+beneath a level you choose.
+
+- **The argument is a dB magnitude read as `-abs(dB)`.** `--floor 30` and
+  `--floor -30` both mean **−30 dB**. `0 dB` is full scale (`FFFF`) and `--floor 0`
+  is the no-op gate, so you can't accidentally gate above full scale.
+- **Integer mapping:** the floor is converted to a 16-bit integer with the same
+  normalization `waterfall` used to *write* the file —
+  `int = round(clamp((floor − −60 dB) / (refDb − −60 dB), 0, 1) × 65535)`, where
+  `refDb` is read from the header — and **any sample strictly below that integer
+  is set to 0.** Because it reuses the tool's own dB↔16-bit map, a floor you set
+  in dB lands on exactly the level the tool quantized, so a −30 dB floor is −30 dB.
+- **Applied after the equalizer, before color mapping.** A stack like
+  `--eq-per-note 6 --floor 24` first peak-normalizes each note (which can lift a
+  note's quiet noise up to full scale) and then gates the residual noise back out,
+  leaving each note's core bright and clean. It works in both MIDI and PCM layouts.
+- **Display-only:** the waterfall text and underlying data are untouched; it only
+  changes what is drawn. A warning is printed if the header lacks a usable `refDb`
+  (a hand-crafted file) and the reference is instead derived from the file's peak.
 
 Requires **numpy** and **ffmpeg** on `PATH`.
 
