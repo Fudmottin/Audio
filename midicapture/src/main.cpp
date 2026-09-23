@@ -541,7 +541,8 @@ int main(int argc, char* argv[]) {
       // 5. Write the Score to a Type 1 MIDI file.
       // =====================================================================
 
-      Transcriber transcriber(windowSize, hopSize, silenceDb, pitchMethod);
+      Transcriber transcriber(windowSize, hopSize, silenceDb, pitchMethod,
+                              tempoBpm);
 
       // Transcribe the audio file.
       Score score = transcriber.transcribe(inputPath);
