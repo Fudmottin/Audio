@@ -10,8 +10,8 @@ Build a suite of local-first audio processing utilities targeting macOS (later P
 |-------|--------|-------------|
 | **Audio → AIFF** (capture) | Complete | Capture audio from BlackHole 2ch to 16-bit signed integer AIFF files. |
 | **DSP Library** (libaudio) | Designed | DSP library wrapping aubio, libsndfile, rubberband. HIR defined. Not yet implemented. |
-| **Audio → MIDI** (transcription) | **In Progress** | Monophonic prototype using aubio (YINfft pitch, spectral flux onsets) → Type 1 MIDI. |
-| **Audio → Waterfall** (frequency analysis) | **In Progress** | SONAR-style spectral display: FFT per row, 16-bit quantized, text output. |
+| **Audio → MIDI** (transcription) | **In Progress** | Monophonic (YINfft + specflux) with defragmentation (min-lifetime + same-pitch merge) → Type 1 MIDI. Octave robustness open. |
+| **Audio → Waterfall** (frequency analysis) | **Mostly complete** | SONAR-style spectral display (text + MP4 video, PCM and MIDI modes). |
 | **MIDI → Sheet Music** | Planned | Generate readable sheet music from MIDI data. |
 | **Sheet Music → MIDI** | Planned | Generate playable audio from sheet music representations. |
 
@@ -57,9 +57,13 @@ Audio/
   (2048-float buffer receiving 4096 interleaved stereo floats per frame)
   is fixed. The program now runs to completion on stereo WAV/AIFF files.
   See [midicapture/summary.md](midicapture/summary.md) §8.
-- **Transcription — still WIP (open).** The monophonic pipeline detects only
-  ~2 notes from a ~30 s recording. Threshold tuning and state-machine stability
-  remain open; this is independent of (now-solved) writer validity.
+- **Transcription — defragmented (WIP).** Decaying-note fragmentation (a dense
+  30 s passage → 1447 one-hop fragments) is fixed: minimum-lifetime + same-pitch
+  merge reduce `final-fantasy.aiff` to ~101 musically-sensible notes, and the
+  chromatic scale's ascending sequence survives. **Open:** octave ambiguity on
+  weak-fundamental recordings (YIN locks below the fundamental; see
+  [audio-to-midi.md](audio-to-midi.md) §5) — the scale round-trip validates
+  note count / defrag, not absolute pitch. Writer validity is solved.
 
 ## Key Decisions
 

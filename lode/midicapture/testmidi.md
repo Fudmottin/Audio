@@ -12,8 +12,8 @@
 ## 1. Role & Responsibility
 
 `midicapture --generate-test-midi-files` is a **generator** that **ignores all
-other options** (input, output, window-size, hop-size, confidence, silence,
-tempo, method). It builds a fixed set of `Score`s (HIR) and writes each to a
+other options** (input, output, window-size, hop-size, silence, tempo,
+method). It builds a fixed set of `Score`s (HIR) and writes each to a
 `.mid` file. No audio is opened, no analysis is run. It takes precedence over
 `--test` if both are present.
 

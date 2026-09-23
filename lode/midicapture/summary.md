@@ -44,40 +44,51 @@ Audio/
 ```mermaid
 graph LR
     A[Input Audio File] --> B[libaudio::AudioFileReader]
-    B --> C{Silent?}
-    C -->|Yes| D[End current note]
-    C -->|No| E[PitchDetector YINfft]
-    E --> F{Confident?}
-    F -->|No| D
-    F -->|Yes| G[OnsetDetector specflux]
-    G --> H{Onset?}
-    H -->|No| I[Continue current note]
-    H -->|Yes| J{Playing?}
-    J -->|No| K[Start new note]
-    J -->|Yes| I
-    K --> L[Add to Score.notes]
-    I --> L
-    D --> L
-    L --> M{EOF?}
-    M -->|No| B
-    M -->|Yes| N[Score → MidiFileWriter]
-    N --> O[Type 1 MIDI File]
+    B --> C[per hop: RMS energy]
+    C --> D{RMS above --silence?}
+    D -->|No| E[hold release-hysteresis counter]
+    D -->|Yes| F[PitchDetector YINfft]
+    E --> F2{releaseRun >= 3 hops?}
+    F2 -->|Yes, was playing| G[close note]
+    F --> H[OnsetDetector specflux]
+    H --> I{Onset?}
+    I -->|Yes| J[replace current note, open new]
+    I -->|No| K[pitch hysteresis: 5 agreeing hops?]
+    K -->|changed + credible lifetime| L[close + open new note]
+    K -->|else| M[continue note: record hz, track peak RMS]
+    G --> N{EOF?}
+    L --> N
+    M --> N
+    J --> N
+    N -->|No| B
+    N -->|Yes| O[defrag: drop < 5-hop notes, merge same-pitch runs]
+    O --> P[Score, tempo=--tempo → MidiFileWriter]
+    P --> Q[Type 1 MIDI File]
 ```
 
 ---
 
-## 4. State Machine (Monophonic)
+## 4. State Machine (Monophonic, energy-gated)
 
-The monophonic prototype uses a simple two-state machine:
+The monophonic prototype uses a two-state machine gated on **energy**, not on
+the pitch detector's confidence (YINfft reports a usable fundamental even for
+noise; on rendered piano its confidence reads ~0, so it is not a usable gate).
 
 | State | Condition | Action |
 |-------|-----------|--------|
-| **IDLE** | Confidence < threshold | Wait for onset |
-| **PLAYING** | Confidence ≥ threshold | Track note, watch for note-off |
+| **IDLE** | No note active | Wait for an onset on a tonal hop |
+| **PLAYING** | A note is active | Record hz + peak RMS; watch for release, onset, or a stable pitch change |
 
 Transitions:
-- **IDLE → PLAYING**: Confidence ≥ threshold AND onset detected
-- **PLAYING → IDLE**: Confidence < threshold (note-off) or new onset
+- **IDLE → PLAYING**: onset detected on a tonal hop (RMS above `--silence`).
+- **PLAYING → IDLE** (any of):
+  - **release** — energy stays below `--silence − 10 dB` for `kReleaseHops = 3` hops;
+  - **onset** — a new onset replaces the current note;
+  - **pitch change** — `kPitchStability = 5` consecutive hops agree on a *different* pitch class, *and* the in-flight note is ≥ `kMinReplaceHops = 5` hops (younger than that the change is treated as wobble within the same note).
+
+A note that closes with fewer than `kMinNoteHops = 5` hops is dropped (see §8).
+A decaying note that is closed and re-opened hop to hop by its own wobble is
+recombined into a single note by the same-pitch merge in §8.
 
 ---
 
@@ -88,9 +99,13 @@ Transitions:
 | **Pitch method** | YINfft (default) | Best accuracy/speed tradeoff for piano |
 | **Onset method** | Spectral flux | Most reliable for piano transients |
 | **Window size** | 2048 (configurable) | 43 ms at 48 kHz, good balance |
-| **Hop size** | 512 (75% overlap) | Good latency vs. smoothing |
-| **Confidence threshold** | 0.5 (configurable) | Moderate sensitivity for piano |
-| **Silence threshold** | -40 dB (configurable) | Filters out background noise |
+| **Hop size** | 512 (10.7 ms at 48 kHz) | Good latency vs. smoothing |
+| **Silence threshold** | -40 dB (configurable) | Note on/off hysteresis level |
+| **Release hysteresis** | -10 dB, 3 hops | A note disarms only after 3 quiet hops |
+| **Pitch stability** | 5 hops (100 ms) | A pitch change needs 5 agreeing hops |
+| **Min note lifetime** | 5 hops | Drops the wobble-fragment debris |
+| **Min replace lifetime** | 5 hops | A note must be credible before it is replaced |
+| **Tempo** | from `--tempo` (120) | Drives the merge gap + MIDI ticks |
 | **MIDI format** | Type 1, 480 ticks/qn | Logic Pro compatible |
 | **CLI library** | Boost program_options | Standard, robust, extensible |
 
@@ -119,10 +134,10 @@ Main options:
   -o [ --output ] arg       Output MIDI file path (.mid).
   --window-size arg (=2048) FFT window size (power of 2, default: 2048).
   --hop-size arg (=512)     Hop size between frames (default: 512).
-  --confidence arg (=0.5)   Pitch detection confidence threshold (0.0–1.0,
-                            default: 0.5).
-  --silence arg (=-40)      Silence threshold in dB (default: -40).
-  --tempo arg (=120)        Tempo in BPM (default: 120).
+  --silence arg (=-40)      Silence threshold in dB (default: -40) — note
+                            on/off hysteresis level.
+  --tempo arg (=120)        Tempo in BPM (default: 120) — drives the merge
+                            gap and the MIDI tick conversion.
   --method arg (=yinfft)    Pitch detection method (default: "yinfft").
   -t [ --test ]             Sanity test: write a single middle-C note
                             (C4, velocity 100, 1s) regardless of input.
@@ -189,22 +204,62 @@ segfault.
 
 **Fix:** Buffer is now sized `bufSize × channels` to accommodate interleaved
 stereo data. After the in-place downmix in `AudioFileReader::read()`, the
-first `framesRead` positions hold valid mono samples. For partial reads near
-EOF, the buffer is zero-padded to `bufSize` before calling the detectors.
+first `framesRead` positions hold valid mono samples; a partial read near EOF
+is zero-padded to `hopSize` before the detectors. **Status:** Fixed.
 
-**Status:** Fixed. The program runs to completion on stereo input (writes an
-empty 44-byte MIDI file; the 0-note result is the separate open issue below).
+### Resolved: decaying-note fragmentation (WIP → fixed 2026-09-23)
 
-### Open: transcription detects far too few notes (WIP)
+**Symptom (superseded the old "~2 notes" issue):** a *dense* passage produced
+hundreds of ~10 ms notes — a 30 s `final-fantasy.aiff` gave **1447 notes** at
+`--silence -40`, with median duration 1 hop and up to 55 consecutive same-pitch
+1-hop fragments. The root cause is **not** the release hysteresis failing to
+fire: a decaying piano note is *closed and re-opened hop to hop* by its own
+spectral-flux wobble (a flux blip closes the note, the lagged window still
+reports the old pitch, a fragment opens), and its peak RMS decays so the 3-hop
+off-threshold is never reached inside a dense passage.
 
-Only ~2 notes are detected from a ~30 s Final Fantasy AIFF (C2, A#5),
-both with very low velocities. Suspected causes:
-- Onset detection (spectral flux) threshold mis-tuned for this recording
-- Pitch confidence threshold (0.5) too high
-- IDLE/PLAYING state-machine flickering
-- Stereo-to-mono downmix quality
+**Fix (defragmentation):**
+1. `kMinNoteHops = 5` — a note that closes younger than 5 hops (100 ms) is
+dropped, removing the 1–3 hop wobble debris.
+2. `kMinReplaceHops = 5` — a pitch-change / onset may *replace* an in-flight
+note only once it has a credible lifetime; younger than that the "change" is
+wobble within the same sustained note.
+3. **Same-pitch merge** — after the scan, consecutive same-pitch fragments
+closer than a quarter-note gap (`60/tempo · 0.5` s) are joined into one note
+(earliest start, latest end). This recombines a wobble-fragmented sustained
+note that the in-loop rules alone cannot (they see the *current* note's
+placeholder pitch, not the final stamped one).
+4. **Velocity** = loudest hop-RMS over the merged lifetime (one
+attack-and-decay, not per-hop tremolo); the new-note start is back-dated one
+hop for the attack-window lag.
 
-This is a **separate** issue from writer validity, which is now solved.
+**Measured effect:** `final-fantasy.aiff` **1447 → 101 notes** (the handoff
+"hundreds, not 1447" target), F#/E/G# content, sensibly spaced. On the
+6-scale round-trip corpus defrag reduces fragments to a plausible note count
+and, for the chromatic scale, *preserves the ascending pitch sequence*
+(E3→…→F#2). See the open octave limitation below.
+
+### Open: octave ambiguity on weak-fundamental recordings
+
+A *decaying* note's lifetime-mean frequency drifts to a **sub-octave** of the
+true fundamental (YIN is a harmonic estimator; measured **91 Hz mean for a
+440 Hz note** on the `timidity` scale renders, with the loudest hop also at
+~90 Hz — *all* estimates sit 1–2 octaves low), so the transcribed *octave* is
+unreliable on those renders even though the *chroma* is right and defrag now
+gives clean note counts. The 2048-sample window is *not* the cause (440 Hz is
+resolvable; the fundamental is the dominant partial in the spectrum). This is
+a YIN-on-weak-fundamental artifact, not a window-resolution artifact.
+
+On a **recorded** performance with a strong fundamental (the project's real
+target) the defragmented output is musically sensible. Robust octave resolution
+for weak-fundamental sources is a future task — a spectral-peak / harmonic-
+series anchor (read the dominant partial directly, bypassing YIN) or a neural
+analyzer (basic-pitch / Onsets&Frames); see [`lode/audio-to-midi.md`](../audio-to-midi.md).
+
+**Known minor artifacts:** the *first* note of a file is frequently missed
+(aubio's first-frame onset artifact); the 4 note-scale corpus resolves to 2–4
+notes per file because the quiet timidity render's decay tail falls below
+`--silence -40` a second after each attack.
 
 ---
 

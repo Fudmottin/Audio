@@ -10,6 +10,7 @@
 | [literate-programming.md](../literate-programming.md) | Knuth's philosophy, Web language, toolchain history, source code for humans |
 | [MIDI.md](MIDI.md) | MIDI protocol, General MIDI, SMF file format, piano-specific considerations |
 | [LilyPond.md](LilyPond.md) | LilyPond notation, MIDI-to-LilyPond mapping, Logic Pro integration |
+| [audio-to-midi.md](audio-to-midi.md) | Cross-module: audio vs MIDI, what's recoverable, state of the art (tiers), the octave problem, evaluation |
 
 ## Subsystem Files
 
@@ -18,7 +19,8 @@
 | aiffcapture | [lode/aiffcapture/](aiffcapture/) | Phase 1 — Complete |
 | libaudio | [lode/libaudio/](libaudio/) | Phase 0 — Built (namespace `libaudio`) |
 | **midicapture** | **[lode/midicapture/](midicapture/)** | **Phase 2 — In Progress** |
-| **waterfall** | **[lode/waterfall/](waterfall/)** | **Phase 3 — In Progress** |
+| **waterfall** | **[lode/waterfall/](waterfall/)** | **Phase 3 — Mostly complete** |
+| **audio-to-midi** | **[audio-to-midi.md](audio-to-midi.md)** | **Cross-module reference** |
 
 ## Subsystem: aiffcapture
 
@@ -47,7 +49,7 @@
 
 | Document | Purpose |
 |----------|---------|
-| [summary.md](midicapture/summary.md) | Module overview, architecture, transcription pipeline, CLI, validation, stereo buffer fix, open transcription issue |
+| [summary.md](midicapture/summary.md) | Module overview, architecture, transcription pipeline, CLI, validation, defragmentation, open octave limitation |
 | [writer.md](midicapture/writer.md) | SMF writer: byte layout, invariants, `--test` flag, midicsv/timidity validation |
 | [testmidi.md](midicapture/testmidi.md) | `--generate-test-midi-files`: monophonic scale ground-truth files, `--output-dir` |
 | [tmp/session-handoff-midicapture-diagnosis.md](tmp/session-handoff-midicapture-diagnosis.md) | Session diagnosis: secondsToTicks bug, transcription quality issues |
