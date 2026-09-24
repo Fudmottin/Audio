@@ -450,10 +450,42 @@ int main(int argc, char* argv[]) {
                         std::string(argv[0]) +
                         " [options] <input.aiff> [output.mid]";
    po::options_description desc(header);
+   //
+   // The input and output paths are each registered under *two distinct*
+   // option names that map into the same backing variable:
+   //   - "input" / "output" — positional-only, no flag spellings.  These are
+   //     the names bound in `positional` below, so the usage line can document
+   //     them and they appear in the option list in `desc`.
+   //   - "_input_alias,i" / "_output_alias,o" — flag-only (the user-facing
+   //     --input/-i and --output/-o), sharing the same backing variable.
+   //
+   // Boost program_options cannot express "an option that is both a named
+   // flag and a positional" for a *single* name: a value supplied both via
+   // the flag and via the positional slot would be a second use of the same
+   // logical option and would fail with
+   //   Error: option '--input' cannot be specified more than once
+   // whenever the documented form `midicapture --input in.aiff out.mid` is
+   // used (the trailing positional `out.mid` would be bound to the same
+   // "input" slot that the flag already filled).  Splitting each path into a
+   // positional-only name plus a flag-only alias keeps both invocation styles
+   // working without colliding.
+   //
+   // Residual limitation: a single invocation cannot specify the *same* file
+   // path via both a flag and a positional (e.g. `--input in.aiff in.aiff`)
+   // because the two registered names map into the same backing variable —
+   // that's a usage error the user should fix, not a parsing collision.  The
+   // alias options are registered *after* the positional names in `desc` so
+   // the user-facing --input / --output rows appear in the help output under
+   // their long/short names.
    desc.add_options()("help,h", "Print usage information.")(
-      "input,i", po::value<std::string>(&inputPath),
+      "input", po::value<std::string>(&inputPath),
       "Input audio file path (AIFF, WAV, FLAC, etc.).")(
-      "output,o", po::value<std::string>(&outputPath),
+      "output", po::value<std::string>(&outputPath),
+      "Output MIDI filename (.mid).  When omitted, the input"
+      " filename is reused with a .mid extension.")(
+      "_input_alias,i", po::value<std::string>(&inputPath),
+      "Input audio file path (AIFF, WAV, FLAC, etc.).")(
+      "_output_alias,o", po::value<std::string>(&outputPath),
       "Output MIDI filename (.mid).  When omitted, the input"
       " filename is reused with a .mid extension.")(
       "window-size", po::value<uint32_t>(&windowSize)->default_value(2048),
@@ -476,7 +508,10 @@ int main(int argc, char* argv[]) {
       "Directory the generated MIDI files are written to"
       " (default: current directory).");
 
-   // Define positional options: <input.aiff> <output.mid>.
+   // Define positional options: <input.aiff> <output.mid>.  These bind the
+   // alias-free names registered above ("input" / "output"), so the
+   // positional slots never collide with the flag aliases
+   // ("_input_alias" / "_output_alias").
    po::positional_options_description positional;
    positional.add("input", 1).add("output", 1);
 
@@ -495,6 +530,42 @@ int main(int argc, char* argv[]) {
       return 1;
    }
 
+   // --- Post-parse validation ---
+   //
+   // Boost program_options treats `--input`/`-i` (the alias) and the first
+   // positional slot ("input") as *distinct* options even though they share a
+   // backing variable.  A value supplied via both (e.g. `--input in.aiff`
+   // plus a trailing `in.aiff`) is two uses of the same logical file path;
+   // the flag would win in the shared variable and the positional's value
+   // would be silently dropped.  Catch the user mistake explicitly with an
+   // actionable message instead of letting the last write win.
+   //
+   // Boost's own duplicate detection fires *before* we get here when the
+   // same option name is supplied twice in a single invocation (e.g.
+   // `--input in.aiff --input in.aiff`), so this only catches the
+   // cross-spelling case where the flag and the positional slot are
+   // *different* registered names that happen to share a backing variable
+   // (e.g. `--input in.aiff` followed by a trailing positional `in.aiff`).
+   if (vm.count("_input_alias") > 0 && vm.count("input") > 0) {
+      std::cerr << "Error: --input and a positional <input.aiff> cannot both"
+                << " be specified.  Use one form or the other.\n";
+      std::cerr << "  Example (positional): " << argv[0]
+                << " in.aiff [out.mid]\n";
+      std::cerr << "  Example (flag-only):  " << argv[0]
+                << " --input in.aiff   # no trailing arguments\n";
+      return 1;
+   }
+   // Same for output: `--output`/`-o` plus a trailing positional.
+   if (vm.count("_output_alias") > 0 && vm.count("output") > 0) {
+      std::cerr << "Error: --output and a positional [output.mid] cannot both"
+                << " be specified.  Use one form or the other.\n";
+      std::cerr << "  Example (positional): " << argv[0]
+                << " in.aiff out.mid\n";
+      std::cerr << "  Example (flag-only):  " << argv[0]
+                << " in.aiff --output out.mid\n";
+      return 1;
+   }
+
    testMode = (vm.count("test") > 0);
    generateTestMidiFiles = (vm.count("generate-test-midi-files") > 0);
 
@@ -505,11 +576,11 @@ int main(int argc, char* argv[]) {
          << "Usage: " << argv[0] << " [options] <input.aiff> [output.mid]\n"
          << "\nMain options:\n"
          << "  -h [ --help ]             Print usage information.\n"
-         << "  -i [ --input ] arg        Input audio file path (AIFF, WAV, "
+         << "  <input.aiff>              Input audio file path (AIFF, WAV, "
             "FLAC, "
             "etc.).\n"
-         << "  -o [ --output ] arg       Output MIDI filename (.mid)."
-            "  When omitted, the input filename is reused.\n"
+         << "  [output.mid]             Output MIDI filename (.mid).  When "
+            "omitted, the input filename is reused.\n"
          << "  --window-size arg (=2048) FFT window size (power of 2, default: "
             "2048).\n"
          << "  --hop-size arg (=512)     Hop size between frames (default: "

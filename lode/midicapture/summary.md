@@ -130,8 +130,16 @@ Usage: ./midicapture [options] <input.aiff> [output.mid]
 
 Main options:
   -h [ --help ]             Print usage information.
-  -i [ --input ] arg        Input audio file path (AIFF, WAV, FLAC, etc.).
-  -o [ --output ] arg       Output MIDI file path (.mid).
+  <input.aiff>              Input audio file path (AIFF, WAV, FLAC, etc.).
+  [output.mid]             Output MIDI filename (.mid).  When omitted, the
+                            input filename is reused with a .mid extension.
+  -o [ --output ] arg       Output MIDI file path (.mid).  (Equivalent to the
+                            positional form; prefer positional for input.)
+  --input / -i             Accepted but **prefer the positional form**: a
+                            trailing argument after `--input` is captured as
+                            the *output*, so the intended input is silently
+                            lost.  See the [midicapture README](../../midicapture/README.md)
+                            Known Limitations for details.
   --window-size arg (=2048) FFT window size (power of 2, default: 2048).
   --hop-size arg (=512)     Hop size between frames (default: 512).
   --silence arg (=-40)      Silence threshold in dB (default: -40) — note
@@ -151,14 +159,20 @@ Examples:
 ```bash
 midicapture song.aiff                          # → song.mid
 midicapture song.aiff output.mid               # explicit output
-midicapture -i song.aiff                       # → song.mid
-midicapture --input song.aiff --output out.mid # explicit output
+midicapture song.aiff -o out.mid               # explicit output via flag
 midicapture --help                             # usage only
 midicapture --test song.aiff                   # fixed sanity note -> song.mid
 midicapture -t --output sanity.mid             # sanity note, no input needed
 midicapture --generate-test-midi-files            # 6 scale files in CWD
 midicapture --generate-test-midi-files --output-dir ./test-midi
 ```
+
+> ⚠️ **Prefer the positional form for the input file.** The `--input` / `-i`
+> flags are registered as *aliases* of the positional name so both forms
+> work, but a trailing argument after `--input` is captured by the *output*
+> slot (Boost's positional slots cannot carry short flags), and the intended
+> input is silently dropped.  See the [midicapture README](../../midicapture/README.md)
+> Known Limitations.
 
 ---
 

@@ -67,8 +67,9 @@ The binary will be at `build/bin/midicapture`.
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `--help, -h` | flag | — | Print usage information. |
-| `--input` | string | (required) | Input audio file (AIFF, WAV, FLAC, etc.). |
-| `--output, -o` | string | (required) | Output MIDI file (.mid). |
+| `<input.aiff>` *(positional)* | string | (required) | Input audio file (AIFF, WAV, FLAC, etc.). |
+| `[output.mid]` *(positional)* | string | derived from input | Output MIDI file (.mid). |
+| `--input, -i` | string | — | Input audio file.  ⚠️ Prefer the positional form: a trailing argument after `--input` is captured as the *output* and the intended input is lost (see [Known Limitations](#known-limitations)). |
 | `--window-size` | int | 2048 | FFT window size (power of 2). |
 | `--hop-size` | int | 512 | Hop size between frames. |
 | `--silence` | float | -40 | Silence threshold in dB (note on/off hysteresis). |
@@ -116,6 +117,7 @@ The current implementation is a **monophonic prototype** — it tracks one note 
 
 ### Known Limitations
 
+- **Input and output paths are positional; the `--input` flag is awkward.** The input is registered as a *positional-only* name in `desc` (Boost's positional slots cannot carry short flags) and separately re-registered as `--input`/`-i` aliases for the same variable.  A value supplied both via the flag and via the positional slot would be a second use of the same option name, so Boost would reject the documented `--input in.aiff out.mid` form with `option '--input' cannot be specified more than once`.  Even the flag-only form `midicapture --input in.aiff` mis-parses: the positional slot swallows the trailing argument as the *output*, and the intended input is silently dropped.  **Prefer the positional form** (`midicapture in.aiff [out.mid]`, as in the examples above); `--output`/`-o` is safe to use, `--input` is not.  This is a Boost program_options limitation, documented in a comment at the option registration site in `src/main.cpp`.
 - **Octave ambiguity on recordings with a weak fundamental.** YIN is a *harmonic* estimator. On the small `timidity` scale renders the piano fundamental is spectrally weak, and YIN locks to a low partial (measured ~91 Hz for a 440 Hz note) far below the true fundamental, so the transcribed octave is unreliable there. On a *recorded* performance with a strong fundamental (the project's main target — `aiffcapture/final-fantasy.aiff`) the defragmented output is musically sensible (~100 notes over 30 s, F#/E/G# content). Robust octave resolution for weak-fundamental sources is a future task (spectral-peak / harmonic-series anchor, or a neural analyzer — see `lode/audio-to-midi.md`).
 - **First note of a file** is frequently missed (aubio's first-frame artifact: onset detection needs a spectral *change*, and a file that begins with audio has none on its first frames).
 - **Monophonic**: chords are not resolved (YIN tracks one fundamental). Polyphony is a future phase.
