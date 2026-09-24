@@ -147,7 +147,9 @@ static Score makeSanityScore(double tempoBpm) {
 // @param title      Score title (embedded in the MIDI file metadata).
 // ============================================================================
 static Score buildScaleScore(double tempoBpm, const std::vector<int>& pitches,
-                             double noteBeats, const std::string& title) {
+                             double noteBeats, const std::string& title,
+                             const std::vector<int>& velocities = {},
+                             double gapBeats = 0.0) {
    Score score;
    score.tempo = tempoBpm;
    score.title = title;
@@ -155,19 +157,26 @@ static Score buildScaleScore(double tempoBpm, const std::vector<int>& pitches,
    // One real second per beat at the given tempo (a beat is a quarter note).
    const double beatSeconds = 60.0 / tempoBpm;
    const double noteSeconds = noteBeats * beatSeconds;
+   const double gapSeconds = gapBeats * beatSeconds; // silence after each note.
+
+   // Per-note velocity ladder: use the provided value when there is one for
+   // this note index, otherwise fall back to a uniform 100. This is how a
+   // dynamics test (soft → loud) is expressed without changing pitch or timing.
+   const bool haveVelocities = velocities.size() == pitches.size();
 
    double cursor = 0.0;
-   for (int pitch : pitches) {
+   for (size_t i = 0; i < pitches.size(); ++i) {
       Note note;
       note.startTime = cursor;
       note.endTime = cursor + noteSeconds;
-      note.pitch = static_cast<uint8_t>(pitch);
+      note.pitch = static_cast<uint8_t>(pitches[i]);
       note.velocity =
-         100;           // uniform dynamics — the only signal is pitch + timing.
+         static_cast<uint8_t>(haveVelocities ? velocities[i] : 100);
       note.channel = 0; // channel 1 (Acoustic Grand Piano).
       note.sustain = false;
       score.notes.push_back(note);
-      cursor += noteSeconds; // monophonic: the next note starts when this ends.
+      // Monophonic: the next note starts one gap after this one ends.
+      cursor += noteSeconds + gapSeconds;
    }
 
    return score;
@@ -182,6 +191,15 @@ struct TestScale {
    std::vector<int> pitches; // MIDI note numbers, one at a time.
    double tempoBpm;          // drives real-time duration.
    double noteBeats; // beats per note (2 = whole, 1 = half, 0.5 = quarter).
+   // Optional per-note velocity ladder (one value per pitch). When it is the
+   // right size, the i-th note gets velocities[i]; otherwise every note uses
+   // the uniform default (100). This lets a test exercise *dynamics* (velocity)
+   // rather than just pitch + timing.
+   std::vector<int> velocities;
+   // Silence between successive notes, in beats (0 = legato, notes touch).
+   // A non-zero gap gives a test the explicit rest between two notes that the
+   // same-pitch merge must *not* swallow.
+   double gapBeats = 0.0;
 };
 
 // ============================================================================
@@ -209,14 +227,106 @@ static std::vector<TestScale> testScaleSet() {
       chromaticUp.push_back(p);
    }
 
+   // One-octave runs at three heights: separates an *octave* error from a
+   // *chroma* (pitch-class) error. A transcription that is "one octave low"
+   // here is a different, diagnosable failure than one with a wrong note.
+   const std::vector<int> majorLow = {48, 52, 55, 60};  // C3..C4
+   const std::vector<int> majorMid = {60, 64, 67, 72};  // C4..C5 (== majorUp)
+   const std::vector<int> majorHigh = {72, 76, 79, 84}; // C5..C6
+
+   // A sustained note, one beat of rest, then another — exercises the
+   // same-pitch merge's *boundary*: the gap equals a whole rest at this
+   // tempo, so the two must NOT be merged (they are distinct physical notes
+   // separated by silence, not wobble fragments of one note).
+   const std::vector<int> restSeparated = {60, 60};
+   // Same note, no rest: the run is a wobble-fragmented sustained note that
+   // the same-pitch merge must recombine into a single long note.
+   const std::vector<int> sustainedRun = {60, 60, 60, 60};
+
    return {
-      {"scale-major-ascending-whole-notes-60bpm.mid", majorUp, 60.0, 2.0},
-      {"scale-major-ascending-half-notes-90bpm.mid", majorUp, 90.0, 1.0},
-      {"scale-major-descending-whole-notes-60bpm.mid", majorDown, 60.0, 2.0},
-      {"scale-major-descending-half-notes-90bpm.mid", majorDown, 90.0, 1.0},
-      {"scale-chromatic-ascending-quarter-notes-120bpm.mid", chromaticUp, 120.0,
-       0.5},
-      {"scale-minor-ascending-whole-notes-60bpm.mid", minorUp, 60.0, 2.0},
+      // Scales: pitch + timing + defragmentation.
+      {"scale-major-ascending-whole-notes-60bpm.mid",
+       majorUp,
+       60.0,
+       2.0,
+       {},
+       0.0},
+      {"scale-major-ascending-half-notes-90bpm.mid",
+       majorUp,
+       90.0,
+       1.0,
+       {},
+       0.0},
+      {"scale-major-descending-whole-notes-60bpm.mid",
+       majorDown,
+       60.0,
+       2.0,
+       {},
+       0.0},
+      {"scale-major-descending-half-notes-90bpm.mid",
+       majorDown,
+       90.0,
+       1.0,
+       {},
+       0.0},
+      {"scale-chromatic-ascending-quarter-notes-120bpm.mid",
+       chromaticUp,
+       120.0,
+       0.5,
+       {},
+       0.0},
+      {"scale-minor-ascending-whole-notes-60bpm.mid",
+       minorUp,
+       60.0,
+       2.0,
+       {},
+       0.0},
+      // Octave: the same major arpeggio at three heights.
+      {"scale-major-low-octave-whole-notes-60bpm.mid",
+       majorLow,
+       60.0,
+       2.0,
+       {},
+       0.0},
+      {"scale-major-mid-octave-whole-notes-60bpm.mid",
+       majorMid,
+       60.0,
+       2.0,
+       {},
+       0.0},
+      {"scale-major-high-octave-whole-notes-60bpm.mid",
+       majorHigh,
+       60.0,
+       2.0,
+       {},
+       0.0},
+      // Timing: the same scale at two tempos (slow + fast).
+      {"scale-major-ascending-whole-notes-30bpm.mid",
+       majorUp,
+       30.0,
+       2.0,
+       {},
+       0.0},
+      {"scale-major-ascending-whole-notes-180bpm.mid",
+       majorUp,
+       180.0,
+       2.0,
+       {},
+       0.0},
+      // Dynamics: a soft → loud velocity ladder on one pitch. The only
+      // varying signal is loudness, so this is the suite's velocity test.
+      {"velocity-soft-loud-quarter-notes-60bpm.mid",
+       std::vector<int>{60, 60, 60, 60, 60, 60}, 60.0, 0.5,
+       std::vector<int>{30, 50, 70, 90, 110, 127}, 0.0},
+      // Defrag / merge: a wobble run that must collapse, and a rest-separated
+      // run that must NOT merge across the gap.
+      {"sustained-run-whole-notes-60bpm.mid", sustainedRun, 60.0, 2.0, {}, 0.0},
+      {"rest-separated-whole-notes-60bpm.mid",
+       restSeparated,
+       60.0,
+       2.0,
+       {},
+       1.0}, // one-beat rest between the two notes.
    };
 }
 
@@ -254,8 +364,9 @@ static int runGenerateTestMidiFiles(const std::string& outputDir) {
       const std::string fullPath =
          (fs::path(outputDir) / scale.fileName).string();
 
-      Score score = buildScaleScore(scale.tempoBpm, scale.pitches,
-                                    scale.noteBeats, scale.fileName);
+      Score score =
+         buildScaleScore(scale.tempoBpm, scale.pitches, scale.noteBeats,
+                         scale.fileName, scale.velocities, scale.gapBeats);
 
       MidiFileWriter midiWriter(fullPath);
       if (midiWriter.write(score)) {
