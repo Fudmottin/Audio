@@ -80,7 +80,7 @@ if the lode/ does not exist, ask the user if you should create one.
 
 Coding Style
 - Follow Core Guidelines within reason
-- Follow literate programming philosphy
+- Follow literate programming philosophy
 - Don't mention lode coding or reference lode/ in comments
 - run `clang-format -i` on source and header files
 
