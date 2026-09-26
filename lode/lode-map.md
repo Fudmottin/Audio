@@ -10,14 +10,14 @@
 | [literate-programming.md](../literate-programming.md) | Knuth's philosophy, Web language, toolchain history, source code for humans |
 | [MIDI.md](MIDI.md) | MIDI protocol, General MIDI, SMF file format, piano-specific considerations |
 | [LilyPond.md](LilyPond.md) | LilyPond notation, MIDI-to-LilyPond mapping, Logic Pro integration |
-| [audio-to-midi.md](audio-to-midi.md) | Cross-module: audio vs MIDI, what's recoverable, state of the art (tiers), the octave problem, evaluation |
+| [audio-to-midi.md](audio-to-midi.md) | Cross-module: audio vs MIDI, what's recoverable, state of the art (tiers), the octave problem, evaluation, **the decided Tier-2 path (ONNX in libaudio)** |
 
 ## Subsystem Files
 
 | Module | Path | Status |
 |--------|------|--------|
 | aiffcapture | [lode/aiffcapture/](aiffcapture/) | Phase 1 — Complete |
-| libaudio | [lode/libaudio/](libaudio/) | Phase 0 — Built (namespace `libaudio`) |
+| libaudio | [lode/libaudio/](libaudio/) | Phase 0 Tier-1 aubio built; Tier-2 ONNX foundation (Phase 1a) built + verified (see audio-to-midi.md §7) |
 | **midicapture** | **[lode/midicapture/](midicapture/)** | **Phase 2 — In Progress** |
 | **waterfall** | **[lode/waterfall/](waterfall/)** | **Phase 3 — Mostly complete** |
 | **audio-to-midi** | **[audio-to-midi.md](audio-to-midi.md)** | **Cross-module reference** |
@@ -69,4 +69,4 @@
 - `midicapture/` — Phase 2 implementation (in progress)
 - `lode/MIDI.md` — MIDI protocol, General MIDI, SMF file format
 - `lode/LilyPond.md` — LilyPond notation, MIDI-to-LilyPond mapping
-- `lode/libaudio/` — Phase 0 DSP library (designed, not yet implemented)
+- `lode/libaudio/` — Phase 0 DSP library (Tier-1 aubio) + Tier-2 ONNX foundation (Phase 1a)

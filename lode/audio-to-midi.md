@@ -82,7 +82,8 @@ dependency.
   - **basic-pitch** (Spotify, 2022): a small neural network for *polyphonic*
     piano, directly MIDI-out. The practical modern baseline and the most likely
     "swap the analyzer" upgrade for midicapture when a local runtime is
-    acceptable.
+    acceptable. → **This is the decided path:** host it (and later TF-MAGS /
+    Demucs) inside libaudio on ONNX Runtime. See §7.
   - **NNoteS** (2021): neural, per-note; relevant for monophonic robustness.
 
 **Tier 3 — large / foundation models.**
@@ -104,6 +105,8 @@ renderer-independent middle layer that every analyzer can feed and every output
    (melody + accompaniment), reusing the fixed Tier-1 machine per stem.
 3. **Swap the analyzer for basic-pitch** (Tier 2) where a local runtime fits —
    for genuine polyphony / chords that no amount of monophonic tuning resolves.
+   The *how* — hosting these models in libaudio on ONNX Runtime — is decided;
+   see §7.
 
 **Waterfall's role is verification, not boundary detection.** With peak
 normalization every row shows every note of a chord at ≥25% and a fundamental's
@@ -165,3 +168,96 @@ real "more interesting MIDI" step after monophonic is settled.
 - **Structure check**: does the *sequence* of notes survive? (The chromatic
   scale's ascending pitch sequence is preserved after defrag even when the
   absolute octave is off — a useful intermediate signal.)
+
+---
+
+## 7. The decided Tier-2 path: ONNX Runtime in libaudio
+
+> *Added as the decided direction for the next real step (after the §5 octave
+> problem). Records the decision, the architecture, and the basic-pitch I/O
+> contract. Status: **Phase 1a (ONNX foundation) is implemented and verified** —
+> the real `nmp.onnx` loads, the Core ML EP is active, and a 440 Hz (A4) sine
+> comes back as MIDI 69. The basic-pitch adapter + 14-file corpus run is the
+> next increment (Phase 1b). See the §7.4 phasing.*
+
+**Decision.** Move to **Tier 2** by hosting *neural* transcribers inside
+**libaudio** on **ONNX Runtime** (with the **Core ML** execution provider for
+Apple GPU/ANE). We **consume** pretrained models; we do not train. The same
+runtime hosts basic-pitch (now) and — after ONNX export — TF-MAGS and Demucs
+(later). This departs from the pure-aubio Tier-1 path for exactly the reason in
+§5: a model that *explicitly models the harmonic series* resolves the octave
+that YIN cannot.
+
+**Why ONNX (not raw TensorFlow/PyTorch).** ONNX is the *common-denominator*
+export format for the Python tools we want: basic-pitch, TF-MAGS, and Demucs
+can all be published as `.onnx`. One C++ runtime (ONNX Runtime) then hosts them
+all behind one seam, so libaudio gets local Tier-2 with no Python process in the
+loop. basic-pitch ships its model *already* as `nmp.onnx` — no conversion step,
+which is why it leads.
+
+### 7.1 Architecture (ports & adapters)
+
+- **Ports** (abstract, in libaudio): `Transcriber` (audio → `Score`) and, later,
+  `Separator` (mix → per-source audio). The existing aubio Tier-1 pipeline is one
+  `Transcriber` adapter; basic-pitch is another.
+- **`onnx_session`** — *one* Pimpl class, the **single** translation unit that
+  includes the ONNX Runtime C++ headers. It loads a `.onnx`, runs it, and returns
+  raw output tensors. It hides `Ort*` types exactly as the aubio `Impl`s do.
+- **Per-model adapters** (e.g. `BasicPitch`) — know *one* model's I/O contract
+  and `output_semantics`; emit libaudio HIR `Note`s.
+- **`ModelDescriptor`** — in-code declaration of a model: id/version/opset; input
+  contract (sample-rate, channels, front-end type, frame-rate, note range);
+  output contract (names/shapes + an `output_semantics` enum that *selects* the
+  post-processor); post-proc knobs.
+- **`manifest`** — per-model provenance: submodule commit, weight sha256, license,
+  converting tool + the runtime it was validated on.
+- **Front-end** — resample to the model's rate + window. For basic-pitch this is
+  all it is (the CQT lives *inside* the model); mel/CQT math is added only when a
+  model needs it (TF-MAGS).
+- **Post-proc** — small files selected by `output_semantics`; emit the existing
+  HIR, then reuse `ScoreBuilder` → `MidiFileWriter`.
+- **`external/`** holds git submodules (basic-pitch first, then tf-mags, demucs).
+  Each model's weights are referenced **in place** from its submodule (no copy),
+  with provenance (commit pin, weight sha256, license, validating runtime) in
+  `manifests/` — one source of truth.
+- **`LIBAUDIO_ENABLE_TIER2`** CMake flag gates all of the above so the Tier-1
+  aubio path is byte-for-byte unaffected when off.
+- **Test harness** — the analyzer-agnostic C++ port of
+  `midicapture/render_test_suite.py` (14-file corpus + the recall/precision/Δ
+  metrics).
+
+### 7.2 basic-pitch I/O contract (verified from the real model)
+
+| | |
+|---|---|
+| **Input** | raw **mono @ 22050 Hz**, float32; window = **43844 samples** (a 2 s window: `22050·2 − 256`). The **CQT is computed inside the model**. C++ front-end = resample→22050 mono + cut into 43844-sample chunks. No mel/CQT math in C++. |
+| **Outputs** | `note (T,88)`, `onset (T,88)`, `contour (T,264)` per window. **172 frames**/window @ **86 fps** (hop ≈ 11.6 ms). 88 bins = **MIDI 21..108**; 264 = 3/semitone (fine pitch / pitch-bend). |
+| **Windowing** | hop by 256 samples over overlapping 2 s windows; per-window outputs are **stitched** (~30-frame overlap). The C++ port reproduces window + overlap-stitch. |
+| **Post-proc** | port of `note_creation.py`: onset/frame-threshold note detector + inferred onsets + min/max-freq gate → notes; velocity = `round(127·amplitude)`. **Pitch-bends (`contour`) skipped initially** (a later enhancement). |
+| **Model file** | `basic_pitch/saved_models/icassp_2022/nmp.onnx` (228 KB, made by tf2onnx 1.15.1) — **committed in the repo, no conversion step.** Code + weights **Apache-2.0**. |
+
+Tunable post-proc constants (exposed in `ModelDescriptor` + the harness): onset
+threshold **0.5**, frame threshold **0.3**, min note length **11 frames**,
+velocity scale **127**.
+
+### 7.3 Reuse (the C++ stays small)
+
+basic-pitch's adapter emits the **existing** HIR `Note`s and reuses
+`VelocityEstimator` / `NoteTrimmer` / `ScoreBuilder` / `MidiFileWriter` and the
+existing aubio Tier-1 path, all behind the `Transcriber` port. The genuinely new
+code is `onnx_session` + the basic-pitch adapter + a small piano-roll post-proc —
+not a from-scratch transcription engine.
+
+### 7.4 Phasing
+
+| Phase | Scope |
+|---|---|
+| **1a** | ~~ONNX foundation~~ **Done + verified:** `onnx_session` (Core ML EP) + `ModelDescriptor` + fail-fast I/O validation + a real-model smoke test. The real `nmp.onnx` loads, the Core ML EP is active, and an A4 sine is detected as MIDI 69. | **1b** | **basic-pitch** adapter (resample→window→overlap-stitch) + `piano_roll` post-proc → HIR, run on the 14-file corpus, compared against ground truth. *(next increment)* |
+| **2** | **TF-MAGS** (Onsets&Frames) via ONNX export + a mel front-end — a second model exercising the same seam. |
+| **3** | **Demucs** `Separator` + per-stem transcription (melody / accompaniment / vocals) — the "arbitrary instruments / bands / vocals" end goal. |
+
+**Decided at build time (Phase 1a):** CMake finds onnxruntime via
+`find_package(onnxruntime CONFIG)` against the Homebrew prefix (option **b**);
+`LIBAUDIO_ENABLE_TIER2` defaults **OFF** so the aubio Tier-1 path is unaffected;
+the Core ML EP is requested but its failure is non-fatal (CPU fallback). See
+`libaudio/CMakeLists.txt` and `manifests/basic-pitch.txt`.

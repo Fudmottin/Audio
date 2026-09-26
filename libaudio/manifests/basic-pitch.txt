@@ -1,0 +1,26 @@
+# Model manifest — basic-pitch
+#
+# Provenance for the Tier-2 neural model consumed by libaudio. This file is the
+# single source of truth for *where the model came from* and *how to verify it*
+# has not drifted. The model bytes themselves live in the `external/basic-pitch`
+# submodule (referenced in place — never copied) so there is one source of truth.
+
+tool            = basic-pitch
+upstream        = https://github.com/spotify/basic-pitch
+license         = Apache-2.0 (code + weights)
+submodule_pin   = fa5997af0a8210982619003269994a1be25eddf3   # "Update mirdata, add local index fixtures (#185)"
+submodule_path  = libaudio/external/basic-pitch
+model_path      = external/basic-pitch/basic_pitch/saved_models/icassp_2022/nmp.onnx
+model_sha256    = 2c3c1d144bfa61ad236e92e169c13535c880469a12a047d4e73451f2c059a0ec
+converted_by    = tf2onnx 1.15.1  (upstream; the model is shipped as ONNX — no local conversion)
+validated_on    = onnxruntime 1.30.0 (Homebrew), Core ML EP, Apple silicon
+tier            = 2  (polyphonic transcription; CQT computed inside the model)
+
+# I/O contract (verified against basic_pitch/constants.py + inference.py at the
+# pinned commit): mono @ 22050 Hz, 43844-sample (2 s) windows, 30-frame overlap,
+# 86 fps, 88 note-bins (MIDI 21..108), 264 contour-bins. See modelDescriptor.h
+# (basicPitchDescriptor) for the machine-readable form of the same contract.
+
+# To re-verify the model has not drifted:
+#   shasum -a 256 libaudio/external/basic-pitch/basic_pitch/saved_models/icassp_2022/nmp.onnx
+# The output must equal model_sha256 above.

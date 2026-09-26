@@ -56,4 +56,13 @@
 #include "rubberband.h"
 #endif
 
+// --- Tier 2: neural transcription on ONNX Runtime (optional). -------------
+// Gated behind LIBAUDIO_ENABLE_TIER2 (build flag LIBAUDIO_HAS_TIER2); the aubio
+// Tier-1 path is unaffected when Tier-2 is OFF.
+#ifdef LIBAUDIO_HAS_TIER2
+#include "modelDescriptor.h"
+#include "onnxSession.h"
+#include "onnxTensor.h"
+#endif
+
 #endif // LIBAUDIO_LIBAUDIO_H

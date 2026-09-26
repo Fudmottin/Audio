@@ -1,0 +1,3 @@
+[submodule "libaudio/external/basic-pitch"]
+	path = libaudio/external/basic-pitch
+	url = https://github.com/spotify/basic-pitch
