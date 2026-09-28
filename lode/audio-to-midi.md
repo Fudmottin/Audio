@@ -271,5 +271,5 @@ the Core ML EP is requested but its failure is non-fatal (CPU fallback). See
 problem monophonic YIN cannot (aubio on the same corpus: 6% recall,
 octave-unreliable); the precision dip is long/whole-note fragmentation, not a
 pitch error. `midicapture --run-corpus test-midi --analyzer {basic-pitch|aubio}`.
-*The summary's median onset/duration is ×1000-inflated (reference bug);
-per-file values are the true onset/duration.*
+*The suite-summary onset/duration are the true per-file averages (ms); the C++
+port and the Python `render_test_suite.py` harness report identical tables.*
