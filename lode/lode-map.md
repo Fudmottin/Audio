@@ -70,3 +70,12 @@
 - `lode/MIDI.md` — MIDI protocol, General MIDI, SMF file format
 - `lode/LilyPond.md` — LilyPond notation, MIDI-to-LilyPond mapping
 - `lode/libaudio/` — DSP library: Tier-1 aubio + Tier-2 ONNX (basic-pitch, Core ML)
+
+## Maintenance
+
+- **Lode 250-line soft cap — 2 files over; split deferred to a future session.**
+  `lode/audio-to-midi.md` (275) and `lode/midicapture/summary.md` (293) exceed the soft
+  cap, but their content is correct and current — only over-length. The intended fix: split
+  `audio-to-midi.md` §7 (Tier-2: ONNX foundation + basic-pitch + corpus) into a focused
+  `lode/tier2.md` and slim the midicapture summary. Deferred by explicit decision; treat as
+  a maintenance task, not a correctness bug.
