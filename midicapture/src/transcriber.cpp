@@ -86,8 +86,9 @@
 #include <cmath>
 #include <cstdint>
 #include <libaudio/audioFile.h>
-#include <libaudio/libaudio.h>
+#include <libaudio/noteTrimmer.h>
 #include <libaudio/onset.h>
+#include <libaudio/pitch.h>
 #include <stdexcept>
 #include <string>
 #include <vector>

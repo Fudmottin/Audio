@@ -47,6 +47,7 @@
 #include <libaudio/audioFile.h>
 #include <libaudio/hir.h>
 #include <libaudio/midiFileWriter.h>
+#include <midicapture/corpusHarness.h>
 #include <midicapture/transcriber.h>
 #include <string>
 #include <vector>
@@ -88,6 +89,17 @@ static void printUsage(const char* programName) {
              << " monophonic scale MIDI files.\n";
    std::cerr << "  --output-dir <string>     Directory for generated MIDI files"
              << " (default: .).\n";
+#ifdef LIBAUDIO_HAS_TIER2
+   std::cerr << "  --run-corpus DIR          Run the 14-file corpus evaluation"
+             << " in DIR.\n";
+   std::cerr << "  --analyzer <string>       Analyzer for --run-corpus: "
+             << "\"basic-pitch\" or \"aubio\" (default: basic-pitch).\n";
+   std::cerr
+      << "  --clean                   Regenerate the corpus assets before"
+      << " evaluating.\n";
+   std::cerr << "  --ffmpeg <string>         Path to the ffmpeg executable ("
+             << "default: /opt/homebrew/bin/ffmpeg).\n";
+#endif // LIBAUDIO_HAS_TIER2
    std::cerr << "\nExamples:\n";
    std::cerr << "  " << programName << " input.aiff output.mid\n";
    std::cerr << "  " << programName << " --window-size 1024 --silence -50\n";
@@ -438,6 +450,15 @@ int main(int argc, char* argv[]) {
    bool generateTestMidiFiles = false;
    std::string outputDir = ".";
 
+#ifdef LIBAUDIO_HAS_TIER2
+   // Corpus-evaluation mode (--run-corpus): run the analyzer-agnostic 14-file
+   // harness. These are parsed and used only in a Tier-2 build.
+   std::string runCorpusDir;
+   std::string analyzerName = "basic-pitch";
+   bool clean = false;
+   std::string ffmpegPath = "/opt/homebrew/bin/ffmpeg";
+#endif // LIBAUDIO_HAS_TIER2
+
    // Define the options: name, type, description.
    namespace po = boost::program_options;
    // Build a header that puts the usage line between the project name
@@ -507,6 +528,23 @@ int main(int argc, char* argv[]) {
       "output-dir", po::value<std::string>(&outputDir)->default_value("."),
       "Directory the generated MIDI files are written to"
       " (default: current directory).");
+
+#ifdef LIBAUDIO_HAS_TIER2
+   // --run-corpus: the analyzer-agnostic 14-file corpus evaluator. Registered
+   // only in a Tier-2 build (the harness + analyzers exist only then).
+   desc.add_options()("run-corpus", po::value<std::string>(&runCorpusDir),
+                      "Run the 14-file corpus evaluation in DIR with "
+                      "--analyzer (no positional input needed).")(
+      "analyzer",
+      po::value<std::string>(&analyzerName)->default_value("basic-pitch"),
+      "Analyzer for --run-corpus: \"basic-pitch\" or \"aubio\".")(
+      "clean",
+      "Before evaluating, regenerate the corpus assets (.mid + .mp3).")(
+      "ffmpeg",
+      po::value<std::string>(&ffmpegPath)
+         ->default_value("/opt/homebrew/bin/ffmpeg"),
+      "Path to the ffmpeg executable (MP3 decode + encode).");
+#endif // LIBAUDIO_HAS_TIER2
 
    // Define positional options: <input.aiff> <output.mid>.  These bind the
    // alias-free names registered above ("input" / "output"), so the
@@ -600,6 +638,17 @@ int main(int argc, char* argv[]) {
          << "  --output-dir arg (=. )  Directory the generated MIDI files go"
             " to\n"
          << "                            (default: current directory).\n"
+#ifdef LIBAUDIO_HAS_TIER2
+         << "  --run-corpus DIR           Run the 14-file corpus evaluation in"
+            " DIR.\n"
+         << "  --analyzer arg (=basic-pitch)\n"
+         << "                            Analyzer for --run-corpus: "
+            "\"basic-pitch\" or \"aubio\".\n"
+         << "  --clean                    Regenerate the corpus assets before"
+            " evaluating.\n"
+         << "  --ffmpeg arg (=/opt/homebrew/bin/ffmpeg)\n"
+         << "                            Path to the ffmpeg executable.\n"
+#endif // LIBAUDIO_HAS_TIER2
          << "\n";
       return 0;
    }
@@ -616,6 +665,15 @@ int main(int argc, char* argv[]) {
    if (generateTestMidiFiles) {
       return runGenerateTestMidiFiles(outputDir);
    }
+
+#ifdef LIBAUDIO_HAS_TIER2
+   // --run-corpus: the analyzer-agnostic 14-file corpus evaluator. Like the
+   // generator mode above it needs no positional input and ignores the
+   // analysis options, so it runs before the input-required check below.
+   if (vm.count("run-corpus") > 0) {
+      return runCorpus(runCorpusDir, analyzerName, clean, ffmpegPath);
+   }
+#endif // LIBAUDIO_HAS_TIER2
 
    // Validate arguments: input is required unless in sanity-test mode.
    if (inputPath.empty() && !testMode) {
@@ -723,8 +781,8 @@ int main(int argc, char* argv[]) {
       // 5. Write the Score to a Type 1 MIDI file.
       // =====================================================================
 
-      Transcriber transcriber(windowSize, hopSize, silenceDb, pitchMethod,
-                              tempoBpm);
+      ::Transcriber transcriber(windowSize, hopSize, silenceDb, pitchMethod,
+                                tempoBpm);
 
       // Transcribe the audio file.
       Score score = transcriber.transcribe(inputPath);
