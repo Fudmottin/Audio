@@ -17,7 +17,7 @@
 | Module | Path | Status |
 |--------|------|--------|
 | aiffcapture | [lode/aiffcapture/](aiffcapture/) | Phase 1 — Complete |
-| libaudio | [lode/libaudio/](libaudio/) | Phase 0 Tier-1 aubio built; Tier-2 ONNX foundation (Phase 1a) built + verified (see audio-to-midi.md §7) |
+| libaudio | [lode/libaudio/](libaudio/) | Tier-1 aubio + Tier-2 ONNX (basic-pitch, Core ML) built + verified (see audio-to-midi.md §7) |
 | **midicapture** | **[lode/midicapture/](midicapture/)** | **Phase 2 — In Progress** |
 | **waterfall** | **[lode/waterfall/](waterfall/)** | **Phase 3 — Mostly complete** |
 | **audio-to-midi** | **[audio-to-midi.md](audio-to-midi.md)** | **Cross-module reference** |
@@ -69,4 +69,4 @@
 - `midicapture/` — Phase 2 implementation (in progress)
 - `lode/MIDI.md` — MIDI protocol, General MIDI, SMF file format
 - `lode/LilyPond.md` — LilyPond notation, MIDI-to-LilyPond mapping
-- `lode/libaudio/` — Phase 0 DSP library (Tier-1 aubio) + Tier-2 ONNX foundation (Phase 1a)
+- `lode/libaudio/` — DSP library: Tier-1 aubio + Tier-2 ONNX (basic-pitch, Core ML)

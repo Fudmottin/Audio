@@ -173,12 +173,12 @@ real "more interesting MIDI" step after monophonic is settled.
 
 ## 7. The decided Tier-2 path: ONNX Runtime in libaudio
 
-> *Added as the decided direction for the next real step (after the §5 octave
-> problem). Records the decision, the architecture, and the basic-pitch I/O
-> contract. Status: **Phase 1a (ONNX foundation) is implemented and verified** —
-> the real `nmp.onnx` loads, the Core ML EP is active, and a 440 Hz (A4) sine
-> comes back as MIDI 69. The basic-pitch adapter + 14-file corpus run is the
-> next increment (Phase 1b). See the §7.4 phasing.*
+> *Added after the §5 octave problem. Records the Tier-2 decision, the
+> architecture, and the basic-pitch I/O contract. Status: **Phase 1a (ONNX
+> foundation) and Phase 1b (basic-pitch adapter + 14-file corpus) are both
+> implemented and verified** — `nmp.onnx` loads on the Core ML EP, a 440 Hz (A4)
+> sine comes back as MIDI 69, and the 14-file `timidity` corpus comes back with
+> **100% recall / 68% precision, correct octave + chroma**. See §7.4.*
 
 **Decision.** Move to **Tier 2** by hosting *neural* transcribers inside
 **libaudio** on **ONNX Runtime** (with the **Core ML** execution provider for
@@ -213,7 +213,10 @@ which is why it leads.
   converting tool + the runtime it was validated on.
 - **Front-end** — resample to the model's rate + window. For basic-pitch this is
   all it is (the CQT lives *inside* the model); mel/CQT math is added only when a
-  model needs it (TF-MAGS).
+  model needs it (TF-MAGS). basic-pitch resamples via **ffmpeg**
+  (`AudioSource::decodeToRate` → 22050 mono) *not* aubio's `TemporalProcessor` —
+  the installed aubio lacks `libsamplerate`, so `resample()` silently returns
+  empty (a 48 kHz source would yield 0 notes). ffmpeg is already a required dep.
 - **Post-proc** — small files selected by `output_semantics`; emit the existing
   HIR, then reuse `ScoreBuilder` → `MidiFileWriter`.
 - **`external/`** holds git submodules (basic-pitch first, then tf-mags, demucs).
@@ -233,7 +236,7 @@ which is why it leads.
 | **Input** | raw **mono @ 22050 Hz**, float32; window = **43844 samples** (a 2 s window: `22050·2 − 256`). The **CQT is computed inside the model**. C++ front-end = resample→22050 mono + cut into 43844-sample chunks. No mel/CQT math in C++. |
 | **Outputs** | `note (T,88)`, `onset (T,88)`, `contour (T,264)` per window. **172 frames**/window @ **86 fps** (hop ≈ 11.6 ms). 88 bins = **MIDI 21..108**; 264 = 3/semitone (fine pitch / pitch-bend). |
 | **Windowing** | hop by 256 samples over overlapping 2 s windows; per-window outputs are **stitched** (~30-frame overlap). The C++ port reproduces window + overlap-stitch. |
-| **Post-proc** | port of `note_creation.py`: onset/frame-threshold note detector + inferred onsets + min/max-freq gate → notes; velocity = `round(127·amplitude)`. **Pitch-bends (`contour`) skipped initially** (a later enhancement). |
+| **Post-proc** | port of `note_creation.py`: onset/frame-threshold note detector + inferred onsets + min/max-freq gate → notes; velocity = `round(127·amplitude)`. **Pitch-bends (`contour`) skipped.** On these decaying `timidity` renders it fragments long/whole notes into extra same-pitch notes (correct pitch; precision ~40–80%) — `minNoteLengthFrames`/onset-threshold tuning is a known follow-up. |
 | **Model file** | `basic_pitch/saved_models/icassp_2022/nmp.onnx` (228 KB, made by tf2onnx 1.15.1) — **committed in the repo, no conversion step.** Code + weights **Apache-2.0**. |
 
 Tunable post-proc constants (exposed in `ModelDescriptor` + the harness): onset
@@ -252,7 +255,7 @@ not a from-scratch transcription engine.
 
 | Phase | Scope |
 |---|---|
-| **1a** | ~~ONNX foundation~~ **Done + verified:** `onnx_session` (Core ML EP) + `ModelDescriptor` + fail-fast I/O validation + a real-model smoke test. The real `nmp.onnx` loads, the Core ML EP is active, and an A4 sine is detected as MIDI 69. | **1b** | **basic-pitch** adapter (resample→window→overlap-stitch) + `piano_roll` post-proc → HIR, run on the 14-file corpus, compared against ground truth. *(next increment)* |
+| **1a** | ~~ONNX foundation~~ **Done + verified:** `onnx_session` (Core ML EP) + `ModelDescriptor` + fail-fast I/O validation + a real-model smoke test. `nmp.onnx` loads, Core ML active, A4 → MIDI 69. | **1b** | **basic-pitch** adapter (ffmpeg-resample→window→overlap-stitch) + `piano_roll` post-proc → HIR; 14-file corpus → **100% recall / 68% precision, correct octave+chroma** (Core ML, ~63/246 nodes, ~2 s). |
 | **2** | **TF-MAGS** (Onsets&Frames) via ONNX export + a mel front-end — a second model exercising the same seam. |
 | **3** | **Demucs** `Separator` + per-stem transcription (melody / accompaniment / vocals) — the "arbitrary instruments / bands / vocals" end goal. |
 
@@ -261,3 +264,12 @@ not a from-scratch transcription engine.
 `LIBAUDIO_ENABLE_TIER2` defaults **OFF** so the aubio Tier-1 path is unaffected;
 the Core ML EP is requested but its failure is non-fatal (CPU fallback). See
 `libaudio/CMakeLists.txt` and `manifests/basic-pitch.txt`.
+
+**Measured on the 14-file corpus (current state):** basic-pitch on Core ML
+(63/246 nodes; ~2 s for all 14) → **100% recall, 68% precision**, correct octave
+(Δoct ≤ 0.5) and chroma (0.0); per-file onset 2–15 ms. It resolves the §5 octave
+problem monophonic YIN cannot (aubio on the same corpus: 6% recall,
+octave-unreliable); the precision dip is long/whole-note fragmentation, not a
+pitch error. `midicapture --run-corpus test-midi --analyzer {basic-pitch|aubio}`.
+*The summary's median onset/duration is ×1000-inflated (reference bug);
+per-file values are the true onset/duration.*

@@ -30,10 +30,14 @@ Audio/
 ├── midicapture/          # Phase 2: Audio → MIDI
 │   ├── CMakeLists.txt   # Build config (libaudio, Boost)
 │   ├── include/midicapture/
-│   │   └── transcriber.h         # High-level transcription API
+│   │   ├── transcriber.h         # High-level transcription API
+│   │   ├── aubioTranscriber.h    # Tier-1 aubio adapter (behind the Transcriber port)
+│   │   └── corpusHarness.h       # Analyzer-agnostic 14-file corpus evaluator
 │   └── src/
-│       ├── main.cpp              # CLI entry point (Boost program_options)
-│       └── transcriber.cpp       # Transcription pipeline (pitch + onset)
+│       ├── main.cpp              # CLI entry point (Boost program_options; --run-corpus)
+│       ├── transcriber.cpp       # Tier-1 monophonic pipeline (pitch + onset)
+│       ├── aubioTranscriber.cpp  # Tier-1 aubio adapter
+│       └── corpusHarness.cpp     # Corpus harness (recall/precision/Δ; the --analyzer switch)
 └── lode/midicapture/    # Module documentation
 ```
 
@@ -251,9 +255,9 @@ hop for the attack-window lag.
 "hundreds, not 1447" target), F#/E/G# content, sensibly spaced. On the
 6-scale round-trip corpus defrag reduces fragments to a plausible note count
 and, for the chromatic scale, *preserves the ascending pitch sequence*
-(E3→…→F#2). See the open octave limitation below.
+(E3→…→F#2). See the octave-ambiguity note below.
 
-### Open: octave ambiguity on weak-fundamental recordings
+### Octave ambiguity on weak-fundamental recordings (Tier-1 aubio)
 
 A *decaying* note's lifetime-mean frequency drifts to a **sub-octave** of the
 true fundamental (YIN is a harmonic estimator; measured **91 Hz mean for a
@@ -266,9 +270,10 @@ a YIN-on-weak-fundamental artifact, not a window-resolution artifact.
 
 On a **recorded** performance with a strong fundamental (the project's real
 target) the defragmented output is musically sensible. Robust octave resolution
-for weak-fundamental sources is a future task — a spectral-peak / harmonic-
-series anchor (read the dominant partial directly, bypassing YIN) or a neural
-analyzer (basic-pitch / Onsets&Frames); see [`lode/audio-to-midi.md`](../audio-to-midi.md).
+for weak-fundamental sources is now handled by the **Tier-2 basic-pitch**
+analyzer (an explicit harmonic model) behind the `Transcriber` port — 100%
+recall, correct octave + chroma on the corpus; see
+[`lode/audio-to-midi.md`](../audio-to-midi.md) §7.
 
 **Known minor artifacts:** the *first* note of a file is frequently missed
 (aubio's first-frame onset artifact); the 4 note-scale corpus resolves to 2–4
