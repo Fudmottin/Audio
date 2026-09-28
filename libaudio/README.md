@@ -1,8 +1,8 @@
 # libaudio
 
-A C++ DSP library for audio-to-MIDI transcription, wrapping **aubio**,
-**libsndfile**, and **rubberband** in a modern C++ interface with Pimpl
-encapsulation and RAII resource management.
+A C++ DSP library for audio-to-MIDI transcription, wrapping **aubio** and
+**libsndfile** in a modern C++ interface with Pimpl encapsulation and RAII
+resource management.
 
 ## Overview
 
@@ -23,7 +23,6 @@ and exported as a Standard MIDI File (SMF).
 | `NoteDetector` | Note detection (onset + pitch + velocity) | aubio |
 | `SpectralAnalyzer` | Spectral features (MFCC, chroma, etc.) | aubio |
 | `TemporalProcessor` | Resampling, filtering | aubio |
-| `RubberbandProcessor` | Time-stretching, pitch-shifting | rubberband (optional) |
 | `HIR` (Note, ControlEvent, Score) | Intermediate representation | none |
 | `MidiFileWriter` | Export HIR to SMF (Type 1, 480 ticks/qn) | none |
 | `ControlEventExtractor` | Extract MIDI control events (pedals) | none |
@@ -39,7 +38,6 @@ and exported as a Standard MIDI File (SMF).
 - **CMake 3.20+**
 - **aubio** (`brew install aubio`)
 - **libsndfile** (`brew install libsndfile`)
-- **rubberband** (`brew install rubberband`, optional)
 
 ### Build Steps
 

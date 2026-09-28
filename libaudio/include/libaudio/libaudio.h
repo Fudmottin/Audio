@@ -53,10 +53,6 @@
 #include "temporal.h"
 #include "velocityEstimator.h"
 
-#ifdef LIBAUDIO_HAS_RUBBERBAND
-#include "rubberband.h"
-#endif
-
 // --- Tier 2: neural transcription on ONNX Runtime (optional). -------------
 // Gated behind LIBAUDIO_ENABLE_TIER2 (build flag LIBAUDIO_HAS_TIER2); the aubio
 // Tier-1 path is unaffected when Tier-2 is OFF.

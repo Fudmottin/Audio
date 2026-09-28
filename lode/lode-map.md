@@ -35,7 +35,7 @@
 | Document | Purpose |
 |----------|---------|
 | [summary.md](libaudio/summary.md) | Module overview, dependencies, architecture, module-by-module API design |
-| [decisions.md](libaudio/decisions.md) | Library choices (aubio, libsndfile, rubberband), wrapper pattern, default parameters |
+| [decisions.md](libaudio/decisions.md) | Library choices (aubio, libsndfile), wrapper pattern, default parameters |
 | [hir.md](libaudio/hir.md) | High-level Instrumentation Representation (Note, ControlEvent, Score) |
 
 ## Subsystem: waterfall

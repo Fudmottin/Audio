@@ -4,21 +4,16 @@
 #  *        transcription.
 #  *
 #  * This CMake configuration builds libaudio as a C++20 static library.
-#  * It finds three dependencies via pkg-config:
+#  * It finds two dependencies via pkg-config:
 #  * - aubio: Core DSP (pitch, onsets, beats, notes)
 #  * - libsndfile: Audio file I/O (AIFF, WAV, FLAC, etc.)
-#  * - rubberband: Optional time-stretching and pitch-shifting
 #  *
 #  * @section cmake-structure Build Structure
 #  *
 #  * The library is built as a static library (`libaudio`) with:
 #  * - Public headers in `include/libaudio/`
 #  * - Implementation files in `src/`
-#  * - Dependencies found via pkg-config (aubio, sndfile, rubberband)
-#  *
-#  * rubberband is optional: if it is not found, the library still builds
-#  * but the RubberbandProcessor module is excluded.
-#  *
+#  * - Dependencies found via pkg-config (aubio, sndfile)
 #  */
 
 cmake_minimum_required(VERSION 3.20)
@@ -44,9 +39,6 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(AUBIO REQUIRED aubio IMPORTED_TARGET)
 pkg_check_modules(SNDFILE REQUIRED sndfile IMPORTED_TARGET)
-
-# rubberband is optional: if not found, the module is excluded.
-pkg_check_modules(RUBBERBAND rubberband IMPORTED_TARGET)
 
 # --- Tier 2 (optional) -------------------------------------------------------
 # Neural transcription on ONNX Runtime + Core ML EP. OFF by default so the aubio
@@ -75,9 +67,6 @@ set(LIBAUDIO_SOURCES
     src/noteTrimmer.cpp
 )
 
-# rubberband is currently not linkable (pkg-config path mismatch).
-# The RubberbandProcessor module is excluded from the build.
-
 # --- libaudio static library target ---
 add_library(libaudio STATIC ${LIBAUDIO_SOURCES})
 
@@ -90,7 +79,6 @@ target_include_directories(libaudio
     PRIVATE
         $<IF:$<BOOL:${AUBIO_FOUND}>,$<TARGET_PROPERTY:PkgConfig::AUBIO,INCLUDE_DIRECTORY>,>
         $<IF:$<BOOL:${SNDFILE_FOUND}>,$<TARGET_PROPERTY:PkgConfig::SNDFILE,INCLUDE_DIRECTORY>,>
-        $<IF:$<BOOL:${RUBBERBAND_FOUND}>,$<TARGET_PROPERTY:PkgConfig::RUBBERBAND,INCLUDE_DIRECTORY>,>
 )
 
 # Core Guidelines: link against aubio and libsndfile (required).
@@ -103,9 +91,6 @@ endif()
 if(SNDFILE_FOUND)
     target_link_libraries(libaudio PUBLIC PkgConfig::SNDFILE)
 endif()
-
-# rubberband is excluded from the build (see note above).
-# No rubberband-specific compile definitions needed.
 
 # ============================================================================
 # Tier 2 — optional neural transcription via ONNX Runtime.

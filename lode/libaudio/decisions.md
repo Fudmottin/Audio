@@ -40,7 +40,6 @@
 |---|---|
 | **KissFFT** | Only does FFT. We need pitch, onsets, beats, notes. |
 | **libsndfile** | Only does file I/O. We need DSP. |
-| **rubberband** | Only does time-stretching/pitch-shifting. We need analysis. |
 | **rtcmix** | Too heavy, custom language, not a library. |
 | **librosa** | Python only. We need C++. |
 | **aubio-cffi** | Python bindings to aubio. We need C++. |
@@ -69,28 +68,6 @@ aubio also has `aubio_source_t` and `aubio_sink_t` for file I/O. However:
 - **libsndfile** supports more formats (FLAC, MP3, OGG, etc.)
 - **aiffcapture** already uses a custom AIFF writer (Core Audio → AIFF). We don't need aubio's I/O for that module.
 - **Separation of concerns**: aubio for DSP, libsndfile for I/O. Clear boundaries.
-
----
-
-## 3. Why rubberband?
-
-### The Core Choice
-
-**rubberband** was selected for time-stretching and pitch-shifting because:
-
-- **Quality**: High-quality time-stretching and pitch-shifting (used by Qtractor, Ardour, and other DAWs)
-- **Simplicity**: Simple C/C++ API, easy to wrap
-- **Availability**: Already installed via Homebrew (`brew install rubberband`)
-- **License**: GPL-3.0 + commercial (compatible with our GPL-3.0 aubio dependency)
-
-### Optional Use
-
-rubberband is **optional**. It's used for:
-- Normalizing recordings to a consistent sample rate
-- Pitch-shifting for analysis (e.g., comparing to piano templates)
-- Time-stretching to match a target duration
-
-It's not needed for the core transcription pipeline (pitch detection, onset detection, note segmentation).
 
 ---
 
@@ -125,7 +102,7 @@ private:
 
 ### Affected types
 
-All 16 public types: `AudioFileReader`, `FFT`, `PitchDetector`, `OnsetDetector`, `BeatTracker`, `NoteDetector`, `Note`, `ControlEvent`, `Score`, `ScoreBuilder`, `MidiFileWriter`, `SpectralAnalyzer`, `TemporalProcessor`, `ControlEventExtractor`, `VelocityEstimator`, `RubberbandProcessor`.
+All 15 public types: `AudioFileReader`, `FFT`, `PitchDetector`, `OnsetDetector`, `BeatTracker`, `NoteDetector`, `Note`, `ControlEvent`, `Score`, `ScoreBuilder`, `MidiFileWriter`, `SpectralAnalyzer`, `TemporalProcessor`, `ControlEventExtractor`, `VelocityEstimator`.
 
 ### Consumer pattern
 
@@ -235,7 +212,6 @@ All libaudio modules use the **Pimpl (Pointer to Implementation) pattern** with 
 |---|---|---|
 | **DSP library** | aubio | Focused, research-grade algorithms, stable API |
 | **File I/O** | libsndfile | General-purpose, well-tested, widely used |
-| **Time-stretching** | rubberband (optional) | High-quality, simple API |
 | **Wrapper pattern** | `unique_ptr<Impl>` | RAII, encapsulation, swappability, testability |
 | **Window size** | 2048 | Best compromise for piano (43 ms at 48 kHz) |
 | **Hop size** | 512 (75% overlap) | Best compromise for latency vs. smoothing |
@@ -277,20 +253,6 @@ The implementation targets **aubio 0.4.9** specifically. Key API differences fro
 | **Temporal** | `aubio_filter_do(filter, input, output, numSamples)` | Function renamed to `aubio_filter_do(filter, input)` (in-place) |
 | **Libsndfile** | `SF_SEEK_FRAME` | Not available; use `SEEK_SET` instead |
 | **Libsndfile** | `info.samplerate` is `uint32_t` | Is `int`; cast to `uint32_t` |
-
-### rubberband 4.0.0 API Corrections
-
-The implementation targets **rubberband 4.0.0** specifically:
-
-| Design Assumption | Actual API (4.0.0) |
-|---|---|
-| Namespace: `rubberband::` | Namespace: `RubberBand::` (capitalized) |
-| `RubberBandStretcher(sr, ch, INTERPOLATION_TIMESTRETCH, QUALITY_REALTIME, 1, 128)` | Takes `(sr, ch, Options, initialTimeRatio, initialPitchScale)` — flags are `OptionProcessRealTime \| OptionEngineFaster` |
-| `stretcher->feed(samples, n)` | Function renamed to `process(&inputPtr, n, false)` |
-| `stretcher->getOutput(numOutput)` | Function renamed to `retrieve(&outputPtr, samples)` |
-| `stretcher->setTimeFactor(factor)` | Function renamed to `setTimeRatio(double)` |
-| `stretcher->setPitchFactor(pow(2, semis/12))` | Function renamed to `setPitchScale(pow(2, semis/12))` |
-| `stretcher->haveActiveStretcher()` | Function renamed to `available()` (returns `size_t`) |
 
 ### Build-Time: aubio Include Order
 

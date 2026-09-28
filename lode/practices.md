@@ -46,8 +46,7 @@ All audio file I/O and DSP functionality lives in **libaudio** (`namespace libau
 
 - **Consuming modules** (midicapture, waterfall, any future tool) include
   `<libaudio/*.h>` and use `using namespace libaudio;` in their `.cpp` files.
-  They must **never** include `<sndfile.h>`, aubio headers, or rubberband
-  headers directly.
+  They must **never** include `<sndfile.h>` or aubio headers directly.
 - **libaudio public headers** (`include/libaudio/*.h`) include only standard
   C++ headers. All C library types (SNDFILE, aubio_\*\_t, fvec_t, etc.) are
   confined to `Impl` structs inside `.cpp` files (Pimpl pattern).

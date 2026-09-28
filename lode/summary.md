@@ -9,7 +9,7 @@ Build a suite of local-first audio processing utilities targeting macOS (later P
 | Phase | Status | Description |
 |-------|--------|-------------|
 | **Audio → AIFF** (capture) | Complete | Capture audio from BlackHole 2ch to 16-bit signed integer AIFF files. |
-| **DSP Library** (libaudio) | **Built** | Wraps aubio/libsndfile/rubberband (Tier-1) + ONNX Runtime/Core ML (Tier-2: basic-pitch). HIR is the analyzer-agnostic seam. |
+| **DSP Library** (libaudio) | **Built** | Wraps aubio/libsndfile (Tier-1) + ONNX Runtime/Core ML (Tier-2: basic-pitch). HIR is the analyzer-agnostic seam. |
 | **Audio → MIDI** (transcription) | **In Progress** | Analyzer-agnostic behind the `Transcriber` port: Tier-1 monophonic (YINfft + defrag) and Tier-2 basic-pitch (Core ML, resolves the octave). → Type 1 MIDI. |
 | **Audio → Waterfall** (frequency analysis) | **Mostly complete** | SONAR-style spectral display (text + MP4 video, PCM and MIDI modes). |
 | **MIDI → Sheet Music** | Planned | Generate readable sheet music from MIDI data. |
@@ -76,7 +76,7 @@ Audio/
 - **Platform**: macOS first (Core Audio), POSIX later
 - **Audio format**: AIFF output (16-bit signed integer PCM, 32-bit integer sample rate)
 - **Capture method**: BlackHole 2ch virtual audio device (Phase 1)
-- **DSP library**: aubio (C++ wrapper), libsndfile (file I/O), rubberband (optional time-stretching)
+- **DSP library**: aubio (C++ wrapper), libsndfile (file I/O)
 - **HIR**: High-level Instrumentation Representation — single source of truth for MIDI and LilyPond output
 - **DRM handling**: Separate utility to strip DRM from Apple Music content
 - **Style**: 3-space indent, Attach braces, 80-column limit, std::cout/cerr, no void* in our code

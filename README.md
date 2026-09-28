@@ -7,7 +7,7 @@ Local-first audio processing utilities for macOS, written in C++.
 | Module | Description |
 |--------|-------------|
 | [`aiffcapture/`](aiffcapture/) | Capture audio from BlackHole 2ch virtual device to uncompressed AIFF files. |
-| [`libaudio/`](libaudio/) | DSP library wrapping aubio, libsndfile, rubberband — audio analysis, pitch detection, MIDI export. |
+| [`libaudio/`](libaudio/) | DSP library wrapping aubio and libsndfile — audio analysis, pitch detection, MIDI export. |
 | [`midicapture/`](midicapture/) | Audio → MIDI transcription (monophonic prototype). |
 | [`waterfall/`](waterfall/) | Audio → frequency analysis; renders a SONAR-style waterfall of acoustic energy over time as a scriptable text format. |
 

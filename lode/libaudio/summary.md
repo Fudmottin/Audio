@@ -1,6 +1,6 @@
 # libaudio — Design Document
 
-> A C++20 wrapper around **aubio** for audio-to-MIDI transcription, with optional use of **libsndfile** for file I/O and **rubberband** for time-stretching. This library is the DSP foundation for the `midicapture` module.
+> A C++20 wrapper around **aubio** for audio-to-MIDI transcription, with **libsndfile** for file I/O. This library is the DSP foundation for the `midicapture` module.
 
 ---
 
@@ -11,7 +11,6 @@ libaudio is the **single place** for all audio file I/O and DSP in this project 
 - **Audio file I/O** via libsndfile (`AudioFileReader`) — reading AIFF, WAV, FLAC, OGG, etc.
 - **Signal processing** via aubio — pitch, onsets, beats, notes, spectral analysis, temporal processing
 - **MIDI export** (`MidiFileWriter`) — HIR Score → Standard MIDI File
-- **Optional time-stretching** via rubberband (`RubberbandProcessor`)
 - RAII resource management (no manual `new_`/`del_` calls)
 - A clean C++ interface — public headers include only standard C++ types; all C library internals are hidden behind Pimpl
 
@@ -25,7 +24,6 @@ Consuming modules (midicapture, waterfall) include `<libaudio/*.h>` and must nev
 |---|---|---|---|
 | **aubio** (0.4.9) | Core DSP: FFT, pitch detection (YIN variants), onset detection, note segmentation, beat tracking, spectral analysis | `aubio` | GPL-3.0 |
 | **libsndfile** (1.2.2) | Audio file I/O (AIFF, WAV, FLAC, etc.) | `libsndfile` | LGPL-2.1+ |
-| **rubberband** (4.0.0) | Time-stretching and pitch-shifting (optional, for normalization) | `rubberband` | GPL-3.0 + commercial |
 
 ### Why aubio?
 
@@ -50,13 +48,6 @@ This maps naturally to a C++ wrapper with constructors, methods, and properties.
 
 libsndfile handles audio file I/O (reading and writing). It supports AIFF, WAV, FLAC, OGG, MP3, and many other formats. It's already installed and well-integrated.
 
-### Why rubberband?
-
-rubberband provides high-quality time-stretching and pitch-shifting. Use cases:
-- Normalizing recordings to a consistent sample rate
-- Pitch-shifting for analysis (e.g., comparing to piano templates)
-- Optional: adjusting tempo for beat tracking
-
 ### Detailed decisions
 
 See `decisions.md` for the full rationale behind each library choice, the wrapper pattern, and the default parameters.
@@ -80,7 +71,6 @@ Audio/
 │   │       ├── notes.h             // Note detection via aubio
 │   │       ├── spectral.h          // Spectral analysis (FFT, MFCC, chroma)
 │   │       ├── temporal.h          // Resampling, filtering (aubio)
-│   │       ├── rubberband.h        // Time-stretching (rubberband)
 │   │       └── hir.h               // High-level Instrumentation Representation
 │   └── src/
 │       ├── audioFile.cpp
@@ -91,7 +81,6 @@ Audio/
 │       ├── notes.cpp
 │       ├── spectral.cpp
 │       ├── temporal.cpp
-│       ├── rubberband.cpp
 │       └── hir.cpp
 ├── midicapture/          # Phase 2: Audio → MIDI
 │   └── src/
@@ -721,54 +710,6 @@ private:
 - **Normalization**: Resample to a consistent sample rate (48 kHz).
 - **Mono downmix**: Average stereo channels for analysis.
 
-### 6.9 Time-Stretching / Pitch-Shifting (`rubberband.h`)
-
-Wraps rubberband for time-stretching and pitch-shifting:
-
-```cpp
-class RubberbandProcessor {
-public:
-   // Create a rubberband processor.
-   //
-   // @param sampleRate Sample rate of the input signal.
-   // @param channels   Number of channels (1 = mono, 2 = stereo).
-   RubberbandProcessor(uint32_t sampleRate, uint32_t channels = 1);
-
-   ~RubberbandProcessor();
-
-   // Process a block of audio samples.
-   // @param samples Input samples.
-   // @return Processed samples.
-   std::vector<float> process(const std::vector<float>& samples);
-
-   // Set the time-stretch factor (1.0 = no change).
-   // > 1.0 = slow down, < 1.0 = speed up.
-   void setTimeStretch(float factor);
-
-   // Set the pitch shift (in semitones).
-   // Positive = higher, negative = lower.
-   void setPitchShift(float semitones);
-
-   // Set the desired tempo (in BPM) for time-stretching.
-   void setTempo(float bpm);
-
-   // Flush any remaining samples.
-   std::vector<float> flush();
-
-   // Check if there are remaining samples to process.
-   bool hasRemaining() const;
-
-private:
-   struct Impl;
-   std::unique_ptr<Impl> impl_;
-};
-```
-
-**Use cases:**
-- **Normalization**: Adjust tempo to a standard BPM for beat tracking.
-- **Pitch-shifting**: For analysis (e.g., comparing to piano templates).
-- **Optional**: Time-stretching to match a target duration.
-
 ### 6.10 Main Summary Header (`libaudio.h`)
 
 ```cpp
@@ -785,7 +726,6 @@ private:
 #include "notes.h"
 #include "spectral.h"
 #include "temporal.h"
-#include "rubberband.h"
 #include "hir.h"
 
 #endif
@@ -995,7 +935,6 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(AUBIO REQUIRED aubio)
 pkg_check_modules(SNDFILE REQUIRED sndfile)
-pkg_check_modules(RUBBERBAND REQUIRED rubberband)
 
 # libaudio target.
 add_library(libaudio
@@ -1007,7 +946,6 @@ add_library(libaudio
    src/notes.cpp
    src/spectral.cpp
    src/temporal.cpp
-   src/rubberband.cpp
    src/hir.cpp
 )
 
@@ -1015,18 +953,15 @@ target_include_directories(libaudio
    PUBLIC include
    PRIVATE ${AUBIO_INCLUDE_DIRS}
            ${SNDFILE_INCLUDE_DIRS}
-           ${RUBBERBAND_INCLUDE_DIRS}
 )
 
 target_link_libraries(libaudio
    PUBLIC
       ${AUBIO_LIBRARIES}
       ${SNDFILE_LIBRARIES}
-      ${RUBBERBAND_LIBRARIES}
    PRIVATE
       ${AUBIO_LDFLAGS}
       ${SNDFILE_LDFLAGS}
-      ${RUBBERBAND_LDFLAGS}
 )
 
 # Install.
@@ -1081,7 +1016,6 @@ Build the DSP library with:
 - Note detection (aubio: combines onset + pitch + velocity + note-off)
 - Spectral analysis (aubio: FFT, MFCC, chroma, spectral features)
 - Time-domain processing (aubio: resampling, filtering)
-- Time-stretching (rubberband, optional)
 - HIR data structures (see `hir.md`)
 
 **Deliverable**: A working library that can transcribe monophonic piano recordings to HIR.
@@ -1128,7 +1062,7 @@ Build the sheet music to MIDI conversion:
 
 ## 14. Summary
 
-libaudio is the **DSP foundation** for the entire audio-to-MIDI transcription pipeline. It wraps three well-established open-source libraries (aubio, libsndfile, rubberband) in a modern C++20 interface, providing:
+libaudio is the **DSP foundation** for the entire audio-to-MIDI transcription pipeline. It wraps two well-established open-source libraries (aubio, libsndfile) in a modern C++20 interface, providing:
 
 - **RAII resource management** — no manual memory management
 - **Clean C++ API** — no C-style function pointers
