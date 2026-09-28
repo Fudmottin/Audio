@@ -11,15 +11,16 @@
  * @section corpus-metrics The metrics (a faithful port of render_test_suite.py)
  *
  * The matching, median, and per-file / suite-summary printing reproduce
- * `midicapture/render_test_suite.py` line for line, so the aubio run prints
- * the same table the Python harness did. Two details in the Python are
- * reproduced *exactly as written*, quirks and all:
+ * `midicapture/render_test_suite.py`, so the aubio run prints the same table
+ * the Python harness does. One convention in the Python is reproduced *exactly
+ * as written* (a deliberate choice, not a bug):
  *   - the octave error uses **integer** `pitch // 12` (floor division), so a
- *     12-octave-mistake reads 12, not a fractional distance;
- *   - the suite-summary "Median onset/duration error" multiplies the *average*
- *     of the (already-millisecond) per-file values by 1000 again. That double
- *     scaling is a bug in the reference, but the table is the reference output
- *     so we keep it; the per-file ms values are the meaningful ones.
+ *     12-octave-mistake reads 12, not a fractional distance.
+ *
+ * One Python bug is deliberately *not* reproduced: the old summary line scaled
+ * the (already-millisecond) onset/duration averages by 1000 a second time.
+ * That double-scaling is fixed in both the Python harness and this port, which
+ * keeps the two tables in lockstep; the summary onset/duration are the true ms.
  *
  * @section corpus-clean The `--clean` renderer
  *
@@ -285,10 +286,12 @@ void printSummary(const std::vector<FileMetrics>& results) {
    summaryLine("  Files evaluated:", "%d", n);
    summaryLine("  Avg note recall:", "%5.1f%%", 100.0 * avg("recall"));
    summaryLine("  Avg note precision:", "%5.1f%%", 100.0 * avg("precision"));
-   // The reference multiplies the (millisecond) per-file averages by 1000
-   // again here — a double-scale quirk we reproduce for table parity.
-   summaryLine("  Median onset error:", "%6.1f ms", 1000.0 * avg("onset_ms"));
-   summaryLine("  Median duration error:", "%6.1f ms", 1000.0 * avg("dur_ms"));
+   // Onset/duration per-file values are already in ms, so average them
+   // directly. (The reference's extra ×1000 here was a double-scaling bug; it
+   // is fixed in both the Python harness and this port to keep them in
+   // lockstep.)
+   summaryLine("  Median onset error:", "%6.1f ms", avg("onset_ms"));
+   summaryLine("  Median duration error:", "%6.1f ms", avg("dur_ms"));
    summaryLine("  Median velocity error:", "%6.1f", avg("vel"));
    summaryLine("  Median octave error:", "%6.1f", avg("octave"));
    summaryLine("  Median chroma error:", "%6.1f", avg("chroma"));
