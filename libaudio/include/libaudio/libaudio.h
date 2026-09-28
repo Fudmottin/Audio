@@ -42,6 +42,7 @@
 #include "controlEventExtractor.h"
 #include "fft.h"
 #include "hir.h"
+#include "midiFileReader.h"
 #include "midiFileWriter.h"
 #include "noteTrimmer.h"
 #include "notes.h"
@@ -60,9 +61,13 @@
 // Gated behind LIBAUDIO_ENABLE_TIER2 (build flag LIBAUDIO_HAS_TIER2); the aubio
 // Tier-1 path is unaffected when Tier-2 is OFF.
 #ifdef LIBAUDIO_HAS_TIER2
+#include "audioDecode.h"
+#include "basicPitch.h"
 #include "modelDescriptor.h"
 #include "onnxSession.h"
 #include "onnxTensor.h"
+#include "pianoRoll.h"
+#include "transcriber.h"
 #endif
 
 #endif // LIBAUDIO_LIBAUDIO_H

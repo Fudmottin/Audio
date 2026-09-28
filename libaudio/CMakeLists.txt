@@ -68,6 +68,7 @@ set(LIBAUDIO_SOURCES
     src/temporal.cpp
     src/hir.cpp
     src/midiFileWriter.cpp
+    src/midiFileReader.cpp
     src/controlEventExtractor.cpp
     src/scoreBuilder.cpp
     src/velocityEstimator.cpp
@@ -130,6 +131,9 @@ if(LIBAUDIO_ENABLE_TIER2)
         src/tier2/onnxTensor.cpp
         src/tier2/onnxSession.cpp
         src/tier2/modelDescriptor.cpp
+        src/tier2/audioDecode.cpp
+        src/tier2/basicPitch.cpp
+        src/tier2/pianoRoll.cpp
     )
 
     # PUBLIC so consumers (midicapture/waterfall) that use the Tier-2 types
