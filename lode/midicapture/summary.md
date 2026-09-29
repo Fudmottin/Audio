@@ -9,8 +9,11 @@
 `midicapture` is a command-line utility that analyzes audio recordings and generates **Type 1 MIDI files** (480 ticks per quarter note), compatible with Apple Logic Pro. It is the second phase of the Audio project.
 
 The module uses:
-- **aubio** (via libaudio): Pitch detection (YINfft), onset detection (spectral flux)
-- **libsndfile** (via libaudio): Audio file I/O (AIFF, WAV, FLAC, etc.)
+- **libaudio**: the transcription engine — `libaudio::Transcriber` (aubio YINfft +
+  spectral-flux onsets, Tier-1) and `libaudio::BasicPitch` (Core ML, Tier-2) —
+  both concrete `libaudio::Analyzer`s; plus audio I/O (libsndfile) and MIDI writing.
+  The monophonic aubio pipeline itself now *lives in libaudio*; midicapture is a
+  thin CLI front-end that selects an analyzer.
 - **Boost program_options**: Command-line argument parsing
 
 ---
@@ -19,24 +22,23 @@ The module uses:
 
 ```
 Audio/
-├── libaudio/             # DSP library (pitch, onsets, MIDI writing)
+├── libaudio/             # DSP library (pitch, onsets, transcription, MIDI writing)
 │   ├── include/libaudio/
 │   │   ├── pitch.h       # PitchDetector (YINfft, YINfast, fcomb, Schmitt)
 │   │   ├── onset.h       # OnsetDetector (specflux, energy, hpsst, phase, combs)
+│   │   ├── analyzer.h    # Analyzer — abstract port (audio → Score)
+│   │   ├── transcriber.h # Transcriber — concrete Tier-1 aubio engine (a public Analyzer)
+│   │   ├── basicPitch.h  # BasicPitch — concrete Tier-2 neural engine (a public Analyzer)
 │   │   ├── audioFile.h   # AudioFileReader (libsndfile wrapper)
 │   │   ├── midiFileWriter.h  # MidiFileWriter (HIR → SMF)
 │   │   └── hir.h         # Note, ControlEvent, Score (HIR)
-│   └── src/             # Implementation files
-├── midicapture/          # Phase 2: Audio → MIDI
-│   ├── CMakeLists.txt   # Build config (libaudio, Boost)
+│   └── src/             # Implementation files (incl. transcriber.cpp, tier2/)
+├── midicapture/          # Phase 2: Audio → MIDI (thin CLI front-end)
+│   ├── CMakeLists.txt   # Build config (links libaudio, Boost)
 │   ├── include/midicapture/
-│   │   ├── transcriber.h         # High-level transcription API
-│   │   ├── aubioTranscriber.h    # Tier-1 aubio adapter (behind the Transcriber port)
 │   │   └── corpusHarness.h       # Analyzer-agnostic 14-file corpus evaluator
 │   └── src/
 │       ├── main.cpp              # CLI entry point (Boost program_options; --run-corpus)
-│       ├── transcriber.cpp       # Tier-1 monophonic pipeline (pitch + onset)
-│       ├── aubioTranscriber.cpp  # Tier-1 aubio adapter
 │       └── corpusHarness.cpp     # Corpus harness (recall/precision/Δ; the --analyzer switch)
 └── lode/midicapture/    # Module documentation
 ```
@@ -271,7 +273,7 @@ a YIN-on-weak-fundamental artifact, not a window-resolution artifact.
 On a **recorded** performance with a strong fundamental (the project's real
 target) the defragmented output is musically sensible. Robust octave resolution
 for weak-fundamental sources is now handled by the **Tier-2 basic-pitch**
-analyzer (an explicit harmonic model) behind the `Transcriber` port — 100%
+analyzer (an explicit harmonic model) behind the `Analyzer` port — 100%
 recall, correct octave + chroma on the corpus; see
 [`lode/audio-to-midi.md`](../audio-to-midi.md) §7.
 

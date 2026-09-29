@@ -197,9 +197,10 @@ which is why it leads.
 
 ### 7.1 Architecture (ports & adapters)
 
-- **Ports** (abstract, in libaudio): `Transcriber` (audio → `Score`) and, later,
-  `Separator` (mix → per-source audio). The existing aubio Tier-1 pipeline is one
-  `Transcriber` adapter; basic-pitch is another.
+- **Ports** (abstract, in libaudio): `Analyzer` (audio → `Score`) and, later,
+  `Separator` (mix → per-source audio). The aubio Tier-1 pipeline is the concrete
+  `libaudio::Transcriber`; basic-pitch is `libaudio::BasicPitch` — both are
+  `Analyzer`s, so the corpus harness and the CLI stay analyzer-agnostic.
 - **`onnx_session`** — *one* Pimpl class, the **single** translation unit that
   includes the ONNX Runtime C++ headers. It loads a `.onnx`, runs it, and returns
   raw output tensors. It hides `Ort*` types exactly as the aubio `Impl`s do.
@@ -247,7 +248,7 @@ velocity scale **127**.
 
 basic-pitch's adapter emits the **existing** HIR `Note`s and reuses
 `VelocityEstimator` / `NoteTrimmer` / `ScoreBuilder` / `MidiFileWriter` and the
-existing aubio Tier-1 path, all behind the `Transcriber` port. The genuinely new
+existing aubio Tier-1 path, all behind the `Analyzer` port. The genuinely new
 code is `onnx_session` + the basic-pitch adapter + a small piano-roll post-proc —
 not a from-scratch transcription engine.
 

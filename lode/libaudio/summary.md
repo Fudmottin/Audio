@@ -842,6 +842,14 @@ int main() {
 
 ## 9. Integration with midicapture
 
+> **Current state (post-transcriber-merge):** the transcription engine and the
+> MIDI writer now live *in libaudio*. `libaudio::Transcriber` is the concrete
+> Tier-1 aubio engine (YINfft + spectral-flux onsets) and `libaudio::BasicPitch`
+> the Tier-2 neural engine; both implement the abstract `libaudio::Analyzer`
+> port. `midicapture` is a thin CLI front-end (`main.cpp` + the analyzer-agnostic
+> `corpusHarness`) that selects an `Analyzer`. The tree and `class Transcriber`
+> sketch below are the *original Phase-1 plan*, kept for history.
+
 The `midicapture` module (Phase 2) will orchestrate libaudio's analysis and produce the HIR:
 
 ```
@@ -1024,7 +1032,7 @@ Build the DSP library with:
 
 Build the transcription pipeline:
 - Audio file reader (wraps libaudio's audioFile)
-- Transcriber (orchestrates libaudio analysis → HIR)
+- Transcriber (orchestrates libaudio analysis → HIR) — since unified into libaudio as `libaudio::Transcriber`, a concrete `libaudio::Analyzer`
 - MIDI writer (HIR → .mid, Type 1, 480 ticks/qn)
 - Optional: LilyPond writer (HIR → .ly)
 - CLI: `midicapture input.aiff -o output.mid`

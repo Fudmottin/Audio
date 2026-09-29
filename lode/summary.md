@@ -10,7 +10,7 @@ Build a suite of local-first audio processing utilities targeting macOS (later P
 |-------|--------|-------------|
 | **Audio → AIFF** (capture) | Complete | Capture audio from BlackHole 2ch to 16-bit signed integer AIFF files. |
 | **DSP Library** (libaudio) | **Built** | Wraps aubio/libsndfile (Tier-1) + ONNX Runtime/Core ML (Tier-2: basic-pitch). HIR is the analyzer-agnostic seam. |
-| **Audio → MIDI** (transcription) | **In Progress** | Analyzer-agnostic behind the `Transcriber` port: Tier-1 monophonic (YINfft + defrag) and Tier-2 basic-pitch (Core ML, resolves the octave). → Type 1 MIDI. |
+| **Audio → MIDI** (transcription) | **In Progress** | Analyzer-agnostic behind the `Analyzer` port: Tier-1 `libaudio::Transcriber` (YINfft + defrag) and Tier-2 `libaudio::BasicPitch` (Core ML, resolves the octave). → Type 1 MIDI. |
 | **Audio → Waterfall** (frequency analysis) | **Mostly complete** | SONAR-style spectral display (text + MP4 video, PCM and MIDI modes). |
 | **MIDI → Sheet Music** | Planned | Generate readable sheet music from MIDI data. |
 | **Sheet Music → MIDI** | Planned | Generate playable audio from sheet music representations. |
@@ -61,7 +61,7 @@ Audio/
   fragmentation (a dense 30 s passage → 1447 one-hop fragments) is fixed:
   minimum-lifetime + same-pitch merge reduce `final-fantasy.aiff` to ~101
   musically-sensible notes, and the chromatic scale's ascending sequence
-  survives. The path is analyzer-agnostic behind the `Transcriber` port.
+  survives. The path is analyzer-agnostic behind the `Analyzer` port.
   **Tier-1 (YINfft):** octave stays open on weak-fundamental recordings (YIN
   locks below the fundamental; see [audio-to-midi.md](audio-to-midi.md) §5) —
   the scale round-trip validates note count / defrag, not absolute pitch.

@@ -102,7 +102,7 @@ private:
 
 ### Affected types
 
-All 15 public types: `AudioFileReader`, `FFT`, `PitchDetector`, `OnsetDetector`, `BeatTracker`, `NoteDetector`, `Note`, `ControlEvent`, `Score`, `ScoreBuilder`, `MidiFileWriter`, `SpectralAnalyzer`, `TemporalProcessor`, `ControlEventExtractor`, `VelocityEstimator`.
+All 15 public types: `AudioFileReader`, `FFT`, `PitchDetector`, `OnsetDetector`, `BeatTracker`, `NoteDetector`, `Note`, `ControlEvent`, `Score`, `ScoreBuilder`, `MidiFileWriter`, `SpectralAnalyzer`, `TemporalProcessor`, `ControlEventExtractor`, `VelocityEstimator`. (The transcription engine was added to libaudio later as `Analyzer` — the abstract port — with `Transcriber` (Tier-1 aubio) and `BasicPitch` (Tier-2 neural) as concrete `Analyzer`s.)
 
 ### Consumer pattern
 
