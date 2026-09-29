@@ -538,7 +538,7 @@ int main(int argc, char* argv[]) {
       "analyzer",
       po::value<std::string>(&analyzerName)->default_value("basic-pitch"),
       "Analyzer for --run-corpus: \"basic-pitch\" or \"aubio\".")(
-      "clean",
+      "clean", po::bool_switch(&clean),
       "Before evaluating, regenerate the corpus assets (.mid + .mp3).")(
       "ffmpeg",
       po::value<std::string>(&ffmpegPath)
