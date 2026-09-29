@@ -302,8 +302,8 @@ void printSummary(const std::vector<FileMetrics>& results) {
 std::unique_ptr<libaudio::Analyzer>
 makeAnalyzer(const std::string& name, const std::string& ffmpegPath) {
    if (name == "basic-pitch") {
-      return std::make_unique<libaudio::BasicPitch>(LIBAUDIO_BASICPITCH_MODEL,
-                                                    ffmpegPath);
+      // The model is embedded in the binary; BasicPitch only needs ffmpeg.
+      return std::make_unique<libaudio::BasicPitch>(ffmpegPath);
    }
    if (name == "aubio") {
       // The Tier-1 monophonic engine, now in libaudio; one instance is reused

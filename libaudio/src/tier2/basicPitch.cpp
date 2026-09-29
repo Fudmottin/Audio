@@ -27,6 +27,8 @@
 #include <utility>
 #include <vector>
 
+#include "nmp_onnx_data.h"
+
 namespace libaudio {
 
 // ============================================================================
@@ -130,13 +132,13 @@ static std::vector<float> readAllMono(AudioFileReader& reader) {
 // BasicPitch — public API implementation.
 // ============================================================================
 
-BasicPitch::BasicPitch(std::string_view modelPath,
-                       const std::string& ffmpegPath)
+BasicPitch::BasicPitch(const std::string& ffmpegPath)
    : impl_(std::make_unique<Impl>(basicPitchDescriptor())) {
    impl_->ffmpegPath = ffmpegPath;
-   // Load the model with the Core ML EP requested; a CPU fallback is not fatal
-   // (coreMlActive() reports which path the run actually takes).
-   impl_->session.load(modelPath, /*useCoreMl=*/true);
+   // Load the model from the embedded blob (weights + CQT are compiled into the
+   // binary — nothing to resolve on disk) with the Core ML EP requested; a CPU
+   // fallback is not fatal (coreMlActive() reports the actual path).
+   impl_->session.loadFromMemory(nmp_onnx, nmp_onnx_len, /*useCoreMl=*/true);
 }
 
 BasicPitch::~BasicPitch() = default;

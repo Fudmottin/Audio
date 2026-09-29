@@ -37,6 +37,8 @@ int main() {
 
 #else // LIBAUDIO_HAS_TIER2
 
+#include "nmp_onnx_data.h"
+
 namespace {
 
 int g_failures = 0;
@@ -80,18 +82,20 @@ int main() {
    std::printf("=== libaudio Tier-2 smoke test (basic-pitch / ONNX) ===\n");
 
    // --- 1. Load the model ---------------------------------------------------
-   const std::string modelPath = LIBAUDIO_BASICPITCH_MODEL;
-   std::printf("Model: %s\n", modelPath.c_str());
+   // The model is embedded into the binary (nmp_onnx_data.h); there is no file
+   // path to resolve. This exercises the loadFromMemory path the shipping
+   // binary uses.
+   std::printf("Model: embedded nmp.onnx (%zu bytes)\n", nmp_onnx_len);
 
    OnnxSession session;
    bool loaded = false;
    try {
-      session.load(modelPath, /*useCoreMl=*/true);
+      session.loadFromMemory(nmp_onnx, nmp_onnx_len, /*useCoreMl=*/true);
       loaded = true;
    } catch (const std::exception& e) {
       std::printf("  [FAIL] load threw: %s\n", e.what());
    }
-   check(session.isLoaded() && loaded, "OnnxSession loads nmp.onnx");
+   check(session.isLoaded() && loaded, "OnnxSession loads embedded nmp.onnx");
    if (!session.isLoaded()) {
       std::printf("tier2_smoke: FAILED (could not load model)\n");
       return 1;

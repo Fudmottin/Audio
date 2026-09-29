@@ -16,6 +16,9 @@
  *   **Core ML** execution provider (Apple GPU / Neural Engine). If the model
  *   cannot run on Core ML, the session transparently falls back to CPU rather
  *   than failing — `coreMlActive()` reports which path was actually taken.
+ * - `loadFromMemory(data, len, useCoreMl)` is the in-memory twin of `load`: it
+ *   parses a serialized model from a buffer (how a model embedded into the
+ *   binary is loaded) with identical Core ML / fallback semantics.
  * - `run(input)` executes the model once and returns **all** output tensors,
  *   in the model's declared output order, as `libaudio::Tensor`s.
  * - Introspection accessors (`inputNames()`, `outputNames()`, `inputShape()`,
@@ -32,6 +35,7 @@
 #ifndef LIBAUDIO_ONNX_SESSION_H
 #define LIBAUDIO_ONNX_SESSION_H
 
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -81,6 +85,27 @@ class OnnxSession {
     * @throws std::runtime_error if the model file cannot be loaded.
     */
    void load(std::string_view path, bool useCoreMl = true);
+
+   /**
+    * Load a model from an in-memory buffer and prepare it for inference.
+    *
+    * The serialized ONNX protobuf is parsed directly from `data` (no file I/O)
+    * via the `Ort::Session(Env, const void*, size_t, SessionOptions)`
+    * constructor. This is how a model embedded into the binary (the basic-pitch
+    * blob in `nmp_onnx_data.h`) is loaded so that no model file needs to exist
+    * on disk at runtime.
+    *
+    * @param data       Pointer to the serialized `.onnx` bytes (not owned; must
+    *                   remain valid for the duration of the call).
+    * @param len        Length of `data` in bytes.
+    * @param useCoreMl  Same semantics as `load()`: request the Core ML EP for
+    *                   Apple GPU/ANE; fall back to CPU if the model can't run
+    *                   there. Default: true.
+    *
+    * @throws std::runtime_error if the buffer cannot be parsed into a session.
+    */
+   void loadFromMemory(const void* data, std::size_t len,
+                       bool useCoreMl = true);
 
    /**
     * Whether a model is currently loaded and ready to run.

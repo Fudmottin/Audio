@@ -61,18 +61,15 @@ namespace libaudio {
 // ============================================================================
 class BasicPitch : public Analyzer {
  public:
-   // Load the basic-pitch ONNX model and prepare for transcription.
+   // Prepare for transcription. The basic-pitch model (`nmp.onnx`) is embedded
+   // into the binary at build time (see `nmp_onnx_data.h`), so there is no
+   // model path to resolve on disk.
    //
-   // @param modelPath   Path to `nmp.onnx`. Defaults to the model checked in
-   //                    via the basic-pitch submodule (the
-   //                    `LIBAUDIO_BASICPITCH_MODEL` compile definition set by
-   //                    the build).
    // @param ffmpegPath  Path to ffmpeg, used only if the input cannot be read
    //                    directly by libsndfile (the `AudioSource` fallback).
    //
    // @throws std::runtime_error if the model cannot be loaded.
    explicit BasicPitch(
-      std::string_view modelPath = LIBAUDIO_BASICPITCH_MODEL,
       const std::string& ffmpegPath = "/opt/homebrew/bin/ffmpeg");
 
    // Destructor. Releases the ONNX session.

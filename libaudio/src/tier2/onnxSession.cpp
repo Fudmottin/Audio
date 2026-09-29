@@ -26,6 +26,7 @@
 // clang-format on
 
 #include <algorithm>
+#include <cstddef>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -57,6 +58,45 @@ struct OnnxSession::Impl {
    bool loaded = false;
 };
 
+namespace {
+
+// Ask for the Core ML execution provider (Apple GPU / Neural Engine) on a
+// session-options object. In ORT 1.30 this is a standalone C function
+// (coreml_provider_factory.h), NOT a member of OrtApi: it takes the raw
+// OrtSessionOptions* (the C++ wrapper converts to that implicitly) and returns
+// an OrtStatus* that we wrap in the RAII Ort::Status. `COREML_FLAG_USE_NONE`
+// (0) means "any Apple device". If a model cannot run on Core ML the append
+// returns non-OK, but the session is still created and runs on CPU, so the
+// caller records the outcome rather than failing; coreMlActive() reports it.
+bool appendCoreMlEp(Ort::SessionOptions& opts) {
+   return Ort::Status(OrtSessionOptionsAppendExecutionProvider_CoreML(
+                         opts, static_cast<int>(COREML_FLAG_USE_NONE)))
+      .IsOK();
+}
+
+// Copy a freshly-created session's I/O contract (input/output names + the first
+// input's shape) into the caller's cache. Shared by load() and
+// loadFromMemory() so neither has to duplicate the introspection.
+//
+// ORT 1.30: GetInputNames()/GetOutputNames() return std::vector<std::string>,
+// and the shape comes via
+// Session::GetInputTypeInfo(i).GetTensorTypeAndShapeInfo().GetShape() (the
+// older Session::GetInputTypeAndShape() was removed).
+void cacheIoContract(const Ort::Session& session,
+                     std::vector<std::string>& inputNames,
+                     std::vector<std::string>& outputNames,
+                     std::vector<int64_t>& inputShape) {
+   inputNames = session.GetInputNames();
+   outputNames = session.GetOutputNames();
+   inputShape.clear();
+   if (session.GetInputCount() > 0) {
+      inputShape =
+         session.GetInputTypeInfo(0).GetTensorTypeAndShapeInfo().GetShape();
+   }
+}
+
+} // namespace
+
 OnnxSession::OnnxSession()
    : impl_(std::make_unique<Impl>()) {}
 
@@ -83,20 +123,7 @@ void OnnxSession::load(std::string_view path, bool useCoreMl) {
 
    Ort::SessionOptions opts;
    if (useCoreMl) {
-      // Ask for the Core ML execution provider (Apple GPU / Neural Engine).
-      //
-      // In ORT 1.30 this is a standalone C function
-      // (coreml_provider_factory.h), NOT a member of OrtApi. It takes the raw
-      // OrtSessionOptions* — the C++ wrapper converts to that implicitly — and
-      // returns an OrtStatus* that we wrap in the RAII Ort::Status.
-      // `COREML_FLAG_USE_NONE` (0) means "any Apple device". If this model
-      // cannot run on Core ML the append returns a non-OK status but the
-      // session is still created and runs on CPU, so we record the outcome
-      // rather than failing; coreMlActive() reports it.
-      impl_->coreMlActive =
-         Ort::Status(OrtSessionOptionsAppendExecutionProvider_CoreML(
-                        opts, static_cast<int>(COREML_FLAG_USE_NONE)))
-            .IsOK();
+      impl_->coreMlActive = appendCoreMlEp(opts);
    }
 
    try {
@@ -107,23 +134,36 @@ void OnnxSession::load(std::string_view path, bool useCoreMl) {
                                std::string(path) + "': " + e.what());
    }
 
-   // Cache the I/O contract for cheap per-call access + fail-fast validation.
-   // ORT 1.30: GetInputNames()/GetOutputNames() return
-   // std::vector<std::string>, and the count accessors *return* a size_t (the
-   // out-param overloads are gone).
-   impl_->inputNames = impl_->session->GetInputNames();
-   impl_->outputNames = impl_->session->GetOutputNames();
+   cacheIoContract(*impl_->session, impl_->inputNames, impl_->outputNames,
+                   impl_->inputShape);
+   impl_->loaded = true;
+}
 
-   impl_->inputShape.clear();
-   if (impl_->session->GetInputCount() > 0) {
-      // ORT 1.30:
-      // Session::GetInputTypeInfo(i).GetTensorTypeAndShapeInfo().GetShape()
-      // (the older Session::GetInputTypeAndShape() was removed).
-      impl_->inputShape = impl_->session->GetInputTypeInfo(0)
-                             .GetTensorTypeAndShapeInfo()
-                             .GetShape();
+void OnnxSession::loadFromMemory(const void* data, std::size_t len,
+                                 bool useCoreMl) {
+   if (data == nullptr || len == 0) {
+      throw std::runtime_error(
+         "OnnxSession::loadFromMemory called with an empty buffer");
    }
 
+   Ort::SessionOptions opts;
+   if (useCoreMl) {
+      impl_->coreMlActive = appendCoreMlEp(opts);
+   }
+
+   // Parse the serialized model straight from the buffer (no file I/O) via the
+   // Ort::Session(Env, const void*, size_t, SessionOptions) constructor — the
+   // way a model embedded into the binary is loaded.
+   try {
+      impl_->session =
+         std::make_unique<Ort::Session>(impl_->env, data, len, opts);
+   } catch (const Ort::Exception& e) {
+      throw std::runtime_error(
+         std::string("Failed to load ONNX model from memory: ") + e.what());
+   }
+
+   cacheIoContract(*impl_->session, impl_->inputNames, impl_->outputNames,
+                   impl_->inputShape);
    impl_->loaded = true;
 }
 

@@ -127,13 +127,40 @@ if(LIBAUDIO_ENABLE_TIER2)
     target_compile_definitions(libaudio PUBLIC LIBAUDIO_HAS_TIER2=1)
     target_link_libraries(libaudio PUBLIC onnxruntime::onnxruntime)
 
-    # The basic-pitch model is referenced in place from the submodule (no copy):
-    # a single source of truth, with provenance in manifests/basic-pitch.txt.
-    set(LIBAUDIO_BASICPITCH_MODEL
+    # ------------------------------------------------------------------
+    # Embed the basic-pitch model as a C++ source blob.
+    #
+    # The model is referenced in place from the submodule (no copy — a single
+    # source of truth, provenance in manifests/basic-pitch.txt). At build time
+    # a generator turns it into a header of raw bytes, verified against the
+    # manifest's SHA-256 (the build fails if the model has drifted), so the
+    # binary is self-contained at runtime and needs no model file on disk. The
+    # header is written to the build tree (git-ignored) and is included only by
+    # basicPitch.cpp and the tier2 smoke test.
+    find_package(Python3 COMPONENTS Interpreter REQUIRED)
+
+    set(_bp_onnx
         "${CMAKE_CURRENT_SOURCE_DIR}/external/basic-pitch/basic_pitch/saved_models/icassp_2022/nmp.onnx")
-    target_compile_definitions(libaudio PUBLIC
-        LIBAUDIO_BASICPITCH_MODEL="${LIBAUDIO_BASICPITCH_MODEL}")
-    message(STATUS "libaudio: Tier-2 (ONNX) ENABLED — basic-pitch model: ${LIBAUDIO_BASICPITCH_MODEL}")
+    set(_bp_manifest "${CMAKE_CURRENT_SOURCE_DIR}/manifests/basic-pitch.txt")
+    set(_bp_gen_hdr  "${CMAKE_CURRENT_BINARY_DIR}/generated/nmp_onnx_data.h")
+    set(_bp_gen_py   "${CMAKE_CURRENT_SOURCE_DIR}/tools/nmp_onnx_to_header.py")
+
+    add_custom_command(
+        OUTPUT  "${_bp_gen_hdr}"
+        COMMAND "${Python3_EXECUTABLE}" "${_bp_gen_py}"
+                "${_bp_onnx}" "${_bp_manifest}" "${_bp_gen_hdr}"
+        DEPENDS "${_bp_onnx}" "${_bp_manifest}" "${_bp_gen_py}"
+        COMMENT "libaudio: embedding basic-pitch nmp.onnx (SHA-256 verified) -> generated/nmp_onnx_data.h"
+        VERBATIM)
+
+    # Listing the generated header in the target's sources is CMake's
+    # canonical way to make a #include'd generated file a build prerequisite,
+    # so the custom command runs before basicPitch.cpp compiles.
+    target_include_directories(libaudio
+        PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
+    target_sources(libaudio PRIVATE "${_bp_gen_hdr}")
+
+    message(STATUS "libaudio: Tier-2 (ONNX) ENABLED — embedding basic-pitch nmp.onnx (${_bp_onnx})")
 else()
     message(STATUS "libaudio: Tier-2 (ONNX) disabled (LIBAUDIO_ENABLE_TIER2=OFF)")
 endif()
@@ -179,7 +206,9 @@ if(LIBAUDIO_ENABLE_TIER2)
     add_executable(test_libaudio_tier2 tests/tier2_smoke.cpp)
     target_include_directories(test_libaudio_tier2 PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/include
+        ${CMAKE_CURRENT_BINARY_DIR}/generated
     )
+    target_sources(test_libaudio_tier2 PRIVATE "${_bp_gen_hdr}")
     target_link_libraries(test_libaudio_tier2 PRIVATE libaudio)
     add_test(NAME tier2_smoke COMMAND test_libaudio_tier2)
 endif()
