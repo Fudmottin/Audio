@@ -51,7 +51,6 @@ add_subdirectory(${CMAKE_SOURCE_DIR}/../libaudio ${CMAKE_BINARY_DIR}/libaudio)
 # Core Guidelines: explicit source files. No wildcards.
 set(MIDICAPTURE_SOURCES
     src/main.cpp
-    src/transcriber.cpp
 )
 # Tier-2 analyzers + the analyzer-agnostic 14-file corpus harness. Compiled only
 # when libaudio was built with Tier-2, so a Tier-1 build is byte-for-byte
@@ -60,7 +59,6 @@ set(MIDICAPTURE_SOURCES
 # libaudio propagates here) so the sources can also be compiled standalone.
 if(LIBAUDIO_ENABLE_TIER2)
     list(APPEND MIDICAPTURE_SOURCES
-        src/aubioTranscriber.cpp
         src/corpusHarness.cpp
     )
 endif()

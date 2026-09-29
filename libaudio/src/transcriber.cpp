@@ -1,6 +1,6 @@
 /**
  * @file transcriber.cpp
- * @brief Implementation of Transcriber — audio-to-MIDI transcription.
+ * @brief Implementation of libaudio::Transcriber — audio-to-MIDI transcription.
  *
  * This module implements the Transcriber class, which orchestrates
  * the full transcription pipeline:
@@ -85,18 +85,16 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <libaudio/audioDecode.h>
 #include <libaudio/audioFile.h>
-#include <libaudio/noteTrimmer.h>
 #include <libaudio/onset.h>
 #include <libaudio/pitch.h>
+#include <libaudio/transcriber.h>
 #include <stdexcept>
 #include <string>
 #include <vector>
 
-// Forward declarations of our own modules.
-#include <midicapture/transcriber.h>
-
-using namespace libaudio;
+namespace libaudio {
 
 // ============================================================================
 // Transcriber::Impl — Private implementation (Pimpl pattern).
@@ -168,6 +166,10 @@ struct Transcriber::Impl {
    // (a same-pitch run closer than a quarter note is one sustained note) and
    // stamped onto the returned Score.
    double tempoBpm = 120.0;
+
+   // Path to ffmpeg, used only if the input cannot be read directly by
+   // libsndfile (the AudioSource fallback inside transcribe()).
+   std::string ffmpegPath;
 
    // Analysis objects (Pimpl pattern).
    std::unique_ptr<PitchDetector> pitchDetector;
@@ -393,6 +395,61 @@ struct Transcriber::Impl {
       currentNote_.pitch = static_cast<uint8_t>(std::clamp(midi, 21, 108));
       currentNote_.velocity = velocityFromPeakRms(peakRms);
    }
+
+   // Reset all per-file state so one engine can transcribe a new file: the
+   // rolling window / hop buffers are zeroed, the per-note accumulators and
+   // the in-flight note are cleared, the result list is emptied, and the
+   // pitch + onset detectors are rebuilt fresh (rebuildDetectors).
+   //
+   // The detector rebuild is what makes a reused engine byte-equivalent to a
+   // freshly constructed one: the onset detector's cross-frame state (aubio's
+   // internal phase-vocoder buffer + the primed/prevOnsetSample latch) would
+   // otherwise leak between files, and setSampleRate() cannot clear it because
+   // it no-ops when the file's rate equals the 48000 placeholder. Rebuilding is
+   // deterministic, so the Python harness (one engine per file) and the corpus
+   // harness (one reused engine, transcribe() per file) see identical results.
+   void resetForNewFile() {
+      window.assign(bufSize, 0.0f);
+      hopBuf.assign(hopSize, 0.0f);
+      noteHzs_.clear();
+      noteRms_.clear();
+      peakRms = 0.0f;
+      isPlaying_ = false;
+      currentNoteHops_ = 0;
+      currentNote_ = Note();
+      notes_.clear();
+      rebuildDetectors();
+   }
+
+   // (Re)construct the pitch and onset detectors from the stored analysis
+   // parameters. Called from the constructor and from resetForNewFile().
+   //
+   // Domain context: the onset detector holds cross-frame state — aubio's
+   // internal phase-vocoder buffer plus the latch edge-detector (primed,
+   // prevOnsetSample) — that leaks between files if the same object is reused.
+   // A detector built at the placeholder rate never rebuilds itself when the
+   // *real* rate equals the placeholder (setSampleRate() no-ops on an
+   // unchanged rate; every corpus file is 48 kHz == 48000), so a reused engine
+   // must be handed a *fresh* detector per file to stay byte-equivalent to a
+   // fresh-engine-per-file baseline. (Re)construction is deterministic, so a
+   // freshly constructed engine and a reused-and-reset engine see identical
+   // detector state.
+   void rebuildDetectors() {
+      // Pitch detector (YINfft by default). The tolerance is the YIN
+      // minimum-search threshold; 0.1 matches aubio's aubiopitch CLI.
+      pitchDetector = std::make_unique<PitchDetector>(bufSize, 0.1f);
+      pitchDetector->setMethod(pitchMethod);
+      pitchDetector->setHopSize(hopSize);
+
+      // Onset detector (spectral flux by default). Constructed with a
+      // placeholder sample rate; transcribe() sets the file's actual rate
+      // before the first detect() call.
+      onsetDetector =
+         std::make_unique<OnsetDetector>("specflux", bufSize, hopSize, 48000);
+      // aubioonset CLI parity: 0.3 peak threshold, 12 ms minioi.
+      onsetDetector->setThreshold(0.3f);
+      onsetDetector->setMinIoI(0.012);
+   }
 };
 
 // ============================================================================
@@ -400,45 +457,57 @@ struct Transcriber::Impl {
 // ============================================================================
 
 Transcriber::Transcriber(uint32_t bufSize, uint32_t hopSize, float silenceDb,
-                         const std::string& pitchMethod, double tempoBpm)
+                         const std::string& pitchMethod, double tempoBpm,
+                         const std::string& ffmpegPath)
    : impl_(std::make_unique<Impl>()) {
    impl_->bufSize = bufSize;
    impl_->hopSize = hopSize;
    impl_->silenceDb = silenceDb;
    impl_->pitchMethod = pitchMethod;
    impl_->tempoBpm = tempoBpm;
+   impl_->ffmpegPath = ffmpegPath;
 
    // Rolling analysis window and hop scratch buffer.
    impl_->window.assign(bufSize, 0.0f);
    impl_->hopBuf.assign(hopSize, 0.0f);
 
-   // Pitch detector (YINfft by default). The tolerance is the YIN
-   // minimum-search threshold; 0.1 matches aubio's aubiopitch CLI.
-   impl_->pitchDetector = std::make_unique<PitchDetector>(bufSize, 0.1f);
-   impl_->pitchDetector->setMethod(pitchMethod);
-   impl_->pitchDetector->setHopSize(hopSize);
-
-   // Onset detector (spectral flux by default). Constructed with a
-   // placeholder sample rate; transcribe() sets the file's actual rate
-   // before the first detect() call.
-   impl_->onsetDetector =
-      std::make_unique<OnsetDetector>("specflux", bufSize, hopSize, 48000);
-   // aubioonset CLI parity: 0.3 peak threshold, 12 ms minioi.
-   impl_->onsetDetector->setThreshold(0.3f);
-   impl_->onsetDetector->setMinIoI(0.012);
+   // Pitch + onset detectors: built via rebuildDetectors() from the analysis
+   // parameters set above. The onset detector is constructed with a
+   // placeholder sample rate; transcribe() sets the file's actual rate before
+   // the first detect() call.
+   impl_->rebuildDetectors();
 }
 
 Transcriber::~Transcriber() = default;
 
-Score Transcriber::transcribe(const std::string& inputPath) const {
+Transcriber::Transcriber(Transcriber&& other) noexcept
+   : impl_(std::move(other.impl_)) {}
+
+Transcriber& Transcriber::operator=(Transcriber&& other) noexcept {
+   if (this != &other) {
+      impl_ = std::move(other.impl_);
+   }
+   return *this;
+}
+
+std::string Transcriber::name() const { return "aubio"; }
+
+Score Transcriber::transcribe(std::string_view path) const {
    // Per-hop transcription. See the file header for the gating and
    // pitch-resolution strategy; the body below is a single sequential
    // read driving energy, pitch, and onset in one pass.
 
    auto* p = impl_.get();
 
-   AudioFileReader audioReader(inputPath);
+   // Resolve the input to a libsndfile-readable path (libsndfile probe, else
+   // an ffmpeg decode to a temp WAV). For inputs libsndfile reads natively
+   // this returns the original path untouched; only an unreadable container is
+   // decoded. `src` owns any temp file and outlives the read below.
+   AudioSource src = AudioSource::open(path, p->ffmpegPath);
+
+   AudioFileReader audioReader(src.path());
    p->sampleRate_ = audioReader.sampleRate();
+   p->resetForNewFile();
    p->onsetDetector->setSampleRate(p->sampleRate_);
 
    const uint32_t bufSize = p->bufSize;
@@ -625,3 +694,5 @@ Score Transcriber::transcribe(const std::string& inputPath) const {
 
    return score;
 }
+
+} // namespace libaudio

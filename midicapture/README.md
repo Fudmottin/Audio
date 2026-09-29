@@ -18,12 +18,16 @@ Audio/
 │   ├── CMakeLists.txt   # Build configuration
 │   ├── README.md        # This file
 │   ├── include/midicapture/
-│   │   └── transcriber.h         # High-level transcription API
+│   │   └── corpusHarness.h       # Tier-2 analyzer-agnostic corpus evaluator
 │   └── src/
 │       ├── main.cpp              # CLI entry point (Boost program_options)
-│       └── transcriber.cpp       # Transcription pipeline (pitch + onset)
+│       └── corpusHarness.cpp     # Tier-2 corpus harness (evaluator + renderer)
 └── lode/midicapture/    # Module documentation
 ```
+
+The monophonic transcription *engine* (`libaudio::Transcriber`) and the
+analyzer-agnostic `libaudio::Analyzer` port now live in the `libaudio` module;
+`midicapture` consumes them rather than defining its own.
 
 ## Requirements
 

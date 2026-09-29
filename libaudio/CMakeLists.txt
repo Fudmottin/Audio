@@ -51,6 +51,7 @@ option(LIBAUDIO_ENABLE_TIER2
 # Core Guidelines: explicit source files. No wildcards.
 set(LIBAUDIO_SOURCES
     src/audioFile.cpp
+    src/audioDecode.cpp
     src/fft.cpp
     src/pitch.cpp
     src/onset.cpp
@@ -65,6 +66,7 @@ set(LIBAUDIO_SOURCES
     src/scoreBuilder.cpp
     src/velocityEstimator.cpp
     src/noteTrimmer.cpp
+    src/transcriber.cpp
 )
 
 # --- libaudio static library target ---
@@ -116,7 +118,6 @@ if(LIBAUDIO_ENABLE_TIER2)
         src/tier2/onnxTensor.cpp
         src/tier2/onnxSession.cpp
         src/tier2/modelDescriptor.cpp
-        src/tier2/audioDecode.cpp
         src/tier2/basicPitch.cpp
         src/tier2/pianoRoll.cpp
     )

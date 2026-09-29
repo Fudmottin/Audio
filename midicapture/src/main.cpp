@@ -47,8 +47,8 @@
 #include <libaudio/audioFile.h>
 #include <libaudio/hir.h>
 #include <libaudio/midiFileWriter.h>
+#include <libaudio/transcriber.h>
 #include <midicapture/corpusHarness.h>
-#include <midicapture/transcriber.h>
 #include <string>
 #include <vector>
 
@@ -781,8 +781,8 @@ int main(int argc, char* argv[]) {
       // 5. Write the Score to a Type 1 MIDI file.
       // =====================================================================
 
-      ::Transcriber transcriber(windowSize, hopSize, silenceDb, pitchMethod,
-                                tempoBpm);
+      libaudio::Transcriber transcriber(windowSize, hopSize, silenceDb,
+                                        pitchMethod, tempoBpm);
 
       // Transcribe the audio file.
       Score score = transcriber.transcribe(inputPath);

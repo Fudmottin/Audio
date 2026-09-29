@@ -3,10 +3,9 @@
  * @brief Implementation of the analyzer-agnostic 14-file corpus evaluator.
  *
  * The whole file is Tier-2: it scores analyzers through the `libaudio`
- * `Transcriber` port. Every `libaudio` type is written with the `libaudio::`
- * qualifier (never `using namespace libaudio;`) because the umbrella header
- * pulls in `libaudio::Transcriber`, which would otherwise be ambiguous with
- * this module's own global `::Transcriber` (the Tier-1 aubio engine).
+ * `Analyzer` port. Every `libaudio` type is written with the `libaudio::`
+ * qualifier (never `using namespace libaudio;`) to keep the library's types
+ * distinct from this module's own globals.
  *
  * @section corpus-metrics The metrics (a faithful port of render_test_suite.py)
  *
@@ -36,11 +35,11 @@
 
 #include <midicapture/corpusHarness.h>
 
-// libaudio's Tier-2 public API (BasicPitch, MidiFileReader, MidiFileWriter,
-// Score/Note, the Transcriber port, AudioSource).
+// libaudio's public API (the Analyzer port, the Transcriber engine,
+// BasicPitch, MidiFileReader/Writer, Score/Note, and AudioSource).
 #include <libaudio/libaudio.h>
 
-// This module's Tier-1 engine adapted to the libaudio Transcriber port.
+// Standard library includes.
 #include <algorithm>
 #include <cmath>
 #include <cstdarg>
@@ -52,7 +51,6 @@
 #include <fstream>
 #include <iostream>
 #include <memory>
-#include <midicapture/aubioTranscriber.h>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -301,14 +299,18 @@ void printSummary(const std::vector<FileMetrics>& results) {
 // Analyzer factory — select an analyzer by name.
 // ============================================================================
 
-std::unique_ptr<libaudio::Transcriber>
+std::unique_ptr<libaudio::Analyzer>
 makeAnalyzer(const std::string& name, const std::string& ffmpegPath) {
    if (name == "basic-pitch") {
       return std::make_unique<libaudio::BasicPitch>(LIBAUDIO_BASICPITCH_MODEL,
                                                     ffmpegPath);
    }
    if (name == "aubio") {
-      return std::make_unique<AubioTranscriber>(ffmpegPath);
+      // The Tier-1 monophonic engine, now in libaudio; one instance is reused
+      // for every file (transcribe() resets its per-file state each call).
+      return std::make_unique<libaudio::Transcriber>(2048u, 512u, -40.0f,
+                                                     "yinfft", 120.0,
+                                                     ffmpegPath);
    }
    throw std::runtime_error("unknown analyzer: '" + name +
                             "' (expected 'basic-pitch' or 'aubio')");
@@ -670,7 +672,7 @@ int runCorpus(const std::string& dir, const std::string& analyzerName,
    }
 
    // Build the analyzer (this is where a bad name or a missing model fails).
-   std::unique_ptr<libaudio::Transcriber> analyzer;
+   std::unique_ptr<libaudio::Analyzer> analyzer;
    try {
       analyzer = makeAnalyzer(analyzerName, ffmpegPath);
    } catch (const std::exception& e) {

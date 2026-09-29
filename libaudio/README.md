@@ -16,6 +16,7 @@ and exported as a Standard MIDI File (SMF).
 | Module | Purpose | Dependency |
 |--------|---------|------------|
 | `AudioFileReader` | Read AIFF/WAV files | libsndfile |
+| `AudioSource` | Resolve any audio container to a readable path (libsndfile, else ffmpeg) | libsndfile + ffmpeg |
 | `FFT` | Spectral analysis (forward/inverse) | aubio |
 | `PitchDetector` | Pitch detection (YIN variants) | aubio |
 | `OnsetDetector` | Note onset detection | aubio |
@@ -23,6 +24,8 @@ and exported as a Standard MIDI File (SMF).
 | `NoteDetector` | Note detection (onset + pitch + velocity) | aubio |
 | `SpectralAnalyzer` | Spectral features (MFCC, chroma, etc.) | aubio |
 | `TemporalProcessor` | Resampling, filtering | aubio |
+| `Analyzer` | Abstract audio → `Score` port (the analyzer-agnostic seam) | none |
+| `Transcriber` | Monophonic audio → `Score` engine (YINfft + onset + hysteresis) | aubio + libsndfile |
 | `HIR` (Note, ControlEvent, Score) | Intermediate representation | none |
 | `MidiFileWriter` | Export HIR to SMF (Type 1, 480 ticks/qn) | none |
 | `ControlEventExtractor` | Extract MIDI control events (pedals) | none |

@@ -2,11 +2,11 @@
  * @file basicPitch.h
  * @brief The basic-pitch (Spotify) polyphonic transcriber, hosted on ONNX.
  *
- * `BasicPitch` is a `Transcriber` adapter: it knows *one* model's I/O contract
- * (the `basicPitchDescriptor()`) and turns an audio file path into a HIR
- * `Score` of notes. It is the Tier-2 upgrade path for midicapture (audio-to-
- * midi.md: a model that explicitly models the harmonic series resolves the
- * octave the monophonic YIN path cannot).
+ * `BasicPitch` is libaudio's Tier-2 `Analyzer`: it knows *one* model's I/O
+ * contract (the `basicPitchDescriptor()`) and turns an audio file path into a
+ * HIR `Score` of notes. It is the Tier-2 upgrade path for midicapture
+ * (audio-to- midi.md: a model that explicitly models the harmonic series
+ * resolves the octave the monophonic YIN path cannot).
  *
  * The adapter is **ORT-free**: it talks only to `OnnxSession` / `Tensor` /
  * `ModelDescriptor`. The ONNX Runtime headers are confined to
@@ -36,11 +36,11 @@
 #ifndef LIBAUDIO_BASICPITCH_H
 #define LIBAUDIO_BASICPITCH_H
 
+#include <libaudio/analyzer.h>
 #include <libaudio/hir.h>
 #include <libaudio/modelDescriptor.h>
 #include <libaudio/onnxSession.h>
 #include <libaudio/pianoRoll.h>
-#include <libaudio/transcriber.h>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -59,7 +59,7 @@ namespace libaudio {
 // A single `BasicPitch` owns one loaded model session and can transcribe many
 // files; `transcribe` is const (a session is reusable). Non-copyable, movable.
 // ============================================================================
-class BasicPitch : public Transcriber {
+class BasicPitch : public Analyzer {
  public:
    // Load the basic-pitch ONNX model and prepare for transcription.
    //

@@ -15,9 +15,9 @@
  *      temp file is deleted when the `AudioSource` is destroyed.
  *
  * This is the single place in libaudio that shells out to ffmpeg *for reading*.
- * It is shared by the Tier-2 `BasicPitch` adapter and (via the
- * `AubioTranscriber` in midicapture) the Tier-1 path, so every analyzer decodes
- * the same way and one file never has two different decode strategies.
+ * It is shared by the Tier-2 `BasicPitch` adapter and the Tier-1 `Transcriber`
+ * engine, so every analyzer decodes the same way and one file never has two
+ * different decode strategies.
  *
  * Two entry points:
  *   - `open()` resolves a path libsndfile can read at its *native* rate (the
@@ -29,11 +29,11 @@
  *     which requires `libsamplerate` and the installed aubio is not built with
  *     it (its resampler would otherwise silently return silence).
  *
- * @section audio-decode-tier2 Tier-2 grouping
+ * @section audio-decode-tier1 Tier-1 grouping
  *
- * Part of libaudio's Tier-2 layer; gated behind `LIBAUDIO_HAS_TIER2`. (The
- * helper is a plain value with no ONNX dependency — it only needs the audio
- * reader and a path to ffmpeg.)
+ * Part of libaudio's Tier-1 layer (always compiled). The helper is a plain
+ * value with no ONNX dependency — it only needs the audio reader and a path to
+ * ffmpeg.
  */
 
 #ifndef LIBAUDIO_AUDIODECODE_H

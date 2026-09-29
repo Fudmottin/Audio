@@ -37,6 +37,8 @@
 #ifndef LIBAUDIO_LIBAUDIO_H
 #define LIBAUDIO_LIBAUDIO_H
 
+#include "analyzer.h"
+#include "audioDecode.h"
 #include "audioFile.h"
 #include "beat.h"
 #include "controlEventExtractor.h"
@@ -51,19 +53,18 @@
 #include "scoreBuilder.h"
 #include "spectral.h"
 #include "temporal.h"
+#include "transcriber.h"
 #include "velocityEstimator.h"
 
 // --- Tier 2: neural transcription on ONNX Runtime (optional). -------------
 // Gated behind LIBAUDIO_ENABLE_TIER2 (build flag LIBAUDIO_HAS_TIER2); the aubio
 // Tier-1 path is unaffected when Tier-2 is OFF.
 #ifdef LIBAUDIO_HAS_TIER2
-#include "audioDecode.h"
 #include "basicPitch.h"
 #include "modelDescriptor.h"
 #include "onnxSession.h"
 #include "onnxTensor.h"
 #include "pianoRoll.h"
-#include "transcriber.h"
 #endif
 
 #endif // LIBAUDIO_LIBAUDIO_H

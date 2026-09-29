@@ -4,7 +4,7 @@
  *
  * `runCorpus` is a C++ port of `midicapture/render_test_suite.py`: for each
  * `.mp3` in a directory it runs the selected analyzer (a
- * `libaudio::Transcriber` — `basic-pitch` or the Tier-1 `aubio` engine),
+ * `libaudio::Analyzer` — `basic-pitch` or the Tier-1 `aubio` engine),
  * compares the detected notes to the ground-truth `.mid` beside each file, and
  * prints the per-file recall / precision / Δonset / Δdur / Δvel / Δoct /
  * Δchroma table plus the suite summary. It is the *evaluator* half of the
@@ -13,7 +13,7 @@
  *
  * This type lives in the global namespace to match the module's other types.
  * It is Tier-2-only: the harness scores analyzers through the `libaudio`
- * `Transcriber` port, which exists only when the build has Tier-2.
+ * `Analyzer` port, which exists only when the build has Tier-2.
  *
  * @section corpus-tier2 Tier-2 grouping
  *
