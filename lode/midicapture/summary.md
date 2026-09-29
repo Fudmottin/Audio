@@ -32,7 +32,7 @@ Audio/
 │   │   ├── audioFile.h   # AudioFileReader (libsndfile wrapper)
 │   │   ├── midiFileWriter.h  # MidiFileWriter (HIR → SMF)
 │   │   └── hir.h         # Note, ControlEvent, Score (HIR)
-│   └── src/             # Implementation files (incl. transcriber.cpp, tier2/)
+│   └── src/             # Implementation files (incl. transcriber.cpp, onnx/, basicPitch/)
 ├── midicapture/          # Phase 2: Audio → MIDI (thin CLI front-end)
 │   ├── CMakeLists.txt   # Build config (links libaudio, Boost)
 │   ├── include/midicapture/

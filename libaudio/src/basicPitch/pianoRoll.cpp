@@ -1,6 +1,20 @@
 // pianoRoll.cpp — decode basic-pitch style note/onset activation maps into
 // HIR `Note`s.
 //
+// Derived from Spotify's basic-pitch (https://github.com/spotify/basic-pitch).
+// Copyright 2022 Spotify AB. Licensed under the Apache License, Version 2.0
+// (code + model weights).
+//
+// The model (nmp.onnx) was developed by Spotify's Audio Intelligence Lab and
+// published at ICASSP 2022:
+//   "A Lightweight Instrument-Agnostic Model for Polyphonic Note Transcription
+//    and Multipitch Estimation" — Bittner, Bosch, Rubinstein, Meseguer-Brocal,
+//    Ewert. Proceedings of the IEEE International Conference on Acoustics,
+//    Speech, and Signal Processing (ICASSP), Singapore, 2022.
+//
+// The model file is shipped by Spotify as basic_pitch/saved_models/icassp_2022/
+// nmp.onnx (230,444 bytes, exported by tf2onnx 1.15.1).
+//
 // This is the C++ port of
 // `basic_pitch/note_creation.py::output_to_notes_polyphonic` (plus its
 // `get_infered_onsets` helper and `model_frames_to_time`), the post-processing

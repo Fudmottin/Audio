@@ -65,6 +65,9 @@ def main():
     prov = (
         f"//   Model      : Spotify basic-pitch, ICASSP 2022 'nmp'. "
         f"{m.get('license', 'Apache-2.0')}\n"
+        f"//   Paper      : \"A Lightweight Instrument-Agnostic Model for Polyphonic\n"
+        f"//               Note Transcription and Multipitch Estimation\" — Bittner,\n"
+        f"//               Bosch, Rubinstein, Meseguer-Brocal, Ewert. ICASSP 2022.\n"
         f"//   Upstream   : {m.get('upstream', 'https://github.com/spotify/basic-pitch')}\n"
         f"//   Pinned at  : {m.get('submodule_pin', '')}\n"
         f"//   Converted  : {m.get('converted_by', 'tf2onnx (upstream)')}\n"

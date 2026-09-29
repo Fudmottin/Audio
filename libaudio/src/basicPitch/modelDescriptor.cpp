@@ -1,4 +1,19 @@
 // modelDescriptor.cpp — model contracts + fail-fast I/O validation.
+//
+// Declares the I/O contract of Spotify's basic-pitch
+// (https://github.com/spotify/basic-pitch). Copyright 2022 Spotify AB.
+// Licensed under the Apache License, Version 2.0 (code + model weights).
+//
+// basic-pitch was developed by Spotify's Audio Intelligence Lab and published
+// at ICASSP 2022:
+//   "A Lightweight Instrument-Agnostic Model for Polyphonic Note Transcription
+//    and Multipitch Estimation" — Bittner, Bosch, Rubinstein, Meseguer-Brocal,
+//    Ewert. Proceedings of the IEEE International Conference on Acoustics,
+//    Speech, and Signal Processing (ICASSP), Singapore, 2022.
+//
+// The model file is shipped by Spotify as basic_pitch/saved_models/icassp_2022/
+// nmp.onnx (230,444 bytes, exported by tf2onnx 1.15.1). Its SHA-256 is
+// verified at build time against manifests/basic-pitch.txt.
 
 #include "libaudio/modelDescriptor.h"
 

@@ -1,5 +1,20 @@
 // tier2_smoke.cpp — end-to-end proof of the C++ / ONNX Runtime / Core ML path.
 //
+// Exercises the real Spotify basic-pitch model
+// (https://github.com/spotify/basic-pitch). Copyright 2022 Spotify AB.
+// Licensed under the Apache License, Version 2.0 (code + model weights).
+//
+// The model (nmp.onnx) was developed by Spotify's Audio Intelligence Lab and
+// published at ICASSP 2022:
+//   "A Lightweight Instrument-Agnostic Model for Polyphonic Note Transcription
+//    and Multipitch Estimation" — Bittner, Bosch, Rubinstein, Meseguer-Brocal,
+//    Ewert. Proceedings of the IEEE International Conference on Acoustics,
+//    Speech, and Signal Processing (ICASSP), Singapore, 2022.
+//
+// The model file is shipped by Spotify as basic_pitch/saved_models/icassp_2022/
+// nmp.onnx (230,444 bytes, exported by tf2onnx 1.15.1). Its SHA-256 is
+// verified at build time against manifests/basic-pitch.txt.
+//
 // This is a deliberate, isolated smoke test for the Tier-2 foundation. It does
 // three things, in increasing strength:
 //

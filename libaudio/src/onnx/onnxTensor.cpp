@@ -1,4 +1,23 @@
 // onnxTensor.cpp — implementation of the dependency-free Tensor value type.
+//
+// Part of libaudio's Tier-2 (ONNX) layer, the generic runtime that runs
+// Spotify's basic-pitch (https://github.com/spotify/basic-pitch).
+// Copyright 2022 Spotify AB. Licensed under the Apache License, Version 2.0
+// (code + model weights).
+//
+// basic-pitch was developed by Spotify's Audio Intelligence Lab and published
+// at ICASSP 2022:
+//   "A Lightweight Instrument-Agnostic Model for Polyphonic Note Transcription
+//    and Multipitch Estimation" — Bittner, Bosch, Rubinstein, Meseguer-Brocal,
+//    Ewert. Proceedings of the IEEE International Conference on Acoustics,
+//    Speech, and Signal Processing (ICASSP), Singapore, 2022.
+//
+// The model file is shipped by Spotify as basic_pitch/saved_models/icassp_2022/
+// nmp.onnx (230,444 bytes, exported by tf2onnx 1.15.1).
+//
+// The Tensor value type itself is libaudio's own code: a small, dependency-
+// free container exchanged between the ONNX session layer and the model
+// adapters.
 
 #include "libaudio/onnxTensor.h"
 

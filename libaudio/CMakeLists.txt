@@ -114,12 +114,15 @@ if(LIBAUDIO_ENABLE_TIER2)
         target_include_directories(libaudio PUBLIC "${_onnx_inc_parent}")
     endif()
 
+    # The Tier-2 sources live in two subdirectories mirroring the architecture:
+    # src/onnx/ (the generic ONNX runtime layer) and src/basicPitch/ (the
+    # Spotify basic-pitch model adapter). The headers stay flat in include/.
     target_sources(libaudio PRIVATE
-        src/tier2/onnxTensor.cpp
-        src/tier2/onnxSession.cpp
-        src/tier2/modelDescriptor.cpp
-        src/tier2/basicPitch.cpp
-        src/tier2/pianoRoll.cpp
+        src/onnx/onnxTensor.cpp
+        src/onnx/onnxSession.cpp
+        src/basicPitch/modelDescriptor.cpp
+        src/basicPitch/basicPitch.cpp
+        src/basicPitch/pianoRoll.cpp
     )
 
     # PUBLIC so consumers (midicapture/waterfall) that use the Tier-2 types
@@ -155,9 +158,15 @@ if(LIBAUDIO_ENABLE_TIER2)
 
     # Listing the generated header in the target's sources is CMake's
     # canonical way to make a #include'd generated file a build prerequisite,
-    # so the custom command runs before basicPitch.cpp compiles.
+    # so the custom command runs before basicPitch.cpp compiles. The Tier-2
+    # source subdirectories are on the private include path too, so the bare
+    # `#include "nmp_onnx_data.h"` resolves from either subdirectory (the
+    # header itself is generated into the build tree).
     target_include_directories(libaudio
-        PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
+        PRIVATE
+            src/onnx
+            src/basicPitch
+            "${CMAKE_CURRENT_BINARY_DIR}/generated")
     target_sources(libaudio PRIVATE "${_bp_gen_hdr}")
 
     message(STATUS "libaudio: Tier-2 (ONNX) ENABLED — embedding basic-pitch nmp.onnx (${_bp_onnx})")
