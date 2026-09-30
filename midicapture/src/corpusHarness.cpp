@@ -638,7 +638,8 @@ void cleanScaleSet(const std::string& dir, const std::string& ffmpegPath) {
 // ============================================================================
 
 int runCorpus(const std::string& dir, const std::string& analyzerName,
-              bool clean, const std::string& ffmpegPath) {
+              bool clean, const std::string& ffmpegPath,
+              bool includePitchBends) {
    namespace fs = std::filesystem;
 
    std::cout << "midicapture test-suite evaluator\n";
@@ -683,8 +684,16 @@ int runCorpus(const std::string& dir, const std::string& analyzerName,
    // Report the execution path for the neural analyzer (Core ML or CPU).
    if (analyzerName == "basic-pitch") {
       auto* bp = dynamic_cast<libaudio::BasicPitch*>(analyzer.get());
+      if (bp) {
+         // Apply the pitch-bend policy from the command line; the other knobs
+         // (deadband, multiple bends) keep their defaults.
+         libaudio::BasicPitchOptions options = bp->options();
+         options.includePitchBends = includePitchBends;
+         bp->setOptions(options);
+      }
       std::cout << "  Core ML:      "
                 << (bp && bp->coreMlActive() ? "active" : "cpu-fallback")
+                << "   Pitch bends: " << (includePitchBends ? "on" : "off")
                 << "\n";
    }
    std::cout << "\n";

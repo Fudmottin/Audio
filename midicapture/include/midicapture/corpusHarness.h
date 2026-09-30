@@ -38,11 +38,18 @@
 /// @param clean         When true, regenerate the 14 assets (`.mid` + `.mp3`)
 ///                      into `dir` before evaluating (the renderer half).
 /// @param ffmpegPath    Path to the ffmpeg executable (decode + mp3 encode).
+/// @param includePitchBends  basic-pitch only: whether to extract pitch bends
+///                      into `Note::pitchBends`. Ignored by the aubio engine
+///                      (it never bends). Default true (Python parity). This
+///                      does not change the onset/length/pitch/velocity
+///                      metrics (those exclude bends); it only affects the
+///                      bend vectors the analyzer attaches to notes.
 ///
 /// @return 0 on success, 1 on a setup/missing-tool error, 2 if the run fails
 ///         partway through (no files could be evaluated).
 int runCorpus(const std::string& dir, const std::string& analyzerName,
-              bool clean, const std::string& ffmpegPath);
+              bool clean, const std::string& ffmpegPath,
+              bool includePitchBends = true);
 
 #endif // LIBAUDIO_HAS_TIER2
 
