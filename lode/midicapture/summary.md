@@ -161,6 +161,14 @@ Main options:
                             are ignored.
 ```
 
+> **Tier-2 builds** additionally offer the analyzer-agnostic corpus evaluator:
+> `--run-corpus DIR --analyzer {basic-pitch|aubio} [--no-pitch-bends]
+> [--clean] [--ffmpeg PATH]` (see [tier2](../libaudio/tier2.md)).
+> `--no-pitch-bends` gates basic-pitch's bend extraction (default **on** =
+> Python parity); it does **not** change the onset/length/pitch/velocity
+> metrics (those exclude bends) — it only stops the analyzer from attaching
+> bend vectors to notes.
+
 Examples:
 ```bash
 midicapture song.aiff                          # → song.mid

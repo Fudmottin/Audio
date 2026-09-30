@@ -29,6 +29,11 @@ MThd 00 00 00 06 | 00 01 | 00 01 | 01 E0
         ^len = 6     ^fmt 1   ^1 trk   ^480 tpq   (all big-endian)
 ```
 
+> The 480 ticks-per-quarter field is the 2-byte big-endian `01 E0`. Its **low
+> byte (`E0`) matches the pitch-bend status byte** but is *data* inside the
+> header (never parsed as a track). Any byte-scan for bends must treat `E0` as
+> a bend only in a *status* position — a raw `E0` byte is not by itself a bend.
+
 Track chunk = `MTrk` + 4-byte big-endian length + event bytes. The declared
 length must **exactly equal** the number of event bytes that follow.
 
@@ -43,6 +48,9 @@ sequenceDiagram
     W->>W: Sustain ON (B0 40 7F) @ tick 0
     loop each Note, sorted by startTime
         W->>W: NoteOn  (90 nn vv) @ startTick
+        loop each bend in note.pitchBends (non-empty notes only)
+            W->>W: PitchBend (E0 nn vv) @ gridTick  (linspace across the note)
+        end
         W->>W: NoteOff (80 nn vv) @ endTick  (>= startTick + 1)
     end
     loop each ControlEvent, sorted by time
@@ -55,6 +63,26 @@ sequenceDiagram
 Every event is preceded by a **variable-length delta-time** that is always
 **≥ 0**; the absolute timeline is **monotonic** — a non-increasing tick yields
 a delta of 0, never negative.
+
+### Pitch bends (0xE0)
+
+A `Note` with a **non-empty** `pitchBends` vector (filled by the Tier-2
+basic-pitch `contour` decode; always empty for the aubio path) emits each value
+as a pitch-bend message on a `linspace(start, end, n)` grid — the reference's
+`np.linspace` — placed between its NoteOn and NoteOff. The payload is
+`{E0|ch, s&0x7F, (s>>7)&0x7F}` with `s = value + 8192` (low byte first; value 0
+→ `E0 00 40`; value −8192 → `E0 00 00`). A note with an **empty** vector emits
+none.
+
+The running timeline (`lastTick`) advances after the NoteOn *and* after each
+bend (not just the NoteOff); each subsequent event's delta is against that
+running tick, so the absolute timeline stays monotonic even with bends.
+
+**Round-trip.** The matching `MidiFileReader`
+(`libaudio/src/midiFileReader.cpp`) keys open notes by `(channel<<8)|pitch`,
+decodes each `0xE0` to signed 14-bit (`((d2&0x7F)<<7 | (d1&0x7F)) − 8192`), and
+attaches it to the most-recently-opened note on that channel, so a written
+`Note::pitchBends` comes back intact.
 
 ---
 
@@ -70,6 +98,8 @@ a delta of 0, never negative.
 | 6 | No running status | Every payload carries its own status byte. |
 | 7 | Velocities in [1,127]; pitches in [0,127] | `clamp7` (pitch) + `min(127, max(1, v))` (velocity floor/cap). |
 | 8 | Note duration ≥ 1 tick | If `offTick <= onTick`, off is bumped to `onTick + 1`. |
+| 9 | Bends emit 0xE0 only when the vector is non-empty | `buildTrack` skips the bend block for an empty `Note::pitchBends`; a constant-pitch note (and the entire aubio Tier-1 path) stays byte-identical to the pre-bend writer. |
+| 10 | Bend 0xE0 values land between the note's on and off, on a linspace grid | Each bend's tick is `secondsToTicks(start + (end−start)·i/(n−1))`; `lastTick` advances after each bend, keeping the timeline monotonic. |
 
 ### Seconds → ticks
 
