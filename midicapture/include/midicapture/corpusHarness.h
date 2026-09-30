@@ -44,12 +44,16 @@
 ///                      does not change the onset/length/pitch/velocity
 ///                      metrics (those exclude bends); it only affects the
 ///                      bend vectors the analyzer attaches to notes.
+/// @param multiplePitchBends basic-pitch only: when true, route each distinct
+///                      bent pitch to its own MIDI channel (1..15). Ignored by
+///                      the aubio engine. Default false (reference: one
+///                      channel).
 ///
 /// @return 0 on success, 1 on a setup/missing-tool error, 2 if the run fails
 ///         partway through (no files could be evaluated).
 int runCorpus(const std::string& dir, const std::string& analyzerName,
               bool clean, const std::string& ffmpegPath,
-              bool includePitchBends = true);
+              bool includePitchBends = true, bool multiplePitchBends = false);
 
 #endif // LIBAUDIO_HAS_TIER2
 

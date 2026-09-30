@@ -17,6 +17,11 @@
  * - A note with a non-empty pitch-bend vector emits its 0xE0 messages
  *   evenly across its duration (between the Note On and the Note Off);
  *   a constant-pitch note (empty vector) emits none.
+ * - Per-channel scaffolding: at t=0 the writer emits program change +
+ *   sustain-on for each distinct channel used by the notes (sorted); at the
+ *   end it emits sustain-off for each. When only channel 0 is used (the
+ *   common case: aubio path, test corpus), the output is byte-identical to
+ *   the single-channel writer.
  * - The track always ends with an End-of-Track meta event (FF 2F 00).
  */
 
@@ -183,17 +188,33 @@ struct MidiFileWriter::Impl {
       const double tempo = score.tempo;
       uint32_t lastTick = 0;
 
-      // t=0 scaffolding: tempo, program (Acoustic Grand), sustain on.
-      emit(track, 0, setTempo(tempo));
-      emit(track, 0, programChange(0, 0));
-      emit(track, 0, controlChange(64, 127, 0));
-
       // Notes, sorted by start time. Each emits exactly one Note On
       // followed by one Note Off.
       std::vector<Note> notes = score.notes;
       std::sort(notes.begin(), notes.end(), [](const Note& a, const Note& b) {
          return a.startTime < b.startTime;
       });
+
+      // Compute the set of distinct channels used by the notes (for the
+      // per-channel program/sustain scaffolding). Channel 0 is always in the
+      // set when there are notes (the common case); additional channels
+      // appear when the basic-pitch channel policy routes bent notes to them.
+      bool channelUsed[16] = {};
+      for (const Note& n : notes) {
+         channelUsed[n.channel & 0x0F] = true;
+      }
+
+      // t=0 scaffolding: tempo, then per-channel program + sustain on.
+      // Byte-identity invariant: when only channel 0 is used (the default for
+      // the aubio Tier-1 path and the test corpus) this emits exactly the
+      // pre-bend writer's bytes (one program + one sustain per channel 0).
+      emit(track, 0, setTempo(tempo));
+      for (uint8_t ch = 0; ch < 16; ++ch) {
+         if (channelUsed[ch]) {
+            emit(track, 0, programChange(0, ch));
+            emit(track, 0, controlChange(64, 127, ch));
+         }
+      }
 
       for (const Note& note : notes) {
          uint8_t pitch = clamp7(note.pitch);
@@ -269,8 +290,12 @@ struct MidiFileWriter::Impl {
          }
       }
 
-      // Release the sustain pedal, then terminate the track.
-      emit(track, 0, controlChange(64, 0, 0));
+      // Release the sustain pedal on every used channel, then terminate.
+      for (uint8_t ch = 0; ch < 16; ++ch) {
+         if (channelUsed[ch]) {
+            emit(track, 0, controlChange(64, 0, ch));
+         }
+      }
       emit(track, 0, endOfTrack());
 
       return track;

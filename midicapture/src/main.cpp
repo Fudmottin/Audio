@@ -101,6 +101,8 @@ static void printUsage(const char* programName) {
              << "default: /opt/homebrew/bin/ffmpeg).\n";
    std::cerr << "  --no-pitch-bends          For --run-corpus: skip pitch-bend"
              << " extraction (default: on).\n";
+   std::cerr << "  --multiple-pitch-bends    For --run-corpus: route each"
+             << " distinct bent pitch to its own channel (default: off).\n";
 #endif // LIBAUDIO_HAS_TIER2
    std::cerr << "\nExamples:\n";
    std::cerr << "  " << programName << " input.aiff output.mid\n";
@@ -460,6 +462,7 @@ int main(int argc, char* argv[]) {
    bool clean = false;
    std::string ffmpegPath = "/opt/homebrew/bin/ffmpeg";
    bool noPitchBends = false;
+   bool multiplePitchBends = false;
 #endif // LIBAUDIO_HAS_TIER2
 
    // Define the options: name, type, description.
@@ -549,7 +552,10 @@ int main(int argc, char* argv[]) {
       "Path to the ffmpeg executable (MP3 decode + encode).")(
       "no-pitch-bends", po::bool_switch(&noPitchBends),
       "For --run-corpus with basic-pitch: skip pitch-bend extraction "
-      "(the default is on, matching the Python reference).");
+      "(the default is on, matching the Python reference).")(
+      "multiple-pitch-bends", po::bool_switch(&multiplePitchBends),
+      "For --run-corpus with basic-pitch: route each distinct bent pitch "
+      "to its own MIDI channel (the reference default is off — one channel).");
 #endif // LIBAUDIO_HAS_TIER2
 
    // Define positional options: <input.aiff> <output.mid>.  These bind the
@@ -656,6 +662,8 @@ int main(int argc, char* argv[]) {
          << "                            Path to the ffmpeg executable.\n"
          << "  --no-pitch-bends           For --run-corpus: skip pitch-bend"
             " extraction (default: on).\n"
+         << "  --multiple-pitch-bends     For --run-corpus: route each"
+            " distinct bent pitch to its own channel.\n"
 #endif // LIBAUDIO_HAS_TIER2
          << "\n";
       return 0;
@@ -680,7 +688,7 @@ int main(int argc, char* argv[]) {
    // analysis options, so it runs before the input-required check below.
    if (vm.count("run-corpus") > 0) {
       return runCorpus(runCorpusDir, analyzerName, clean, ffmpegPath,
-                       !noPitchBends);
+                       !noPitchBends, multiplePitchBends);
    }
 #endif // LIBAUDIO_HAS_TIER2
 

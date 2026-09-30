@@ -70,9 +70,9 @@ struct BasicPitchOptions {
     * Allow overlapping notes to each carry a pitch bend. When false (the
     * reference default), a note's bends are dropped if it overlaps any other
     * note — MIDI has one bend wheel per channel, so two bending notes on a
-    * channel would fight. This knob is *inert* until the multi-channel
-    * emission: today all notes stay on one channel, so it only matters once a
-    * score routes overlapping bent notes onto distinct channels.
+    * channel would fight. When true, each *distinct bent pitch* is routed to
+    * its own MIDI channel (1..15, ascending pitch; channel 0 = non-bent
+    * notes), so overlapping bent notes each get their own bend wheel.
     */
    bool multiplePitchBends = false;
 

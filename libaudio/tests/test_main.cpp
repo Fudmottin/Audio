@@ -725,6 +725,144 @@ static void test_midiRoundTrip() {
 }
 
 // ============================================================================
+// 5c. Multi-Channel Round-Trip — a Score with notes on distinct channels
+//     (simulating the basic-pitch channel policy for overlapping bent notes)
+//     must write per-channel program/sustain scaffolding and round-trip
+//     channel + bends intact.
+// ============================================================================
+static void test_midiMultiChannel() {
+   fprintf(stdout, "\n--- MidiFileWriter/Reader Multi-Channel Tests ---\n");
+
+   const char* path = "/tmp/test_multichannel.mid";
+
+   // Two overlapping bent notes on distinct channels + one non-bent note on
+   // channel 0. This exercises the per-channel scaffolding: the writer must
+   // emit program + sustain for channels 0, 1, and 2.
+   const std::vector<int16_t> bends1 = {0, 2048, -2048, 0};
+   const std::vector<int16_t> bends2 = {0, -4096, 4096, 0};
+
+   Score score;
+   score.tempo = 120.0;
+
+   // Non-bent note on channel 0 (C4, 0-1s).
+   Note n0;
+   n0.startTime = 0.0;
+   n0.endTime = 1.0;
+   n0.pitch = 60;
+   n0.velocity = 100;
+   n0.channel = 0;
+   score.notes.push_back(n0);
+
+   // Bent note on channel 1 (E4=64, 0.5-1.5s, overlaps n0).
+   Note n1;
+   n1.startTime = 0.5;
+   n1.endTime = 1.5;
+   n1.pitch = 64;
+   n1.velocity = 90;
+   n1.channel = 1;
+   n1.pitchBends = bends1;
+   score.notes.push_back(n1);
+
+   // Bent note on channel 2 (G4=67, 1.0-2.0s, overlaps n1).
+   Note n2;
+   n2.startTime = 1.0;
+   n2.endTime = 2.0;
+   n2.pitch = 67;
+   n2.velocity = 80;
+   n2.channel = 2;
+   n2.pitchBends = bends2;
+   score.notes.push_back(n2);
+
+   MidiFileWriter writer(path);
+   ASSERT(writer.write(score),
+          "MultiChannel: write() succeeds for a 3-channel score");
+
+   // Byte-level: verify per-channel scaffolding.
+   std::vector<uint8_t> bytes = readFileBytes(path);
+   // Channel 0: C0 00 (program) + B0 40 7F (sustain on)
+   ASSERT(hasSubseq(bytes, {0x00, 0xC0, 0x00}),
+          "MultiChannel: program change on channel 0");
+   ASSERT(hasSubseq(bytes, {0x00, 0xB0, 0x40, 0x7F}),
+          "MultiChannel: sustain on channel 0");
+   // Channel 1: C1 00 + B1 40 7F
+   ASSERT(hasSubseq(bytes, {0x00, 0xC1, 0x00}),
+          "MultiChannel: program change on channel 1");
+   ASSERT(hasSubseq(bytes, {0x00, 0xB1, 0x40, 0x7F}),
+          "MultiChannel: sustain on channel 1");
+   // Channel 2: C2 00 + B2 40 7F
+   ASSERT(hasSubseq(bytes, {0x00, 0xC2, 0x00}),
+          "MultiChannel: program change on channel 2");
+   ASSERT(hasSubseq(bytes, {0x00, 0xB2, 0x40, 0x7F}),
+          "MultiChannel: sustain on channel 2");
+
+   // Per-channel sustain off before EOT.
+   ASSERT(hasSubseq(bytes, {0x00, 0xB0, 0x40, 0x00}),
+          "MultiChannel: sustain off channel 0");
+   ASSERT(hasSubseq(bytes, {0x00, 0xB1, 0x40, 0x00}),
+          "MultiChannel: sustain off channel 1");
+   ASSERT(hasSubseq(bytes, {0x00, 0xB2, 0x40, 0x00}),
+          "MultiChannel: sustain off channel 2");
+
+   // Pitch bends on channels 1 and 2.
+   ASSERT(hasSubseq(bytes, {0xE1, 0x00, 0x40}),
+          "MultiChannel: bend 0 on channel 1 is {E1 00 40}");
+   ASSERT(hasSubseq(bytes, {0xE2, 0x00, 0x40}),
+          "MultiChannel: bend 0 on channel 2 is {E2 00 40}");
+
+   // Round-trip: read back and verify channels + bends.
+   MidiFileReader reader(path);
+   ASSERT(reader.ok(), "MultiChannel: reader parses a multi-channel file");
+   ASSERT(reader.score().notes.size() == 3,
+          "MultiChannel: exactly three notes round-trip");
+   if (reader.score().notes.size() == 3) {
+      // The reader sorts by start time; verify by pitch.
+      const auto& s = reader.score();
+      const Note* p60 = nullptr;
+      const Note* p64 = nullptr;
+      const Note* p67 = nullptr;
+      for (const Note& n : s.notes) {
+         if (n.pitch == 60) p60 = &n;
+         if (n.pitch == 64) p64 = &n;
+         if (n.pitch == 67) p67 = &n;
+      }
+      ASSERT(p60 && p60->channel == 0,
+             "MultiChannel: C4 channel preserved (0)");
+      ASSERT(p60 && p60->pitchBends.empty(), "MultiChannel: C4 stays non-bent");
+      ASSERT(p64 && p64->channel == 1,
+             "MultiChannel: E4 channel preserved (1)");
+      ASSERT(p64 && p64->pitchBends == bends1,
+             "MultiChannel: E4 bends round-trip exactly");
+      ASSERT(p67 && p67->channel == 2,
+             "MultiChannel: G4 channel preserved (2)");
+      ASSERT(p67 && p67->pitchBends == bends2,
+             "MultiChannel: G4 bends round-trip exactly");
+   }
+
+   // Invariant: a single-channel score (only channel 0) remains byte-identical
+   // to the pre-bend writer (the 53-byte --test file).
+   Score flat;
+   flat.tempo = 120.0;
+   Note flatNote;
+   flatNote.startTime = 0.0;
+   flatNote.endTime = 1.0;
+   flatNote.pitch = 60;
+   flatNote.velocity = 100;
+   flatNote.channel = 0;
+   flat.notes.push_back(flatNote);
+
+   MidiFileWriter flatWriter(path);
+   ASSERT(flatWriter.write(flat),
+          "MultiChannel: write() succeeds for a single-channel score");
+   std::vector<uint8_t> flatBytes = readFileBytes(path);
+   // The file should be exactly 53 bytes (the canonical sanity note).
+   ASSERT(flatBytes.size() == 53,
+          "MultiChannel: single-channel file is 53 bytes (byte-identity)");
+   // No per-channel program/sustain scaffolding beyond channel 0.
+   ASSERT(!hasSubseq(flatBytes, {0x00, 0xC1, 0x00}),
+          "MultiChannel: no channel-1 program in single-channel file");
+}
+
+// ============================================================================
 // 6. AudioFileReader Integration Test — requires a test audio file.
 // ============================================================================
 static void test_audioFileReader() {
@@ -789,6 +927,7 @@ int main() {
       test_scoreBuilder();
       test_midiWriter();
       test_midiRoundTrip();
+      test_midiMultiChannel();
       test_audioFileReader();
    } catch (const std::exception& e) {
       fprintf(stderr, "EXCEPTION: %s\n", e.what());

@@ -638,8 +638,8 @@ void cleanScaleSet(const std::string& dir, const std::string& ffmpegPath) {
 // ============================================================================
 
 int runCorpus(const std::string& dir, const std::string& analyzerName,
-              bool clean, const std::string& ffmpegPath,
-              bool includePitchBends) {
+              bool clean, const std::string& ffmpegPath, bool includePitchBends,
+              bool multiplePitchBends) {
    namespace fs = std::filesystem;
 
    std::cout << "midicapture test-suite evaluator\n";
@@ -686,15 +686,16 @@ int runCorpus(const std::string& dir, const std::string& analyzerName,
       auto* bp = dynamic_cast<libaudio::BasicPitch*>(analyzer.get());
       if (bp) {
          // Apply the pitch-bend policy from the command line; the other knobs
-         // (deadband, multiple bends) keep their defaults.
+         // (deadband) keep their defaults.
          libaudio::BasicPitchOptions options = bp->options();
          options.includePitchBends = includePitchBends;
+         options.multiplePitchBends = multiplePitchBends;
          bp->setOptions(options);
       }
       std::cout << "  Core ML:      "
                 << (bp && bp->coreMlActive() ? "active" : "cpu-fallback")
                 << "   Pitch bends: " << (includePitchBends ? "on" : "off")
-                << "\n";
+                << (multiplePitchBends ? " (multi-channel)" : "") << "\n";
    }
    std::cout << "\n";
    std::cout << "\xE2\x86\x92 Evaluating each MP3 with " << analyzerName

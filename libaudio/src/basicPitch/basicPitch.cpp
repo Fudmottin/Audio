@@ -155,6 +155,56 @@ static std::vector<float> readAllMono(AudioFileReader& reader) {
 }
 
 // ============================================================================
+// applyChannelPolicy — assign distinct MIDI channels to bent notes when
+// `multiplePitchBends` is enabled.
+//
+// MIDI has one bend wheel per channel; two bent notes on different pitches
+// that overlap in time would fight if they shared a channel. When
+// `multiplePitchBends` is on (the overlap pass in `applyBendPolicy` preserves
+// all bends), each *distinct bent pitch* is routed to its own channel
+// (1..15, ascending pitch; channel 0 is reserved for non-bent notes). When
+// off (the reference default) all notes stay on channel 0 — at most one
+// bent note can be active at a time (the overlap pass dropped the rest), so
+// a single channel is sufficient.
+//
+// Known limitation: more than 15 distinct bent pitches is capped at channel
+// 15; the excess notes fall back to channel 0 where their bends would conflict
+// with any non-bent notes on that channel. In practice a piano performance
+// with >15 simultaneously-bending distinct pitches is unrealistic.
+// ============================================================================
+static void applyChannelPolicy(std::vector<Note>& notes,
+                               const BasicPitchOptions& options) {
+   if (!options.multiplePitchBends) {
+      return; // All notes on channel 0 (single bend wheel is sufficient).
+   }
+
+   // Which distinct pitches carry a non-empty bend vector?
+   bool hasBend[128] = {};
+   for (const Note& n : notes) {
+      if (!n.pitchBends.empty()) {
+         hasBend[n.pitch & 0x7F] = true;
+      }
+   }
+
+   // Assign channels 1..15 in ascending pitch order (capped at 15).
+   uint8_t chMap[128] = {}; // 0 = not a bent pitch (or over the cap)
+   uint8_t nextCh = 1;
+   for (uint8_t p = 0; p < 128; ++p) {
+      if (hasBend[p] && nextCh <= 15) {
+         chMap[p] = nextCh++;
+      }
+   }
+
+   for (Note& n : notes) {
+      const uint8_t p = n.pitch & 0x7F;
+      if (chMap[p] != 0) {
+         n.channel = chMap[p];
+      }
+      // Non-bent notes (or bent pitches past the cap) stay on channel 0.
+   }
+}
+
+// ============================================================================
 // applyBendPolicy — the bend post-processing that is ours, not the reference's.
 //
 // Two passes, in place, over the decoded notes:
@@ -459,6 +509,12 @@ Score BasicPitch::transcribe(std::string_view path) const {
    // (the result is order-independent, so it is agnostic to the builder's
    // sort).
    applyBendPolicy(notes, impl_->options_);
+
+   // Channel policy: when multiple bends are on, route each distinct bent
+   // pitch to its own channel (1..15) so overlapping bends don't fight on one
+   // wheel. Must run after `applyBendPolicy` (which decides which notes have
+   // bends) and before the Score is built (the writer reads `note.channel`).
+   applyChannelPolicy(notes, impl_->options_);
 
    ScoreBuilder builder;
    for (Note& n : notes) {
