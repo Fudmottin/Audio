@@ -40,6 +40,8 @@ struct Note {
    uint8_t  velocity  = 100;   // 0–127 (derived from RMS energy of note segment)
    uint8_t  channel   = 0;     // MIDI channel (default 0 = channel 1, Acoustic Grand)
    bool     sustain   = false; // true if this note overlaps with sustain pedal
+   std::vector<int16_t> pitchBends; // fine-pitch contour as 14-bit MIDI ticks (-8192..8191;
+                                    // 0 = center, empty = a constant-pitch note)
 };
 
 // Control change events (pedals, tempo changes, etc.)
@@ -73,6 +75,7 @@ struct Score {
 | `velocity` | `uint8_t` | 0–127. Derived from RMS energy of the note segment during analysis. |
 | `channel` | `uint8_t` | MIDI channel number (0–15). Default 0 (MIDI channel 1, Acoustic Grand Piano). |
 | `sustain` | `bool` | True if this note overlaps with sustain pedal. Derived from pedal detection analysis. |
+| `pitchBends` | `std::vector<int16_t>` | Per-frame fine-pitch deviation in 14-bit MIDI ticks (`-8192..8191`, `0` = the note's base pitch). One entry per frame of the note; an **empty** vector means a constant-pitch note. Filled only by the basic-pitch (Tier-2) contour decode; the Tier-1 path leaves it empty. The MIDI writer spreads them evenly across the note as `0xE0` messages. |
 
 #### `ControlEvent`
 
@@ -99,6 +102,7 @@ struct Score {
 - **`velocity` is a `uint8_t`** (0–127). Derived from RMS energy of the note segment during analysis.
 - **`channel` defaults to 0** (MIDI channel 1, Acoustic Grand Piano).
 - **`sustain` is a boolean flag** derived from pedal detection analysis.
+- **`pitchBends` is a vector of 14-bit MIDI ticks** (`int16_t`, `-8192..8191`). It is the HIR home for the fine-pitch contour: `ControlEvent` is 7-bit and cannot hold a 14-bit bend, so the bend lives on the `Note`. Empty = no bend (the common case; the Tier-1 aubio path and all no-bend scores stay empty). Only basic-pitch (Tier-2) fills it, from the model's `contour` map.
 - **`Score` owns all notes and controls**. It's the single source of truth for both MIDI and LilyPond output.
 
 ---
