@@ -44,21 +44,36 @@ varlen/delta encoding):
 sequenceDiagram
     participant W as Writer (buildTrack)
     W->>W: SetTempo (FF 51) @ tick 0
-    W->>W: Program 0 = Acoustic Grand (C0) @ tick 0
-    W->>W: Sustain ON (B0 40 7F) @ tick 0
+    loop each distinct channel used (sorted)
+        W->>W: Program 0 = Acoustic Grand (C-ch) @ tick 0
+        W->>W: Sustain ON (B-ch 40 7F) @ tick 0
+    end
     loop each Note, sorted by startTime
-        W->>W: NoteOn  (90 nn vv) @ startTick
+        W->>W: NoteOn  (9-ch nn vv) @ startTick
         loop each bend in note.pitchBends (non-empty notes only)
-            W->>W: PitchBend (E0 nn vv) @ gridTick  (linspace across the note)
+            W->>W: PitchBend (E-ch nn vv) @ gridTick  (linspace across the note)
         end
-        W->>W: NoteOff (80 nn vv) @ endTick  (>= startTick + 1)
+        W->>W: NoteOff (8-ch nn vv) @ endTick  (>= startTick + 1)
     end
     loop each ControlEvent, sorted by time
-        W->>W: ControlChange @ tick
+        W->>W: ControlChange @ tick (channel 0)
     end
-    W->>W: Sustain OFF (B0 40 00) @ tick 0
+    loop each distinct channel used (sorted)
+        W->>W: Sustain OFF (B-ch 40 00) @ tick 0
+    end
     W->>W: EndOfTrack (FF 2F 00) @ tick 0
 ```
+
+### Per-channel scaffolding
+
+The writer computes the **set of distinct channels** from the notes (sorted)
+and emits one `programChange(0, ch)` + `controlChange(64, 127, ch)` pair at
+t=0 per channel, and one `controlChange(64, 0, ch)` before the EOT per
+channel. **Byte-identity invariant:** when only channel 0 is used (the aubio
+Tier-1 path, the test corpus, and the `--test` sanity note), the output is
+exactly the single-channel writer — one program + one sustain on + one sustain
+off. Additional channels appear only when the basic-pitch channel policy
+routes bent notes to them (feature 3).
 
 Every event is preceded by a **variable-length delta-time** that is always
 **≥ 0**; the absolute timeline is **monotonic** — a non-increasing tick yields
@@ -100,6 +115,7 @@ attaches it to the most-recently-opened note on that channel, so a written
 | 8 | Note duration ≥ 1 tick | If `offTick <= onTick`, off is bumped to `onTick + 1`. |
 | 9 | Bends emit 0xE0 only when the vector is non-empty | `buildTrack` skips the bend block for an empty `Note::pitchBends`; a constant-pitch note (and the entire aubio Tier-1 path) stays byte-identical to the pre-bend writer. |
 | 10 | Bend 0xE0 values land between the note's on and off, on a linspace grid | Each bend's tick is `secondsToTicks(start + (end−start)·i/(n−1))`; `lastTick` advances after each bend, keeping the timeline monotonic. |
+| 11 | Per-channel scaffolding is byte-identical for single-channel Scores | The channel set is computed from the notes; when only channel 0 is present, the writer emits exactly one program + sustain pair (identical to the pre-bend writer). Additional channels appear only when `Note::channel > 0`. |
 
 ### Seconds → ticks
 

@@ -73,7 +73,7 @@ struct Score {
 | `endTime` | `double` | Seconds from start of recording. |
 | `pitch` | `uint8_t` | MIDI note number (0–127). For piano, valid range is 21 (A0) to 108 (C8). |
 | `velocity` | `uint8_t` | 0–127. Derived from RMS energy of the note segment during analysis. |
-| `channel` | `uint8_t` | MIDI channel number (0–15). Default 0 (MIDI channel 1, Acoustic Grand Piano). |
+| `channel` | `uint8_t` | MIDI channel number (0–15). Default 0 (MIDI channel 1, Acoustic Grand Piano). The basic-pitch channel policy (`multiplePitchBends`) routes each distinct bent pitch to channels 1–15 so overlapping bends don't fight on one wheel. |
 | `sustain` | `bool` | True if this note overlaps with sustain pedal. Derived from pedal detection analysis. |
 | `pitchBends` | `std::vector<int16_t>` | Per-frame fine-pitch deviation in 14-bit MIDI ticks (`-8192..8191`, `0` = the note's base pitch). One entry per frame of the note; an **empty** vector means a constant-pitch note. Filled only by the basic-pitch (Tier-2) contour decode; the Tier-1 path leaves it empty. The MIDI writer spreads them evenly across the note as `0xE0` messages. |
 
@@ -114,8 +114,8 @@ The MIDI writer (documented in `MIDI.md`) converts a `Score` to a Type 1 MIDI fi
 1. For each `Note`, create a Note On event at `startTime` (converted to MIDI ticks using 480 ticks per quarter note) and a Note Off event at `endTime`.
 2. For each `ControlEvent`, create a Control Change event at `time` (converted to MIDI ticks).
 3. Set the tempo using a Set Tempo meta event (using the `Score::tempo` field).
-4. Set the instrument using a Program Change message (Acoustic Grand Piano = patch 0, channel 0).
-5. Include sustain pedal (CC#64) messages from `ControlEvent` entries where `controller == 64`.
+4. Set the instrument using a Program Change message (Acoustic Grand Piano = patch 0) on each distinct channel used by the notes. Sustain-on (CC#64=127) is also emitted per channel.
+5. Include sustain pedal (CC#64) messages from `ControlEvent` entries where `controller == 64`. Sustain-off is emitted per channel before the EOT.
 
 The output is a Type 1 MIDI file with 480 ticks per quarter note, compatible with Logic Pro.
 
