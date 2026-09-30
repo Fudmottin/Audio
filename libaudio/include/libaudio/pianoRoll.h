@@ -13,8 +13,11 @@
  * front-end (resample + window + overlap-stitch) and then calls
  * `PianoRoll::process` to get notes.
  *
- * Pitch-bends (the contour map) are **not** handled here — they are deferred
- * to a later enhancement.
+ * When the fine-pitch *contour* map is supplied (the 4-arg `process` overload),
+ * the port of `basic_pitch/note_creation.py::get_pitch_bends` runs as well: for
+ * each detected note it traces the contour's peak (a Gaussian-weighted argmax
+ * over a 51-bin window around the note's pitch) and converts the per-frame
+ * deviation to MIDI pitch-bend ticks, stored in `Note.pitchBends`.
  *
  * @section piano-roll-tier2 Tier-2 grouping
  *
@@ -73,10 +76,35 @@ class PianoRoll {
     * @param annotNFrames  Per-window output frame count (172 for basic-pitch).
     *                      Used by the frame-to-time conversion; it is the
     *                      *untrimmed* frame count, not the stitched count.
-    * @return Detected notes, with times in seconds and velocities 1–127.
+    * @return Detected notes, with times in seconds and velocities 1–127 and
+    *         **no** pitch bends (`Note.pitchBends` left empty).
     */
    [[nodiscard]] std::vector<Note> process(const Tensor& frames,
                                            const Tensor& onsets,
+                                           int64_t annotNFrames) const;
+
+   /**
+    * Process stitched note + onset + *contour* activation maps into HIR Notes,
+    * **including pitch bends**.
+    *
+    * This is the 3-arg overload plus the fine-pitch contour map, which the
+    * port of `get_pitch_bends` consumes. The contour map is a 2-D
+    * `(n_frames, 264)` tensor (3 bins per semitone) on the *same* frame grid as
+    * `frames`/`onsets`; a note whose `pitchBends` come out all-zero is left
+    * non-empty here (this is the faithful reference port — any deadbanding of
+    * near-flat notes is the adapter's job, not the post-processor's).
+    *
+    * @param frames        The stitched note-activation map.
+    * @param onsets        The stitched onset-activation map.
+    * @param contour       The stitched fine-pitch contour map `(n_frames,
+    * 264)`.
+    * @param annotNFrames  Per-window output frame count (172 for basic-pitch).
+    * @return Detected notes with `pitchBends` filled (MIDI ticks, one per frame
+    *         of the note).
+    */
+   [[nodiscard]] std::vector<Note> process(const Tensor& frames,
+                                           const Tensor& onsets,
+                                           const Tensor& contour,
                                            int64_t annotNFrames) const;
 
  private:

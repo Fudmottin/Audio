@@ -3,7 +3,8 @@
  * @brief Implementation of the High-level Instrumentation Representation (HIR).
  *
  * The HIR defines three aggregate structures:
- * - `Note` — A single note event (pitch, velocity, timing, channel, sustain).
+ * - `Note` — A single note event (pitch, velocity, timing, channel, sustain,
+ *   pitch-bend).
  * - `ControlEvent` — A control change event (pedals, tempo changes, etc.).
  * - `Score` — A complete score (notes + controls + metadata).
  *

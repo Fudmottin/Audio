@@ -21,7 +21,8 @@
  *
  * The HIR defines three structures:
  *
- * 1. `Note` — A single note event (pitch, velocity, timing, channel, sustain).
+ * 1. `Note` — A single note event (pitch, velocity, timing, channel, sustain,
+ *    pitch-bend).
  * 2. `ControlEvent` — A control change event (pedals, tempo changes, etc.).
  * 3. `Score` — A complete score (notes + controls + metadata).
  *
@@ -65,8 +66,9 @@ namespace libaudio {
 // Domain context: A Note represents one key press on a piano (or other
 // instrument). It captures the pitch (MIDI note number), velocity (how
 // hard the key was struck), timing (start and end in seconds), channel
-// (MIDI channel, default 0 for piano), and whether it overlaps with
-// sustain pedal.
+// (MIDI channel, default 0 for piano), whether it overlaps with sustain
+// pedal, and any pitch-bend (a per-frame deviation from the base pitch,
+// in MIDI ticks; empty = a constant-pitch note).
 //
 // Key design decisions:
 // - `startTime` and `endTime` are in **seconds** (not MIDI ticks). This
@@ -77,6 +79,9 @@ namespace libaudio {
 //   note segment during analysis.
 // - `channel` defaults to 0 (MIDI channel 0, Acoustic Grand Piano).
 // - `sustain` is a boolean flag derived from pedal detection analysis.
+// - `pitchBends` is a vector of MIDI pitch-bend ticks (one per frame); empty
+//   means no bend. It is the HIR home for the fine-pitch contour the model
+//   emits, converted to MIDI 14-bit ticks by the post-processor.
 //
 // Aggregate type with no hidden state or side effects.
 // ============================================================================
@@ -120,7 +125,20 @@ struct Note {
     */
    bool sustain = false;
 
-   // Default copy/move semantics are fine for this aggregate type.
+   /**
+    * Pitch-bend values for this note, in MIDI pitch-bend ticks
+    * (-8192..8191), where 0 is the note's center (base) pitch. Each entry is
+    * the *deviation* from `pitch` for one frame of the note; the MIDI writer
+    * spreads them evenly across the note's duration as 0xE0 messages. An empty
+    * vector means the note has no pitch bend (a constant-pitch note).
+    * int16_t because a MIDI pitch bend is 14 bits (8192 steps either side of
+    * center); by General MIDI convention the full scale is 2 semitones, so
+    * 4096 ticks is one semitone.
+    */
+   std::vector<int16_t> pitchBends;
+
+   // Default copy/move semantics are fine for this aggregate type (the
+   // pitchBends vector moves/copy-constructs like any other member).
    Note() = default;
    Note(const Note&) = default;
    Note(Note&&) = default;

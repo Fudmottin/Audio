@@ -17,10 +17,11 @@
 //
 // This is the C++ port of
 // `basic_pitch/note_creation.py::output_to_notes_polyphonic` (plus its
-// `get_infered_onsets` helper and `model_frames_to_time`), the post-processing
-// step that turns a model's per-pitch *activation maps* into discrete note
-// events. Pitch-bends (the `contour` map) are deliberately NOT handled here;
-// they are a later enhancement.
+// `get_infered_onsets` helper, `model_frames_to_time`, and `get_pitch_bends`),
+// the post-processing step that turns a model's per-pitch *activation maps*
+// into discrete note events. When the fine-pitch `contour` map is supplied
+// (the 4-arg `process` overload), `get_pitch_bends` traces each note's contour
+// peak and fills `Note.pitchBends` with MIDI pitch-bend ticks.
 //
 // @section piano-roll-algorithm The algorithm (faithful to the reference)
 //
@@ -45,6 +46,12 @@
 //      onset peak (e.g. a sustained note still ringing when the window ends).
 //   5. **Frame → time** and **velocity**: convert the (start, end) frame
 //      indices to seconds and map the mean amplitude to a MIDI velocity.
+//   6. **Pitch-bends** (only when the contour map is supplied): for each note,
+//      `get_pitch_bends` takes a 51-bin (±25) window of the contour centred on
+//      the note's pitch, Gaussian-weights it, and reads the per-frame peak
+//      position; the deviation from the note's base bin is 1/3-semitone units,
+//      scaled to 14-bit MIDI ticks (`round(v·4096/3)`, clipped to the
+//      ±8192..8191 bend range) and stored in `Note.pitchBends`.
 //
 // The reference operates on NumPy arrays; here `Map2D` is a small row-major
 // 2-D float matrix (the shape a stitched map has after squeezing the batch
@@ -195,6 +202,27 @@ struct PianoRoll::Impl {
    // happen to be equal (11) but mean different things, so they are separate.
    static constexpr int64_t energyTolerance = 11;
 
+   // --- Reference pitch-bend constants (constants.py / note_creation.py) ----
+   // Like fftHop above, these are fixed by the reference (not user-tunable
+   // knobs), so they live here rather than in the ModelDescriptor. The one
+   // *geometry* value that is in the descriptor is the contour width
+   // (nContourBins, 264); the contour's actual column count is read from the
+   // supplied map in pitchBendsForNote().
+   //
+   //   bendBinTolerance          = 25      → the ±25-bin window (51 bins wide)
+   //   bendGaussStd              = 5.0     → scipy.signal.windows.gaussian(51,
+   //   std=5) contoursBinsPerSemitone   = 3       → 3 contour bins per semitone
+   //   (264/88) annotationsBaseFreq       = 27.5    → A0; the CQT's f0
+   //   (constants.py) pitchBendScale            = 4096    → ticks per semitone
+   //   (PITCH_BEND_SCALE) nPitchBendTicks           = 8192    → half of the
+   //   16384-step bend range
+   static constexpr int64_t bendBinTolerance = 25;
+   static constexpr double bendGaussStd = 5.0;
+   static constexpr double contoursBinsPerSemitone = 3.0;
+   static constexpr double annotationsBaseFreq = 27.5;
+   static constexpr double pitchBendScale = 4096.0;
+   static constexpr int64_t nPitchBendTicks = 8192;
+
    explicit Impl(const ModelDescriptor& d)
       : onsetThreshold(d.onsetThreshold)
       , frameThreshold(d.frameThreshold)
@@ -204,13 +232,17 @@ struct PianoRoll::Impl {
       , sampleRate(d.sampleRate)
       , windowSamples(d.windowSamples) {}
 
-   // Port of `output_to_notes_polyphonic` (+ `get_infered_onsets`). `frames`
-   // is the stitched note-activation map (kept intact for amplitude + the onset
-   // difference); `onsets` is the stitched onset map, *modified* by the
-   // inferred-onset step. Returns notes with times in seconds and velocities
-   // clamped to [1, 127].
+   // Port of `output_to_notes_polyphonic` (+ `get_infered_onsets`, and
+   // `get_pitch_bends` when a contour is supplied). `frames` is the stitched
+   // note-activation map (kept intact for amplitude + the onset difference);
+   // `onsets` is the stitched onset map, *modified* by the inferred-onset step;
+   // `contour` is the stitched fine-pitch map (used only when `includeBends`
+   // is set). Returns notes with times in seconds, velocities clamped to
+   // [1, 127], and (when `includeBends`) `pitchBends` filled with MIDI ticks.
    [[nodiscard]] std::vector<Note> decode(const Map2D& frames, Map2D onsets,
-                                          int64_t annotNFrames) const {
+                                          const Map2D& contour,
+                                          int64_t annotNFrames,
+                                          bool includeBends) const {
       std::vector<Note> notes;
       if (frames.rows <= 0 || frames.cols <= 0) {
          return notes; // nothing to decode
@@ -362,6 +394,24 @@ struct PianoRoll::Impl {
 
       // --- 5. Frames → time, amplitude → velocity; build the HIR Notes. ---
       const std::vector<double> times = frameTimes(nFrames, annotNFrames);
+
+      // Build the bend Gaussian once (peak 1.0) when we are extracting bends;
+      // it is reused for every note. Matches
+      // scipy.signal.windows.gaussian(51, std=5).
+      const bool bendable =
+         includeBends && contour.rows > 0 && contour.cols > 0;
+      std::vector<double> gauss;
+      if (bendable) {
+         const int64_t winLen = 2 * bendBinTolerance + 1; // 51
+         gauss.assign(static_cast<size_t>(winLen), 0.0);
+         for (int64_t i = 0; i < winLen; ++i) {
+            const double x =
+               static_cast<double>(i - bendBinTolerance); // -25..25
+            gauss[static_cast<size_t>(i)] =
+               std::exp(-0.5 * (x / bendGaussStd) * (x / bendGaussStd));
+         }
+      }
+
       notes.reserve(raw.size());
       for (const RawNote& rn : raw) {
          if (rn.startFrame < 0 || rn.endFrame > nFrames) {
@@ -385,9 +435,100 @@ struct PianoRoll::Impl {
          n.velocity = static_cast<uint8_t>(vel);
          n.channel = 0;
          n.sustain = false;
-         notes.push_back(n);
+         // --- 6. Pitch-bends (only when the contour map is supplied). ---
+         if (bendable) {
+            n.pitchBends = pitchBendsForNote(rn.startFrame, rn.endFrame,
+                                             rn.pitchBin, contour, gauss);
+         }
+         notes.push_back(std::move(n));
       }
       return notes;
+   }
+
+   // Port of `get_pitch_bends` for one note (the reference does all notes in a
+   // loop; factoring it per note lets us reuse one Gaussian and keeps the
+   // per-note work local).
+   //
+   // For a note (startFrame, endFrame, pitchBin):
+   //   freq_idx  = round(36 · log2( hz(MIDI) / 27.5 ))
+   //               = 3 · pitchBin, exactly, for basic-pitch (MIDI = bin + 21)
+   //   bends     = row-argmax of  contour[start:end, window] · gaussian
+   //               − pbShift            (1/3-semitone units, deviation from
+   //               base)
+   //   tick      = clip( round( bends · 4096 / 3 ),  -8192,  8191 )  (14-bit)
+   // The window is the ±25-bin slice of the contour centred on `freq_idx`,
+   // Gaussian-weighted (std 5, peak 1.0); `pbShift` is the submatrix column of
+   // the window's peak, so a flat note reads 0. The windowing indices are
+   // clamped so the contour slice and the Gaussian slice are always the same
+   // length (they multiply elementwise).
+   [[nodiscard]] std::vector<int16_t>
+   pitchBendsForNote(int64_t startFrame, int64_t endFrame, int64_t pitchBin,
+                     const Map2D& contour,
+                     const std::vector<double>& gauss) const {
+      std::vector<int16_t> ticks;
+      if (contour.rows <= 0 || contour.cols <= 0 || endFrame <= startFrame) {
+         return ticks; // no contour / zero-length note → no bends
+      }
+      const int64_t nBins = contour.cols; // 264 for basic-pitch
+
+      // The note's centre in the contour, exactly as the reference computes it
+      // (from the MIDI number; identical to 3 · pitchBin for basic-pitch).
+      const double midi =
+         static_cast<double>(pitchBin) + static_cast<double>(midiOffset);
+      const double hz = 440.0 * std::pow(2.0, (midi - 69.0) / 12.0);
+      const int64_t freqIdx = static_cast<int64_t>(std::llround(
+         12.0 * contoursBinsPerSemitone * std::log2(hz / annotationsBaseFreq)));
+
+      // Submatrix / Gaussian slice bounds, clamped to the map so both are the
+      // same length. `pbShift` = the submatrix column of the window's peak =
+      // the base-pitch column, so a flat note bends to 0.
+      const int64_t tol = bendBinTolerance;
+      const int64_t cLeft = std::max<int64_t>(0, freqIdx - tol);
+      const int64_t cRight = std::min<int64_t>(nBins, freqIdx + tol + 1);
+      const int64_t gLeft = std::max<int64_t>(0, tol - freqIdx);
+      const int64_t winCols = cRight - cLeft;
+      const int64_t pbShift = tol - std::max<int64_t>(0, tol - freqIdx);
+      // The contour slice is winCols wide; the loop reads the Gaussian over the
+      // same range, gauss[gLeft .. gLeft+winCols-1]. The clamp guarantees
+      // gLeft + winCols <= 2*tol+1 (the Gaussian's length) for every in-range
+      // centre 0 <= freqIdx < nBins, so that index is never out of bounds. The
+      // reference bounds the Gaussian slice with a `gRight` value; we do not
+      // need it because the loop stops at winCols, and equal lengths (checked
+      // for basic-pitch) make the elementwise product well-defined.
+
+      ticks.reserve(
+         static_cast<size_t>(std::max<int64_t>(0, endFrame - startFrame)));
+      for (int64_t r = startFrame; r < endFrame; ++r) {
+         if (r >= contour.rows) {
+            break; // defensive: the contour runs out before the note does
+         }
+         // Weighted per-row argmax (numpy argmax: first maximum on ties).
+         float best = -1.0f; // activations are in [0,1]; -1 is safely below
+         int64_t bestJ = 0;
+         for (int64_t j = 0; j < winCols; ++j) {
+            const float v =
+               contour.at(r, cLeft + j) *
+               static_cast<float>(gauss[static_cast<size_t>(gLeft + j)]);
+            if (v > best) {
+               best = v;
+               bestJ = j;
+            }
+         }
+         // Scale 1/3-semitone → 14-bit MIDI ticks, matching
+         // note_events_to_midi.
+         const int64_t bendBin = bestJ - pbShift;
+         int64_t tick = static_cast<int64_t>(
+            std::llround(static_cast<double>(bendBin) * pitchBendScale /
+                         contoursBinsPerSemitone));
+         if (tick > nPitchBendTicks - 1) {
+            tick = nPitchBendTicks - 1; // +8191
+         }
+         if (tick < -nPitchBendTicks) {
+            tick = -nPitchBendTicks; // −8192
+         }
+         ticks.push_back(static_cast<int16_t>(tick));
+      }
+      return ticks;
    }
 
  private:
@@ -509,7 +650,17 @@ std::vector<Note> PianoRoll::process(const Tensor& frames, const Tensor& onsets,
                                      int64_t annotNFrames) const {
    Map2D f = mapFromTensor(frames);
    Map2D o = mapFromTensor(onsets);
-   return impl_->decode(f, o, annotNFrames);
+   // No contour map → no pitch bends (the faithful no-bend path).
+   return impl_->decode(f, o, Map2D{}, annotNFrames, /*includeBends=*/false);
+}
+
+std::vector<Note> PianoRoll::process(const Tensor& frames, const Tensor& onsets,
+                                     const Tensor& contour,
+                                     int64_t annotNFrames) const {
+   Map2D f = mapFromTensor(frames);
+   Map2D o = mapFromTensor(onsets);
+   Map2D c = mapFromTensor(contour);
+   return impl_->decode(f, o, c, annotNFrames, /*includeBends=*/true);
 }
 
 } // namespace libaudio

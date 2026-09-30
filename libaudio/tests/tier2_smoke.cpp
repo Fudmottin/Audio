@@ -89,12 +89,127 @@ float maxAbs(const libaudio::Tensor& t) {
    return m;
 }
 
+// --- Pure post-processing test: the get_pitch_bends port, no model --------
+//
+// Exercises `PianoRoll::process(frames, onsets, contour, annotNFrames)` on a
+// synthetic activation/contour grid and checks the bend math directly, without
+// running the model. This is the model-free core of the pitch-bend feature:
+//   * a note whose contour peak sits exactly on its base pitch reads 0 ticks;
+//   * a note whose contour peak is offset by k contour bins reads a known
+//     non-zero 14-bit tick count (k bins is k/3 semitones = round(k*4096/3));
+//   * the 3-arg overload (no contour) yields a note with no bends at all.
+//
+// One note is engineered deterministically: a constant 0.8 activation in a
+// single pitch column with a single onset peak, well above the descriptor's
+// frame/onset thresholds and longer than the minimum note length, so exactly
+// one note is decoded (the melodia step then finds no leftover energy).
+void testBendPostProcessing() {
+   using namespace libaudio;
+   std::printf("\n--- get_pitch_bends post-processing (no model) ---\n");
+   const ModelDescriptor& desc = basicPitchDescriptor();
+   PianoRoll roll(desc);
+
+   const int64_t nFrames = 40;
+   const int64_t nNote = desc.nNoteBins;       // 88
+   const int64_t nContour = desc.nContourBins; // 264
+   const int64_t pitchBin = 39; // MIDI 60 (C4) = bin 39 (offset 21)
+   const int64_t s = 5;
+   const int64_t e = 26; // half-open [5, 26): 21 frames > minNoteLen (11)
+   // The note's centre in the contour: 3 * pitchBin = 117 (mid-range, so the
+   // 51-bin window is unclamped and the peak/shift land on the window centre).
+   const int64_t centerCol = 3 * pitchBin; // 117
+   const int64_t annotNFrames = 172;
+
+   auto makeFramesOnsets = [&]() {
+      Tensor frames({nFrames, nNote},
+                    static_cast<size_t>(nFrames) * static_cast<size_t>(nNote));
+      Tensor onsets({nFrames, nNote},
+                    static_cast<size_t>(nFrames) * static_cast<size_t>(nNote));
+      for (int64_t r = s; r < e; ++r) {
+         frames.data[static_cast<size_t>(r) * static_cast<size_t>(nNote) +
+                     static_cast<size_t>(pitchBin)] = 0.8f;
+      }
+      onsets.data[static_cast<size_t>(s) * static_cast<size_t>(nNote) +
+                  static_cast<size_t>(pitchBin)] = 0.9f; // onset peak
+      return std::make_pair(std::move(frames), std::move(onsets));
+   };
+
+   auto makeContour = [&](int64_t peakCol) {
+      Tensor c({nFrames, nContour},
+               static_cast<size_t>(nFrames) * static_cast<size_t>(nContour));
+      for (int64_t r = s; r < e; ++r) {
+         c.data[static_cast<size_t>(r) * static_cast<size_t>(nContour) +
+                static_cast<size_t>(peakCol)] = 1.0f;
+      }
+      return c;
+   };
+
+   // Case A: the contour peak is exactly on the base pitch → flat, 0 ticks.
+   {
+      auto fo = makeFramesOnsets();
+      auto notes = roll.process(fo.first, fo.second, makeContour(centerCol),
+                                annotNFrames);
+      check(notes.size() == 1, "one note decoded from the synthetic maps");
+      if (!notes.empty()) {
+         const int64_t frames = e - s;
+         check(static_cast<int64_t>(notes[0].pitchBends.size()) == frames,
+               "flat note: one bend value per frame");
+         bool allZero = !notes[0].pitchBends.empty();
+         for (int16_t t : notes[0].pitchBends) {
+            if (t != 0) {
+               allZero = false;
+               break;
+            }
+         }
+         check(allZero,
+               "flat note: every bend value is 0 (peak on base pitch)");
+      }
+   }
+
+   // Case B: the contour peak is offset by +3 bins (1 semitone) → the known
+   // non-zero tick count round(3 * 4096 / 3) = 4096 on every frame.
+   {
+      auto fo = makeFramesOnsets();
+      auto notes = roll.process(fo.first, fo.second, makeContour(centerCol + 3),
+                                annotNFrames);
+      check(notes.size() == 1, "offset note decoded (one note)");
+      if (!notes.empty()) {
+         const int64_t frames = e - s;
+         check(static_cast<int64_t>(notes[0].pitchBends.size()) == frames,
+               "offset note: one bend value per frame");
+         const int16_t expected =
+            static_cast<int16_t>(std::llround(3.0 * 4096.0 / 3.0)); // 4096
+         bool allExpected = !notes[0].pitchBends.empty();
+         for (int16_t t : notes[0].pitchBends) {
+            if (t != expected) {
+               allExpected = false;
+               break;
+            }
+         }
+         check(allExpected,
+               "offset note: every bend == round(3 bins * 4096/3) = 4096");
+      }
+   }
+
+   // Case C: the 3-arg overload (no contour supplied) never fills bends.
+   {
+      auto fo = makeFramesOnsets();
+      auto notes = roll.process(fo.first, fo.second, annotNFrames);
+      check(notes.size() == 1 && notes[0].pitchBends.empty(),
+            "3-arg process (no contour) yields a note with no bends");
+   }
+}
+
 } // namespace
 
 int main() {
    using namespace libaudio;
 
    std::printf("=== libaudio Tier-2 smoke test (basic-pitch / ONNX) ===\n");
+
+   // Pure post-processing (model-free): the get_pitch_bends port. Runs first
+   // so it is exercised even in an environment where the model can't load.
+   testBendPostProcessing();
 
    // --- 1. Load the model ---------------------------------------------------
    // The model is embedded into the binary (nmp_onnx_data.h); there is no file

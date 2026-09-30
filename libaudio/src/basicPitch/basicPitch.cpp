@@ -34,6 +34,7 @@
 //     count `int(origLen / hopSamples * (annotNFrames - overlapFrames))`.
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <filesystem>
 #include <libaudio/audioDecode.h>
@@ -72,6 +73,12 @@ struct BasicPitch::Impl {
    int64_t hop = 0;           // 36164
    int64_t overlapFrames = 0; // 30
    int64_t nNoteBins = 0;     // 88
+   int64_t nContourBins = 0;  // 264
+
+   // User-tunable post-processing options (see BasicPitchOptions). Default is
+   // the reference (Python) behaviour: bends on, single channel, 1-bin
+   // deadband. Owned here so `transcribe` (const) can read it.
+   BasicPitchOptions options_;
 
    explicit Impl(const ModelDescriptor& d)
       : desc(&d)
@@ -81,7 +88,8 @@ struct BasicPitch::Impl {
       , frontPad(d.frontPadSamples)
       , hop(d.hopSamples)
       , overlapFrames(d.overlapFrames)
-      , nNoteBins(d.nNoteBins) {}
+      , nNoteBins(d.nNoteBins)
+      , nContourBins(d.nContourBins) {}
 };
 
 // ============================================================================
@@ -147,6 +155,91 @@ static std::vector<float> readAllMono(AudioFileReader& reader) {
 }
 
 // ============================================================================
+// applyBendPolicy — the bend post-processing that is ours, not the reference's.
+//
+// Two passes, in place, over the decoded notes:
+//   1. Deadband: clear the bend of any note whose pitch never moves more than
+//      `bendDeadbandBins` contour bins (1/3 semitones) from its base. The
+//      reference has **no** such floor, so a flat note whose contour wobbles by
+//      a bin or two would otherwise render as audible tremolo. A 0 deadband
+//      disables the pass (strict reference parity).
+//   2. Overlap: unless `multiplePitchBends`, drop the bend of any note that
+//      overlaps another in time (a port of `drop_overlapping_pitch_bends`) — a
+//      single channel has one bend wheel, so two bending notes on it would
+//      fight. The test corpus is monophonic and non-overlapping, so this clears
+//      nothing there.
+//
+// Both passes are order-independent (a note's fate depends only on which other
+// notes exist, not their list order), so they are agnostic to the note order
+// the `ScoreBuilder` will later impose.
+// ============================================================================
+static void applyBendPolicy(std::vector<Note>& notes,
+                            const BasicPitchOptions& options) {
+   // --- 1. Deadband ---------------------------------------------------------
+   if (options.bendDeadbandBins > 0.0) {
+      // One contour bin is 1/3 of a semitone = 4096/3 MIDI ticks; express the
+      // deadband in that same tick domain. A note whose largest |bend| is at
+      // most this many ticks is effectively flat and gets no bend emitted.
+      const int64_t threshold = static_cast<int64_t>(
+         std::llround(options.bendDeadbandBins * 4096.0 / 3.0));
+      for (Note& n : notes) {
+         int64_t maxAbs = 0;
+         for (int16_t t : n.pitchBends) {
+            const int64_t a =
+               t < 0 ? -static_cast<int64_t>(t) : static_cast<int64_t>(t);
+            if (a > maxAbs) {
+               maxAbs = a;
+            }
+         }
+         if (maxAbs <= threshold) {
+            n.pitchBends.clear(); // flat within the deadband
+         }
+      }
+   }
+
+   // --- 2. Overlap (one bend wheel per channel) -----------------------------
+   if (!options.multiplePitchBends && notes.size() > 1) {
+      // Sort by start time (then end time). This matches the reference's
+      // lexicographic sort and is all the overlap test needs. We work on the
+      // sorted *indices* so the (cleared) notes can be written back by value.
+      std::vector<size_t> idx(notes.size());
+      for (size_t i = 0; i < idx.size(); ++i) {
+         idx[i] = i;
+      }
+      std::sort(idx.begin(), idx.end(), [&notes](size_t a, size_t b) {
+         if (notes[a].startTime != notes[b].startTime) {
+            return notes[a].startTime < notes[b].startTime;
+         }
+         return notes[a].endTime < notes[b].endTime;
+      });
+      const size_t n = idx.size();
+      std::vector<bool> overlaps(n, false);
+      double maxEndSoFar = -1.0; // widest-reaching end among earlier notes
+      for (size_t i = 0; i < n; ++i) {
+         const Note& cur = notes[idx[i]];
+         // (a) an earlier note whose end is past our start.
+         if (maxEndSoFar > cur.startTime) {
+            overlaps[i] = true;
+         }
+         // (b) the immediate next note (the smallest later start) begins before
+         //     we end. If even it doesn't, no later note does (sorted by
+         //     start).
+         if (i + 1 < n && notes[idx[i + 1]].startTime < cur.endTime) {
+            overlaps[i] = true;
+         }
+         if (cur.endTime > maxEndSoFar) {
+            maxEndSoFar = cur.endTime;
+         }
+      }
+      for (size_t i = 0; i < n; ++i) {
+         if (overlaps[i]) {
+            notes[idx[i]].pitchBends.clear();
+         }
+      }
+   }
+}
+
+// ============================================================================
 // BasicPitch — public API implementation.
 // ============================================================================
 
@@ -175,6 +268,17 @@ std::string BasicPitch::name() const { return "basic-pitch"; }
 
 bool BasicPitch::coreMlActive() const {
    return impl_ ? impl_->session.coreMlActive() : false;
+}
+
+void BasicPitch::setOptions(const BasicPitchOptions& options) {
+   if (impl_) {
+      impl_->options_ = options;
+   }
+}
+
+const BasicPitchOptions& BasicPitch::options() const {
+   static const BasicPitchOptions defaults;
+   return impl_ ? impl_->options_ : defaults;
 }
 
 Score BasicPitch::transcribe(std::string_view path) const {
@@ -230,21 +334,31 @@ Score BasicPitch::transcribe(std::string_view path) const {
    const auto outNames = impl_->session.outputNames();
    int64_t noteIdx = -1;
    int64_t onsetIdx = -1;
+   int64_t contourIdx = -1;
+   const bool wantBends = impl_->options_.includePitchBends &&
+                          impl_->options_.bendDeadbandBins >= 0.0;
    for (size_t i = 0; i < outNames.size(); ++i) {
       if (desc.outputNames.size() > 0 && outNames[i] == desc.outputNames[0]) {
          noteIdx = static_cast<int64_t>(i);
       } else if (desc.outputNames.size() > 1 &&
                  outNames[i] == desc.outputNames[1]) {
          onsetIdx = static_cast<int64_t>(i);
+      } else if (wantBends && desc.outputNames.size() > 2 &&
+                 outNames[i] == desc.outputNames[2]) {
+         contourIdx = static_cast<int64_t>(i);
       }
    }
    if (noteIdx < 0 || onsetIdx < 0) {
       throw std::runtime_error(
          "basic-pitch: could not locate the note/onset outputs by name");
    }
+   // A missing contour (a model with no bend output) is not an error: it
+   // simply degrades to the faithful no-bend path for this run.
+   const bool wantContour = wantBends && contourIdx >= 0;
 
    std::vector<float> accNote;
    std::vector<float> accOnset;
+   std::vector<float> accContour;
    int64_t annotNFrames = 0;
    bool haveAnnot = false;
    bool validatedInput = false;
@@ -283,6 +397,10 @@ Score BasicPitch::transcribe(std::string_view path) const {
                        impl_->overlapFrames, accNote);
       accumulateWindow(outputs[static_cast<size_t>(onsetIdx)],
                        impl_->overlapFrames, accOnset);
+      if (wantContour) {
+         accumulateWindow(outputs[static_cast<size_t>(contourIdx)],
+                          impl_->overlapFrames, accContour);
+      }
    }
 
    // --- 4. Truncate to the expected global length and build the maps. -------
@@ -310,9 +428,37 @@ Score BasicPitch::transcribe(std::string_view path) const {
              accOnset.begin() + static_cast<ptrdiff_t>(mapCount),
              onsetMap.data.begin());
 
+   // The fine-pitch contour map, same frame grid as the note map but 264 wide
+   // (3 bins / semitone). Built only when bends are requested. The constructor
+   // zero-fills, so an accumulator that ran short simply leaves a flat tail.
+   Tensor contourMap;
+   if (wantContour) {
+      const size_t contCount = static_cast<size_t>(totalFrames) *
+                               static_cast<size_t>(impl_->nContourBins);
+      contourMap = Tensor({totalFrames, impl_->nContourBins}, contCount);
+      const size_t use = std::min(accContour.size(), contCount);
+      std::copy(accContour.begin(),
+                accContour.begin() + static_cast<ptrdiff_t>(use),
+                contourMap.data.begin());
+   }
+
    // --- 5. Decode the global maps into notes and assemble the Score. --------
-   std::vector<Note> notes =
-      impl_->roll.process(noteMap, onsetMap, annotNFrames);
+   // When a contour was accumulated, `process` also traces each note's bend
+   // (the 4-arg overload); otherwise it is the faithful no-bend path.
+   std::vector<Note> notes;
+   if (wantContour) {
+      notes = impl_->roll.process(noteMap, onsetMap, contourMap, annotNFrames);
+   } else {
+      notes = impl_->roll.process(noteMap, onsetMap, annotNFrames);
+   }
+
+   // Bend post-processing that is ours, not the reference's: clear the bend of
+   // a note that is effectively flat (within the deadband) and, unless
+   // multiple bends are allowed, drop the bend of any note that overlaps
+   // another. Applied here, on the decoded notes, before the Score is built
+   // (the result is order-independent, so it is agnostic to the builder's
+   // sort).
+   applyBendPolicy(notes, impl_->options_);
 
    ScoreBuilder builder;
    for (Note& n : notes) {

@@ -25,8 +25,9 @@
  * `Score`.
  *
  * The exact windowing / trim math mirrors the reference `inference.py`
- * (`get_audio_input` + `unwrap_output`). Pitch-bends (the contour map) are
- * skipped for now.
+ * (`get_audio_input` + `unwrap_output`). When `BasicPitchOptions` has
+ * `includePitchBends` set (the default), the model's fine-pitch *contour* map
+ * is decoded into `Note::pitchBends` (a port of `get_pitch_bends`).
  *
  * @section basic-pitch-tier2 Tier-2 grouping
  *
@@ -46,6 +47,51 @@
 #include <string_view>
 
 namespace libaudio {
+
+// ============================================================================
+// BasicPitchOptions — the user-tunable knobs specific to basic-pitch.
+//
+// These are the post-processing choices the reference exposes (the Python
+// `model_output_to_notes` kwargs `include_pitch_bends` /
+// `multiple_pitch_bends`) plus one intentional *improvement* over the reference
+// (the bend deadband, see below). They are separate from the model's fail-fast
+// contract
+// (`ModelDescriptor`): the options change how a *given* model output is turned
+// into notes, not what the model expects.
+// ============================================================================
+struct BasicPitchOptions {
+   /**
+    * Decode the model's fine-pitch contour map into `Note::pitchBends`.
+    * True is the reference (Python) default.
+    */
+   bool includePitchBends = true;
+
+   /**
+    * Allow overlapping notes to each carry a pitch bend. When false (the
+    * reference default), a note's bends are dropped if it overlaps any other
+    * note — MIDI has one bend wheel per channel, so two bending notes on a
+    * channel would fight. This knob is *inert* until the multi-channel
+    * emission: today all notes stay on one channel, so it only matters once a
+    * score routes overlapping bent notes onto distinct channels.
+    */
+   bool multiplePitchBends = false;
+
+   /**
+    * A note whose pitch-bend never moves more than this many contour bins
+    * (1/3 semitones each) is treated as a *flat* note and its bend vector is
+    * cleared. The reference has **no** such floor: it stores a per-frame bend
+    * even when the contour merely wobbles by a bin or two around the base
+    * pitch, which would render as audible tremolo on a note meant to be flat.
+    *
+    * Default 1.0 (= 1 contour bin = 1/3 semitone). This is an *improvement*
+    * over the reference, not a parity requirement: a constant-pitch source
+    * (our test corpus) whose model contour tracks flatly reads |bend| ≤ 1 bin
+    * per frame and is cleared, so its output stays byte-identical to the
+    * no-bend path. Set to 0 for strict reference parity (keep every bend,
+    * wobble included).
+    */
+   double bendDeadbandBins = 1.0;
+};
 
 // ============================================================================
 // BasicPitch — the basic-pitch transcriber adapter (audio → Score).
@@ -91,6 +137,18 @@ class BasicPitch : public Analyzer {
    // Whether the model is actually running on the Core ML execution provider
    // (false = CPU fallback, still correct).
    [[nodiscard]] bool coreMlActive() const;
+
+   /**
+    * Configure the post-processing behaviour of this transcriber.
+    *
+    * The options live on the concrete `BasicPitch` (not on the generic
+    * `Analyzer` port, which is `transcribe` + `name` only) because they are
+    * specific to basic-pitch's three-way note/onset/contour output.
+    */
+   void setOptions(const BasicPitchOptions& options);
+
+   // The currently active options (the defaults until `setOptions` is called).
+   [[nodiscard]] const BasicPitchOptions& options() const;
 
  private:
    struct Impl;
