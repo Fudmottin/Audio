@@ -14,6 +14,9 @@
  * - Multi-byte fields are big-endian; the `MTrk` length equals the actual
  *   number of event bytes that follow.
  * - Each note emits exactly one Note On and one Note Off.
+ * - A note with a non-empty pitch-bend vector emits its 0xE0 messages
+ *   evenly across its duration (between the Note On and the Note Off);
+ *   a constant-pitch note (empty vector) emits none.
  * - The track always ends with an End-of-Track meta event (FF 2F 00).
  */
 
@@ -145,6 +148,17 @@ struct MidiFileWriter::Impl {
       return {static_cast<uint8_t>(0xC0 | (channel & 0x0F)), patch};
    }
 
+   // Pitch Bend (0xE0): a 14-bit signed value in [-8192, 8191], where 0 is the
+   // note's centre (base) pitch and, by General MIDI convention, 4096 is one
+   // semitone. Encoded as two data bytes with the low 7 bits first (the SMF
+   // convention; a 14-bit value `s` in [0, 16383] is value + 8192).
+   static std::vector<uint8_t> pitchBend(int16_t value, uint8_t channel) {
+      const int32_t s = static_cast<int32_t>(value) + 8192;     // [0, 16383]
+      const uint8_t lo = static_cast<uint8_t>(s & 0x7F);        // low 7 bits
+      const uint8_t hi = static_cast<uint8_t>((s >> 7) & 0x7F); // high 7 bits
+      return {static_cast<uint8_t>(0xE0 | (channel & 0x0F)), lo, hi};
+   }
+
    // Set Tempo meta event (FF 51 03). Tempo is encoded as
    // microseconds per quarter note = 60,000,000 / bpm.
    static std::vector<uint8_t> setTempo(double tempoBpm) {
@@ -195,10 +209,42 @@ struct MidiFileWriter::Impl {
             offTick = onTick + 1; // Guarantee a non-zero-length note.
          }
 
+         // Note On at the note's start.
          uint32_t onDelta = (onTick > lastTick) ? (onTick - lastTick) : 0;
          emit(track, onDelta, noteOn(pitch, velocity, channel));
+         if (onTick > lastTick) {
+            lastTick = onTick;
+         }
 
-         uint32_t offDelta = (offTick > onTick) ? (offTick - onTick) : 0;
+         // Pitch bends (0xE0), evenly spread across the note's duration and
+         // placed between the Note On and the Note Off. A note with no bends
+         // (an empty vector — every constant-pitch note, including the whole
+         // aubio Tier-1 path and the test corpus) emits none, so such a Score
+         // is byte-identical to the pre-bend writer. Each bend's time is a
+         // point on the [start, end] grid (np.linspace in the reference) in
+         // seconds; its delta is against the running timeline so absolute
+         // ticks stay monotonic.
+         if (!note.pitchBends.empty()) {
+            const size_t n = note.pitchBends.size();
+            for (size_t i = 0; i < n; ++i) {
+               // Evenly spaced grid from start to end (inclusive endpoints).
+               const double frac =
+                  (n > 1u)
+                     ? (static_cast<double>(i) / static_cast<double>(n - 1u))
+                     : 0.0;
+               const double tSec =
+                  note.startTime + (note.endTime - note.startTime) * frac;
+               const uint32_t tick = secondsToTicks(tSec, tempo);
+               const uint32_t delta = (tick > lastTick) ? (tick - lastTick) : 0;
+               emit(track, delta, pitchBend(note.pitchBends[i], channel));
+               if (tick > lastTick) {
+                  lastTick = tick;
+               }
+            }
+         }
+
+         // Note Off at the note's end (delta against the running timeline).
+         uint32_t offDelta = (offTick > lastTick) ? (offTick - lastTick) : 0;
          emit(track, offDelta, noteOff(pitch, velocity, channel));
 
          if (offTick > lastTick) {

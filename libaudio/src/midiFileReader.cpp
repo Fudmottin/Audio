@@ -52,25 +52,58 @@ namespace libaudio {
 // ============================================================================
 struct MidiFileReader::Impl {
    // A note seen in the file: tick-level endpoints plus pitch / velocity /
-   // channel. Converted to seconds in `finish()`.
+   // channel, and the pitch-bend (0xE0) values in order of appearance.
+   // Converted to seconds in `finish()`.
    struct RawNote {
       uint32_t onTick = 0;
       uint32_t offTick = 0;
       uint8_t pitch = 0;
       uint8_t velocity = 0;
       uint8_t channel = 0;
+      std::vector<int16_t> bends; // 0xE0 values (MIDI ticks), in order.
    };
 
-   // A note currently open (sounding), keyed by pitch.
+   // A note currently open (sounding), keyed by (channel, pitch).
    struct OpenNote {
       uint32_t onTick = 0;
+      uint8_t pitch = 0;
       uint8_t velocity = 0;
       uint8_t channel = 0;
+      std::vector<int16_t> bends; // 0xE0 values accumulated while the note is
+                                  // open. Each 0xE0 is routed to the most
+                                  // recently opened note on its channel.
    };
 
-   // Open notes keyed by pitch (the SMF grammar allows the same pitch to be
-   // re-struck while a prior note of that pitch is still ringing).
-   using OpenNotes = std::map<uint8_t, OpenNote>;
+   // One open note at most per (channel, pitch). The composite key keeps the
+   // reader unambiguous when the same pitch sounds on more than one channel
+   // (the writer does this for overlapping bent notes).
+   using OpenKey = uint32_t;
+   static OpenKey makeOpenKey(uint8_t channel, uint8_t pitch) {
+      return (static_cast<uint32_t>(channel) << 8) | pitch;
+   }
+
+   // Open notes keyed by (channel, pitch) (the SMF grammar allows the same
+   // pitch to be re-struck on a channel while a prior note is still ringing).
+   using OpenNotes = std::map<OpenKey, OpenNote>;
+
+   // Close the note on (channel, pitch), if open, recording it (with any
+   // accumulated pitch bends) as a finished RawNote. Shared by the note-off,
+   // note-on-vel-0, and end-of-track close paths.
+   static void closeOpenNote(OpenNotes& open, std::vector<RawNote>& rawNotes,
+                             uint8_t channel, uint8_t pitch, uint32_t tick) {
+      auto it = open.find(makeOpenKey(channel, pitch));
+      if (it != open.end()) {
+         RawNote r;
+         r.onTick = it->second.onTick;
+         r.offTick = tick;
+         r.pitch = it->second.pitch;
+         r.velocity = it->second.velocity;
+         r.channel = it->second.channel;
+         r.bends = std::move(it->second.bends);
+         rawNotes.push_back(std::move(r));
+         open.erase(it);
+      }
+   }
 
    Score score_;
    std::vector<RawNote> rawNotes;
@@ -89,6 +122,10 @@ struct MidiFileReader::Impl {
                           uint32_t& tempoUs, OpenNotes& open,
                           std::vector<RawNote>& rawNotes) {
       size_t j = bodyStart;
+      // The most-recently-opened note per channel: a pitch bend (0xE0) has no
+      // note of its own, so it is attached to the last note struck on its
+      // channel. Local to this track so a fresh track starts with none.
+      std::map<uint8_t, OpenKey> lastOpen;
       while (j < bodyEnd) {
          // Variable-length delta time (7 bits per byte, high bit = continue).
          uint32_t delta = 0;
@@ -157,35 +194,49 @@ struct MidiFileReader::Impl {
             const uint8_t channel = status & 0x0F;
             j += 2;
             if (vel != 0) { // A genuine note-on (vel 0 is a note-off).
-               open[pitch] = OpenNote{tick, vel, channel};
-            } else { // vel == 0 → a note-off.
-               auto it = open.find(pitch);
-               if (it != open.end()) {
-                  rawNotes.push_back(RawNote{it->second.onTick, tick, pitch,
-                                             it->second.velocity,
-                                             it->second.channel});
-                  open.erase(it);
-               }
+               OpenNote on;
+               on.onTick = tick;
+               on.pitch = pitch;
+               on.velocity = vel;
+               on.channel = channel;
+               const OpenKey key = makeOpenKey(channel, pitch);
+               open[key] = std::move(on);
+               lastOpen[channel] = key; // most-recently opened on this channel
+            } else {                    // vel == 0 → a note-off.
+               closeOpenNote(open, rawNotes, channel, pitch, tick);
             }
          } else if (hi == 0x80) { // Note-off (pitch + velocity).
             if (j + 2 > bodyEnd) {
                break;
             }
             const uint8_t pitch = raw[j];
+            const uint8_t channel = status & 0x0F;
             j += 2; // Skip the (ignored) velocity byte.
-            auto it = open.find(pitch);
-            if (it != open.end()) {
-               rawNotes.push_back(RawNote{it->second.onTick, tick, pitch,
-                                          it->second.velocity,
-                                          it->second.channel});
-               open.erase(it);
-            }
+            closeOpenNote(open, rawNotes, channel, pitch, tick);
          } else if (hi == 0xB0 || hi == 0xA0) { // Control / ch aftertouch.
             j += 2;
          } else if (hi == 0xC0 || hi == 0xD0) { // Program / poly aftertouch.
             j += 1;
-         } else if (hi == 0xE0) { // Pitch bend.
+         } else if (hi == 0xE0) { // Pitch bend (two data bytes, low first).
+            if (j + 2 > bodyEnd) {
+               break;
+            }
+            const uint8_t channel = status & 0x0F;
+            const uint8_t data1 = raw[j];     // low 7 bits
+            const uint8_t data2 = raw[j + 1]; // high 7 bits
             j += 2;
+            // 14-bit signed value: ((data2 << 7) | data1) - 8192,
+            // range [-8192, 8191]; 0 is the note's centre pitch.
+            const int16_t value = static_cast<int16_t>(
+               ((static_cast<int>(data2 & 0x7F) << 7) | (data1 & 0x7F)) - 8192);
+            // Attach to the most-recently-opened note on this channel, if any.
+            const auto lo = lastOpen.find(channel);
+            if (lo != lastOpen.end()) {
+               auto it = open.find(lo->second);
+               if (it != open.end()) {
+                  it->second.bends.push_back(value);
+               }
+            }
          } else {
             break; // Unknown — stop rather than misparse.
          }
@@ -211,6 +262,7 @@ struct MidiFileReader::Impl {
          n.velocity = r.velocity;
          n.channel = r.channel;
          n.sustain = false;
+         n.pitchBends = r.bends; // round-trips the 0xE0 values into the HIR
          notes.push_back(std::move(n));
       }
       std::sort(notes.begin(), notes.end(), [](const Note& a, const Note& b) {
@@ -280,9 +332,15 @@ MidiFileReader::MidiFileReader(std::string_view path)
       Impl::parseTrack(raw, bodyStart, bodyEnd, tick, lastStatus,
                        impl_->tempoUs, open, impl_->rawNotes);
       // Close any notes still open at this track's end.
-      for (const auto& [pitch, o] : open) {
-         impl_->rawNotes.push_back(
-            Impl::RawNote{o.onTick, tick, pitch, o.velocity, o.channel});
+      for (const auto& [key, o] : open) {
+         Impl::RawNote r;
+         r.onTick = o.onTick;
+         r.offTick = tick;
+         r.pitch = o.pitch;
+         r.velocity = o.velocity;
+         r.channel = o.channel;
+         r.bends = std::move(o.bends);
+         impl_->rawNotes.push_back(std::move(r));
       }
       open.clear();
       i = bodyEnd;

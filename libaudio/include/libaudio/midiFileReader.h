@@ -18,8 +18,10 @@
  *     event (`FF 04`), and a run of note-on / note-off channel messages.
  * It handles the standard *running-status* byte (a status `< 0x80` reuses the
  * previous channel message) so it stays correct even if a writer ever omits a
- * repeated status byte. Control changes, program changes, pitch bends, and
- * sysex are skipped (not notes). Everything else is ignored.
+ * repeated status byte. Pitch bends (`0xE0`) are read back and attached to the
+ * most-recently-opened note on their channel (so a written `Note::pitchBends`
+ * round-trips). Control changes, program changes, and sysex are skipped (not
+ * notes). Everything else is ignored.
  *
  * @section midifilereader-timing Timing: ticks → seconds
  *
@@ -33,7 +35,8 @@
  * A note-on (`9n pc vel`, vel != 0) opens a note; the matching note-off (`8n`
  * or `9n vel 0`) closes it, producing one `Note` with `pitch = pc`,
  * `velocity = vel`, and `startTime` / `endTime` in seconds. `channel` is the
- * MIDI channel of the note-on. Notes still open at the end of a track are
+ * MIDI channel of the note-on. `pitchBends` is filled with any `0xE0` values
+ * seen while the note was open. Notes still open at the end of a track are
  * closed at the track's end time.
  *
  * No external dependencies: parsing is plain byte-level (the SMF format is

@@ -30,6 +30,7 @@
 #include <libaudio/audioFile.h>
 #include <libaudio/fft.h>
 #include <libaudio/hir.h>
+#include <libaudio/midiFileReader.h>
 #include <libaudio/midiFileWriter.h>
 #include <libaudio/pitch.h>
 #include <libaudio/scoreBuilder.h>
@@ -459,6 +460,90 @@ static bool hasSubseq(const std::vector<uint8_t>& b,
    return false;
 }
 
+// Count real pitch-bend (0xE0-0xEF) *status* messages in a Standard MIDI
+// File, walking every MTrk with running-status awareness. A raw 0xE0 byte is
+// a pitch bend only when it occupies a status position (>= 0x80); data bytes,
+// varlen delta bytes (which also set the high bit), and the MThd ticks-per-
+// quarter field (480 = 0x01E0) are all sub-0x80 data and never counted. This
+// checks the writer's "constant-pitch notes emit no 0xE0" invariant at the
+// byte level, and is immune to the 0xE0 division byte in the header.
+static size_t countPitchBendMessages(const std::vector<uint8_t>& b) {
+   const size_t n = b.size();
+   size_t count = 0;
+   size_t i = 0;
+   while (i + 8 <= n) {
+      if (b[i] != 'M' || b[i + 1] != 'T') {
+         break; // Not a valid chunk start.
+      }
+      const uint32_t len = be32(b, i + 4);
+      const size_t start = i + 8;
+      const size_t end = start + static_cast<size_t>(len);
+      if (end > n) {
+         break; // Truncated chunk.
+      }
+      const bool isTrack = (b[i + 2] == 'r' && b[i + 3] == 'k');
+      i = end; // Advance past this chunk.
+      if (!isTrack) {
+         continue;
+      }
+
+      size_t j = start;
+      uint8_t running = 0;
+      while (j < end) {
+         // 1. Variable-length delta time (consumed; not a status byte).
+         bool more = true;
+         while (j < end && more) {
+            const uint8_t byte = b[j++];
+            more = (byte & 0x80) != 0;
+         }
+         if (j >= end) {
+            break;
+         }
+         // 2. A byte >= 0x80 is a status byte (updates running); a byte < 0x80
+         //    is the first data byte under the running status.
+         uint8_t status;
+         if (b[j] & 0x80) {
+            status = b[j++];
+            running = status;
+         } else {
+            status = running;
+         }
+         // 3. Message body, by type.
+         if (status == 0xFF) { // meta: type byte, varlen length, data bytes.
+            if (j < end) {
+               ++j; // meta type byte
+            }
+            bool moreL = true;
+            uint32_t length = 0;
+            while (j < end && moreL) {
+               const uint8_t byte = b[j++];
+               length = (length << 7) | (byte & 0x7F);
+               moreL = (byte & 0x80) != 0;
+            }
+            j += length;
+         } else if (status == 0xF7) { // sysex: varlen length, data bytes.
+            bool moreL = true;
+            uint32_t length = 0;
+            while (j < end && moreL) {
+               const uint8_t byte = b[j++];
+               length = (length << 7) | (byte & 0x7F);
+               moreL = (byte & 0x80) != 0;
+            }
+            j += length;
+         } else if (status >= 0xF0) {
+            break; // Realtime byte (invalid inside a track); stop.
+         } else {  // Channel message: 1 data byte (program/pressure), else 2.
+            const uint8_t hi = status & 0xF0;
+            if (hi == 0xE0) {
+               ++count;
+            } // Pitch bend.
+            j += (hi == 0xC0 || hi == 0xD0) ? 1u : 2u;
+         }
+      }
+   }
+   return count;
+}
+
 static void test_midiWriter() {
    fprintf(stdout, "\n--- MidiFileWriter Tests ---\n");
 
@@ -553,6 +638,93 @@ static void test_midiWriter() {
 }
 
 // ============================================================================
+// 5b. MidiFileWriter/Reader Round-Trip — a bent Score must write its 0xE0
+//     messages and read them back as the same `Note::pitchBends`.
+// ====================================================================================
+static void test_midiRoundTrip() {
+   fprintf(stdout, "\n--- MidiFileWriter/Reader Round-Trip Tests ---\n");
+
+   const char* path = "/tmp/test_roundtrip.mid";
+
+   // A bent C4 note: a 14-bit value sequence that spans the full bend range
+   // (both extremes plus non-multiples-of-128, which set the low byte).
+   // 4096 = one semitone up by General MIDI convention.
+   const std::vector<int16_t> bends = {0, 4096, -4096, 8191, -8192, 100, -100};
+
+   Score score;
+   score.tempo = 120.0;
+   Note note;
+   note.startTime = 0.0;
+   note.endTime = 1.0;
+   note.pitch = 60;
+   note.velocity = 100;
+   note.channel = 0;
+   note.pitchBends = bends;
+   score.notes.push_back(note);
+
+   MidiFileWriter writer(path);
+   ASSERT(writer.write(score), "RoundTrip: write() succeeds for a bent score");
+
+   // Byte-level: the writer must emit 0xE0 (pitch bend) messages.
+   std::vector<uint8_t> bytes = readFileBytes(path);
+   ASSERT(hasSubseq(bytes, {0xE0, 0x00, 0x40}),
+          "RoundTrip: 0xE0 for bend 0 is {E0 00 40}");
+   ASSERT(hasSubseq(bytes, {0xE0, 0x7F, 0x7F}),
+          "RoundTrip: 0xE0 for bend +8191 is {E0 7F 7F}");
+   ASSERT(hasSubseq(bytes, {0xE0, 0x00, 0x00}),
+          "RoundTrip: 0xE0 for bend -8192 is {E0 00 00}");
+   ASSERT(countPitchBendMessages(bytes) == bends.size(),
+          "RoundTrip: exactly " + std::to_string(bends.size()) +
+             " 0xE0 pitch-bend messages in the bent file");
+
+   // Round-trip: read the file back and compare the bend sequence.
+   MidiFileReader reader(path);
+   ASSERT(reader.ok(), "RoundTrip: reader parses a bent file");
+   ASSERT(reader.score().notes.size() == 1,
+          "RoundTrip: exactly one note round-trips");
+   if (reader.score().notes.size() == 1) {
+      const Note& back = reader.score().notes[0];
+      ASSERT(back.pitch == 60, "RoundTrip: pitch preserved (60)");
+      ASSERT(back.channel == 0, "RoundTrip: channel preserved (0)");
+      ASSERT(back.velocity == 100, "RoundTrip: velocity preserved (100)");
+      ASSERT(std::fabs(back.startTime - 0.0) < 0.01,
+             "RoundTrip: start time ~ 0.0 s");
+      ASSERT(std::fabs(back.endTime - 1.0) < 0.01,
+             "RoundTrip: end time ~ 1.0 s");
+      ASSERT(back.pitchBends == bends,
+             "RoundTrip: pitchBends sequence round-trips exactly (" +
+                std::to_string(back.pitchBends.size()) + std::string(" vs ") +
+                std::to_string(bends.size()) + ")");
+   }
+
+   // Invariant: a constant-pitch note (empty pitchBends) emits no 0xE0 and
+   // round-trips with an empty bend vector.
+   Score flat;
+   flat.tempo = 120.0;
+   Note flatNote;
+   flatNote.startTime = 0.0;
+   flatNote.endTime = 1.0;
+   flatNote.pitch = 60;
+   flatNote.velocity = 100;
+   flatNote.channel = 0;
+   flat.notes.push_back(flatNote);
+
+   MidiFileWriter flatWriter(path);
+   ASSERT(flatWriter.write(flat),
+          "RoundTrip: write() succeeds for a flat note");
+   std::vector<uint8_t> flatBytes = readFileBytes(path);
+   // A raw 0xE0 byte in the file is the MThd ticks-per-quarter field
+   // (480 = 0x01E0); a real pitch bend is a 0xE0 *status* message, so count
+   // status-position 0xE0-0xEF messages (a flat note must have zero).
+   ASSERT(countPitchBendMessages(flatBytes) == 0,
+          "RoundTrip: a flat note emits no 0xE0 pitch-bend messages");
+   MidiFileReader flatReader(path);
+   ASSERT(flatReader.ok() && flatReader.score().notes.size() == 1 &&
+             flatReader.score().notes[0].pitchBends.empty(),
+          "RoundTrip: a flat note round-trips with an empty bend vector");
+}
+
+// ============================================================================
 // 6. AudioFileReader Integration Test — requires a test audio file.
 // ============================================================================
 static void test_audioFileReader() {
@@ -616,6 +788,7 @@ int main() {
       test_pitch();
       test_scoreBuilder();
       test_midiWriter();
+      test_midiRoundTrip();
       test_audioFileReader();
    } catch (const std::exception& e) {
       fprintf(stderr, "EXCEPTION: %s\n", e.what());
