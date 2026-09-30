@@ -35,27 +35,39 @@ value is a clean, known ground truth to measure progress against.
 
 ## 2. The Set of Files
 
-Six files, one per pattern. All **monophonic** (one note at a time), Acoustic
-Grand (program 0, channel 0), uniform **velocity 100** (no dynamics), sustain
-off. The set mixes **three note durations** (whole / half / quarter) and
-**three tempos** (60 / 90 / 120 BPM), so the rendered audio exercises a spread
-of timing shapes the transcription must resolve.
+Fourteen files, one per pattern. All **monophonic** (one note at a time),
+Acoustic Grand (program 0, channel 0), sustain off. Most use a uniform
+**velocity 100** (no dynamics) except the velocity-ladder file. The set mixes
+**three note durations** (whole / half / quarter) and **five tempos**
+(30 / 60 / 90 / 120 / 180 BPM) across four axes — **pitch** (scales at three
+octave heights), **timing** (the same scale at slow / fast tempos), **dynamics**
+(a soft→loud velocity ladder), and **defrag/merge** (a wobble run that must
+collapse vs. a rest-separated run that must not) — so the rendered audio
+exercises a spread of shapes the transcription must resolve.
 
 Each performance is "around five seconds" — a rough guideline, not a hard
 target. Rendered durations (incl. timidity's natural note-decay tail) land in
-the 4–8 s neighborhood.
+the 4–8 s neighborhood (the 30 BPM file is the longest).
 
 | File | Pattern (MIDI pitches) | Per-note duration | Beat length | Tempo | Notes |
 |------|------------------------|-------------------|-------------|-------|-------|
 | `scale-major-ascending-whole-notes-60bpm.mid` | C4 E4 G4 C5 (60 64 67 72) | whole | 2 | 60 | 4 |
-| `scale-major-ascending-half-notes-90bpm.mid`  | C4 E4 G4 C5 (60 64 67 72) | half | 1 | 90 | 4 |
-| `scale-major-descending-whole-notes-60bpm.mid`| C5 G4 E4 C4 (72 67 64 60) | whole | 2 | 60 | 4 |
+| `scale-major-ascending-half-notes-90bpm.mid` | C4 E4 G4 C5 (60 64 67 72) | half | 1 | 90 | 4 |
+| `scale-major-descending-whole-notes-60bpm.mid` | C5 G4 E4 C4 (72 67 64 60) | whole | 2 | 60 | 4 |
 | `scale-major-descending-half-notes-90bpm.mid` | C5 G4 E4 C4 (72 67 64 60) | half | 1 | 90 | 4 |
-| `scale-chromatic-ascending-quarter-notes-120bpm.mid` | C4→B4 (60…71, 12) | quarter | ½ | 120 | 12 |
+| `scale-chromatic-ascending-quarter-notes-120bpm.mid` | C4→B4 (60…71) | quarter | ½ | 120 | 12 |
 | `scale-minor-ascending-whole-notes-60bpm.mid` | A4 C5 E5 A5 (69 72 76 81) | whole | 2 | 60 | 4 |
+| `scale-major-low-octave-whole-notes-60bpm.mid` | C3 E3 G3 C4 (48 52 55 60) | whole | 2 | 60 | 4 |
+| `scale-major-mid-octave-whole-notes-60bpm.mid` | C4 E4 G4 C5 (60 64 67 72) | whole | 2 | 60 | 4 |
+| `scale-major-high-octave-whole-notes-60bpm.mid` | C5 E5 G5 C6 (72 76 79 84) | whole | 2 | 60 | 4 |
+| `scale-major-ascending-whole-notes-30bpm.mid` | C4 E4 G4 C5 (60 64 67 72) | whole | 2 | 30 | 4 |
+| `scale-major-ascending-whole-notes-180bpm.mid` | C4 E4 G4 C5 (60 64 67 72) | whole | 2 | 180 | 4 |
+| `velocity-soft-loud-quarter-notes-60bpm.mid` | C4 ×6 (60) | quarter | ½ | 60 | 6 (vel 30→127) |
+| `sustained-run-whole-notes-60bpm.mid` | C4 ×4 (60 60 60 60) | whole | 2 | 60 | 4 |
+| `rest-separated-whole-notes-60bpm.mid` | C4, rest, C4 (60 60) | whole | 2 | 60 | 2 (1-beat gap) |
 
-Notes use **MIDI numbers**: C4=60, C5=72, E4=64, E5=76, G4=67, A4=69. A
-single beat of rest follows the final note.
+Notes use **MIDI numbers**: C3=48, C4=60, C5=72, C6=84, E4=64, E5=76,
+G4=67, A4=69. A single beat of rest follows the final note.
 
 ---
 
@@ -114,7 +126,15 @@ help block.
 ├── scale-major-descending-whole-notes-60bpm.mid
 ├── scale-major-descending-half-notes-90bpm.mid
 ├── scale-chromatic-ascending-quarter-notes-120bpm.mid
-└── scale-minor-ascending-whole-notes-60bpm.mid
+├── scale-minor-ascending-whole-notes-60bpm.mid
+├── scale-major-low-octave-whole-notes-60bpm.mid
+├── scale-major-mid-octave-whole-notes-60bpm.mid
+├── scale-major-high-octave-whole-notes-60bpm.mid
+├── scale-major-ascending-whole-notes-30bpm.mid
+├── scale-major-ascending-whole-notes-180bpm.mid
+├── velocity-soft-loud-quarter-notes-60bpm.mid
+├── sustained-run-whole-notes-60bpm.mid
+└── rest-separated-whole-notes-60bpm.mid
 ```
 
 ---
@@ -123,7 +143,7 @@ help block.
 
 | | `--test` | `--generate-test-midi-files` |
 |---|----------|------------------------------|
-| Notes | 1 (middle C) | 4–12 (scales/arpeggios) |
+| Notes | 1 (middle C) | 2–12 |
 | Purpose | Minimal writer round-trip target | Transcription ground truth + multi-note writer check |
 | Input audio | ignored | ignored |
 | Output | single file | several files |

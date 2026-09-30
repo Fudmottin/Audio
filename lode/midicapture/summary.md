@@ -169,7 +169,7 @@ midicapture song.aiff -o out.mid               # explicit output via flag
 midicapture --help                             # usage only
 midicapture --test song.aiff                   # fixed sanity note -> song.mid
 midicapture -t --output sanity.mid             # sanity note, no input needed
-midicapture --generate-test-midi-files            # 6 scale files in CWD
+midicapture --generate-test-midi-files            # 14 corpus files in CWD
 midicapture --generate-test-midi-files --output-dir ./test-midi
 ```
 
@@ -211,76 +211,17 @@ remains open is transcription quality.
 The writer round-trips cleanly through both (53-byte `--test` file;
 clean 62-byte real-transcription file on `aiffcapture/final-fantasy.aiff`).
 
-### Resolved: segfault on stereo input (heap buffer overflow)
+### Transcription quality (resolved — details in defrag.md)
 
-**Symptom:** `midicapture` crashed with a segfault on any stereo audio
-file (e.g., the 44.1 kHz stereo WAV test files from `--generate-test-midi-files`).
-
-**Root cause:** In `Transcriber::transcribe()`, the audio buffer was sized
-`bufSize` (2048 floats). For stereo files, `sf_readf_float(file, buffer,
-2048)` writes `2048 × 2 = 4096` floats into that 2048-float buffer — a heap
-buffer overflow on every frame, corrupting adjacent heap memory until a
-segfault.
-
-**Fix:** Buffer is now sized `bufSize × channels` to accommodate interleaved
-stereo data. After the in-place downmix in `AudioFileReader::read()`, the
-first `framesRead` positions hold valid mono samples; a partial read near EOF
-is zero-padded to `hopSize` before the detectors. **Status:** Fixed.
-
-### Resolved: decaying-note fragmentation (WIP → fixed 2026-09-23)
-
-**Symptom (superseded the old "~2 notes" issue):** a *dense* passage produced
-hundreds of ~10 ms notes — a 30 s `final-fantasy.aiff` gave **1447 notes** at
-`--silence -40`, with median duration 1 hop and up to 55 consecutive same-pitch
-1-hop fragments. The root cause is **not** the release hysteresis failing to
-fire: a decaying piano note is *closed and re-opened hop to hop* by its own
-spectral-flux wobble (a flux blip closes the note, the lagged window still
-reports the old pitch, a fragment opens), and its peak RMS decays so the 3-hop
-off-threshold is never reached inside a dense passage.
-
-**Fix (defragmentation):**
-1. `kMinNoteHops = 5` — a note that closes younger than 5 hops (100 ms) is
-dropped, removing the 1–3 hop wobble debris.
-2. `kMinReplaceHops = 5` — a pitch-change / onset may *replace* an in-flight
-note only once it has a credible lifetime; younger than that the "change" is
-wobble within the same sustained note.
-3. **Same-pitch merge** — after the scan, consecutive same-pitch fragments
-closer than a quarter-note gap (`60/tempo · 0.5` s) are joined into one note
-(earliest start, latest end). This recombines a wobble-fragmented sustained
-note that the in-loop rules alone cannot (they see the *current* note's
-placeholder pitch, not the final stamped one).
-4. **Velocity** = loudest hop-RMS over the merged lifetime (one
-attack-and-decay, not per-hop tremolo); the new-note start is back-dated one
-hop for the attack-window lag.
-
-**Measured effect:** `final-fantasy.aiff` **1447 → 101 notes** (the handoff
-"hundreds, not 1447" target), F#/E/G# content, sensibly spaced. On the
-6-scale round-trip corpus defrag reduces fragments to a plausible note count
-and, for the chromatic scale, *preserves the ascending pitch sequence*
-(E3→…→F#2). See the octave-ambiguity note below.
-
-### Octave ambiguity on weak-fundamental recordings (Tier-1 aubio)
-
-A *decaying* note's lifetime-mean frequency drifts to a **sub-octave** of the
-true fundamental (YIN is a harmonic estimator; measured **91 Hz mean for a
-440 Hz note** on the `timidity` scale renders, with the loudest hop also at
-~90 Hz — *all* estimates sit 1–2 octaves low), so the transcribed *octave* is
-unreliable on those renders even though the *chroma* is right and defrag now
-gives clean note counts. The 2048-sample window is *not* the cause (440 Hz is
-resolvable; the fundamental is the dominant partial in the spectrum). This is
-a YIN-on-weak-fundamental artifact, not a window-resolution artifact.
-
-On a **recorded** performance with a strong fundamental (the project's real
-target) the defragmented output is musically sensible. Robust octave resolution
-for weak-fundamental sources is now handled by the **Tier-2 basic-pitch**
-analyzer (an explicit harmonic model) behind the `Analyzer` port — 100%
-recall, correct octave + chroma on the corpus; see
-[`lode/audio-to-midi.md`](../audio-to-midi.md) §7.
-
-**Known minor artifacts:** the *first* note of a file is frequently missed
-(aubio's first-frame onset artifact); the 4 note-scale corpus resolves to 2–4
-notes per file because the quiet timidity render's decay tail falls below
-`--silence -40` a second after each attack.
+The long-standing Tier-1 transcription issues are all **fixed**; the symptom /
+root-cause / fix write-ups, the measurements, and the YIN octave problem now
+live in [defrag.md](defrag.md) (split out so both files stay under the cap):
+decaying-note fragmentation (1447 → 101 on `final-fantasy.aiff`), the YIN
+octave problem on weak-fundamental renders, and the old stereo segfault.
+Robust octave is handled by the Tier-2 basic-pitch analyzer
+([../libaudio/tier2.md](../libaudio/tier2.md)). Minor Tier-1 artifacts remain
+(first note often missed; quiet decay tails fall below `--silence`) — see
+[defrag.md](defrag.md) §3.
 
 ---
 

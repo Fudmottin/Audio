@@ -34,12 +34,12 @@ The HIR is the **single source of truth**. The MIDI writer and LilyPond exporter
 
 // A single note event — the atomic unit of musical representation.
 struct Note {
-   double startTime;     // seconds from start of recording
-   double endTime;       // seconds from start of recording
-   uint8_t  pitch;       // MIDI note number (0–127), 21–108 for piano
-   uint8_t  velocity;    // 0–127 (derived from RMS energy of note segment)
-   uint8_t  channel;     // MIDI channel (default 1 for piano)
-   bool     sustain;     // true if this note overlaps with sustain pedal
+   double   startTime = 0.0;   // seconds from start of recording
+   double   endTime   = 0.0;   // seconds from start of recording
+   uint8_t  pitch     = 60;    // MIDI note number (0–127), 21–108 for piano
+   uint8_t  velocity  = 100;   // 0–127 (derived from RMS energy of note segment)
+   uint8_t  channel   = 0;     // MIDI channel (default 0 = channel 1, Acoustic Grand)
+   bool     sustain   = false; // true if this note overlaps with sustain pedal
 };
 
 // Control change events (pedals, tempo changes, etc.)
@@ -71,7 +71,7 @@ struct Score {
 | `endTime` | `double` | Seconds from start of recording. |
 | `pitch` | `uint8_t` | MIDI note number (0–127). For piano, valid range is 21 (A0) to 108 (C8). |
 | `velocity` | `uint8_t` | 0–127. Derived from RMS energy of the note segment during analysis. |
-| `channel` | `uint8_t` | MIDI channel (default 1 for piano, which is channel 0 in MIDI). |
+| `channel` | `uint8_t` | MIDI channel number (0–15). Default 0 (MIDI channel 1, Acoustic Grand Piano). |
 | `sustain` | `bool` | True if this note overlaps with sustain pedal. Derived from pedal detection analysis. |
 
 #### `ControlEvent`
@@ -97,7 +97,7 @@ struct Score {
 - **`startTime` and `endTime` are in seconds** (not MIDI ticks). This makes them platform-independent and human-readable. Conversion to MIDI ticks happens in the MIDI writer (using 480 ticks per quarter note, as documented in `MIDI.md`).
 - **`pitch` is a `uint8_t`** (MIDI note number 0–127). For piano, valid range is 21–108.
 - **`velocity` is a `uint8_t`** (0–127). Derived from RMS energy of the note segment during analysis.
-- **`channel` defaults to 1** (MIDI channel 0, Acoustic Grand Piano).
+- **`channel` defaults to 0** (MIDI channel 1, Acoustic Grand Piano).
 - **`sustain` is a boolean flag** derived from pedal detection analysis.
 - **`Score` owns all notes and controls**. It's the single source of truth for both MIDI and LilyPond output.
 
@@ -160,7 +160,7 @@ int main() {
          note.pitch = static_cast<uint8_t>(event->pitchMidi + 0.5f);  // Round
          note.velocity = static_cast<uint8_t>(event->velocity * 127.0f);
          note.startTime = static_cast<double>(reader.totalFrames() - framesRead) / reader.sampleRate();
-         note.channel = 1;
+         note.channel = 0;  // Channel 0 = Acoustic Grand Piano.
          note.sustain = false;
          notes.push_back(note);
       }

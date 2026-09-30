@@ -20,7 +20,7 @@ Build a suite of local-first audio processing utilities targeting macOS (later P
 ```
 Audio/
 ├── aiffcapture/          # Phase 1: BlackHole → AIFF capture utility
-├── libaudio/             # Phase 0: DSP library (designed, not implemented)
+├── libaudio/             # Phase 0: DSP library (built: Tier-1 aubio + Tier-2 ONNX)
 ├── midicapture/          # Phase 2: Audio → MIDI (in progress)
 ├── waterfall/            # Phase 3: Audio → frequency waterfall (in progress)
 ├── lode/                 # Lode coding documentation (project knowledge)
@@ -30,10 +30,11 @@ Audio/
 │   ├── lode-map.md       # Index of all lode files
 │   ├── MIDI.md           # MIDI protocol, General MIDI, SMF format
 │   ├── LilyPond.md       # LilyPond notation, MIDI mapping, Logic Pro integration
-│   └── libaudio/         # Phase 0: DSP library (designed)
-│       ├── summary.md    # Module overview, API design
+│   └── libaudio/         # Phase 0: DSP library (built)
+│       ├── summary.md    # Module overview, dependencies, architecture, API
 │       ├── decisions.md  # Library choices, wrapper pattern, defaults
-│       └── hir.md        # High-level Instrumentation Representation
+│       ├── hir.md        # High-level Instrumentation Representation
+│       └── tier2.md      # Tier-2 ONNX: basic-pitch, 14-file corpus, phasing
 │   ├── midicapture/      # Phase 2: transcription module
 │   │   └── summary.md    # Module overview, architecture, pipeline
 │   └── waterfall/        # Phase 3: frequency analysis module

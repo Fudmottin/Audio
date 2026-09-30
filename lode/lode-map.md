@@ -10,14 +10,14 @@
 | [literate-programming.md](../literate-programming.md) | Knuth's philosophy, Web language, toolchain history, source code for humans |
 | [MIDI.md](MIDI.md) | MIDI protocol, General MIDI, SMF file format, piano-specific considerations |
 | [LilyPond.md](LilyPond.md) | LilyPond notation, MIDI-to-LilyPond mapping, Logic Pro integration |
-| [audio-to-midi.md](audio-to-midi.md) | Cross-module: audio vs MIDI, what's recoverable, state of the art (tiers), the octave problem, evaluation, **the decided Tier-2 path (ONNX in libaudio)** |
+| [audio-to-midi.md](audio-to-midi.md) | Cross-module: audio vs MIDI, what's recoverable, state of the art (tiers), the octave problem, evaluation (Tier-2 details now in [libaudio/tier2.md](libaudio/tier2.md)) |
 
 ## Subsystem Files
 
 | Module | Path | Status |
 |--------|------|--------|
 | aiffcapture | [lode/aiffcapture/](aiffcapture/) | Phase 1 — Complete |
-| libaudio | [lode/libaudio/](libaudio/) | Tier-1 aubio + Tier-2 ONNX (basic-pitch, Core ML) built + verified (see audio-to-midi.md §7) |
+| libaudio | [lode/libaudio/](libaudio/) | Tier-1 aubio + Tier-2 ONNX (basic-pitch, Core ML) built + verified (Tier-2 details in [libaudio/tier2.md](libaudio/tier2.md)) |
 | **midicapture** | **[lode/midicapture/](midicapture/)** | **Phase 2 — In Progress** |
 | **waterfall** | **[lode/waterfall/](waterfall/)** | **Phase 3 — Mostly complete** |
 | **audio-to-midi** | **[audio-to-midi.md](audio-to-midi.md)** | **Cross-module reference** |
@@ -37,6 +37,7 @@
 | [summary.md](libaudio/summary.md) | Module overview, dependencies, architecture, module-by-module API design |
 | [decisions.md](libaudio/decisions.md) | Library choices (aubio, libsndfile), wrapper pattern, default parameters |
 | [hir.md](libaudio/hir.md) | High-level Instrumentation Representation (Note, ControlEvent, Score) |
+| [tier2.md](libaudio/tier2.md) | Tier-2 ONNX transcription: basic-pitch I/O contract, 14-file corpus, phasing (the decided neural path) |
 
 ## Subsystem: waterfall
 
@@ -49,10 +50,18 @@
 
 | Document | Purpose |
 |----------|---------|
-| [summary.md](midicapture/summary.md) | Module overview, architecture, transcription pipeline, CLI, validation, defragmentation, open octave limitation |
+| [summary.md](midicapture/summary.md) | Module overview, architecture, transcription pipeline, CLI, validation toolchain (defrag + octave details in [defrag.md](midicapture/defrag.md)) |
+| [defrag.md](midicapture/defrag.md) | Tier-1 note modeling: defragmentation, the YIN octave problem, the stereo segfault (measured) |
 | [writer.md](midicapture/writer.md) | SMF writer: byte layout, invariants, `--test` flag, midicsv/timidity validation |
 | [testmidi.md](midicapture/testmidi.md) | `--generate-test-midi-files`: monophonic scale ground-truth files, `--output-dir` |
 | [tmp/session-handoff-midicapture-diagnosis.md](tmp/session-handoff-midicapture-diagnosis.md) | Session diagnosis: secondsToTicks bug, transcription quality issues |
+
+## Plans
+
+| Plan | Purpose |
+|------|---------|
+| [plans/basic-pitch-tier1.md](plans/basic-pitch-tier1.md) | Promote the basic-pitch port to Tier 1 — **deferred** (a future session) |
+| [plans/transcriber-merge.md](plans/transcriber-merge.md) | The prior Transcriber→Analyzer unification (done) |
 
 ## Future Modules (Planned)
 
@@ -73,9 +82,11 @@
 
 ## Maintenance
 
-- **Lode 250-line soft cap — 2 files over; split deferred to a future session.**
-  `lode/audio-to-midi.md` (275) and `lode/midicapture/summary.md` (293) exceed the soft
-  cap, but their content is correct and current — only over-length. The intended fix: split
-  `audio-to-midi.md` §7 (Tier-2: ONNX foundation + basic-pitch + corpus) into a focused
-  `lode/tier2.md` and slim the midicapture summary. Deferred by explicit decision; treat as
-  a maintenance task, not a correctness bug.
+- **Lode 250-line soft cap — 4 files over.** `lode/MIDI.md` (525), `lode/LilyPond.md`
+  (894), `lode/libaudio/summary.md` (1102), and `lode/libaudio/decisions.md` (327) exceed
+  the cap. The Tier-2 split this session already brought `audio-to-midi.md` and
+  `midicapture/summary.md` under 250 (their over-length content moved to
+  `libaudio/tier2.md` and `midicapture/defrag.md`).
+  **Tracked follow-up (deferred):** split the 1102-line `libaudio/summary.md` (module
+  overview + per-module API design) into focused sub-files. The other over-cap files are
+  large reference docs; treat them as lower-priority split candidates.
