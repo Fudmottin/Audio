@@ -61,7 +61,8 @@
 | Plan | Purpose |
 |------|---------|
 | [plans/basic-pitch-tier1.md](plans/basic-pitch-tier1.md) | Promote basic-pitch — midicapture-side **done** (default `--model` in Tier-2); libaudio tier-flattening **open** |
-| [plans/ffmpeg-in-memory.md](plans/ffmpeg-in-memory.md) | In-process (miniaua) decode+resample to drop the ffmpeg shell-out — **plan only** (Q3) |
+| [plans/ffmpeg-link.md](plans/ffmpeg-link.md) | In-process decode+resample via **linked FFmpeg libraries** (replaces the basic-pitch ffmpeg shell-out) — ✅ **implemented** |
+| [plans/ffmpeg-in-memory.md](plans/ffmpeg-in-memory.md) | In-process (miniaua) decode+resample — **superseded** by [ffmpeg-link.md](plans/ffmpeg-link.md) |
 | [plans/transcriber-merge.md](plans/transcriber-merge.md) | The prior Transcriber→Analyzer unification (done) |
 
 ## Future Modules (Planned)
@@ -84,10 +85,12 @@
 ## Maintenance
 
 - **Lode 250-line soft cap — 4 files over.** `lode/MIDI.md` (525), `lode/LilyPond.md`
-  (894), `lode/libaudio/summary.md` (1102), and `lode/libaudio/decisions.md` (327) exceed
-  the cap. The Tier-2 split this session already brought `audio-to-midi.md` and
-  `midicapture/summary.md` under 250 (their over-length content moved to
-  `libaudio/tier2.md` and `midicapture/defrag.md`).
-  **Tracked follow-up (deferred):** split the 1102-line `libaudio/summary.md` (module
+  (894), `lode/libaudio/summary.md` (1114), and `lode/libaudio/decisions.md` (327) exceed
+  the cap. The Tier-2 split brought `audio-to-midi.md` and `midicapture/summary.md`
+  under 250 (their over-length content moved to `libaudio/tier2.md` and
+  `midicapture/defrag.md`); the ffmpeg-link session's CLI container/flag notes then
+  nudged `midicapture/summary.md` slightly back over (259 — low-priority split
+  candidate, its §6 CLI reference is the natural split point).
+  **Tracked follow-up (deferred):** split the 1114-line `libaudio/summary.md` (module
   overview + per-module API design) into focused sub-files. The other over-cap files are
   large reference docs; treat them as lower-priority split candidates.

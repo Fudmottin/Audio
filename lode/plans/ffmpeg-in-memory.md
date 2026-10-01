@@ -1,4 +1,4 @@
-# Plan: In-process (in-process) audio decode — replace the ffmpeg shell-out
+# Plan: In-process (miniaua) audio decode — replace the ffmpeg shell-out
 
 > **Status: ✅ Superseded.** The miniaua approach below was superseded by the
 > **FFmpeg shared-library link** plan, which is now implemented. See

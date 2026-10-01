@@ -51,10 +51,16 @@ conversion step, which is why it leads.
   converting tool + the runtime it was validated on.
 - **Front-end** — resample to the model's rate + window. For basic-pitch this is
   all it is (the CQT lives *inside* the model); mel/CQT math is added only when a
-  model needs it (TF-MAGS). basic-pitch resamples via **ffmpeg**
-  (`AudioSource::decodeToRate` → 22050 mono) *not* aubio's `TemporalProcessor` —
-  the installed aubio lacks `libsamplerate`, so `resample()` silently returns
-  empty (a 48 kHz source would yield 0 notes). ffmpeg is already a required dep.
+  model needs it (TF-MAGS). basic-pitch decodes + resamples **in-process** via
+  `detail::decodeToMonoFloat` (`src/ffmpegDecode.cpp`): the FFmpeg shared
+  libraries (libavformat/libavcodec/libswresample) in one streaming pass →
+  mono float32 @ 22050 Hz — **no subprocess, no temp file**. (The installed
+  aubio lacks `libsamplerate`, so `TemporalProcessor::resample()` silently
+  returns empty — a 48 kHz source would yield 0 notes — and is not used.)
+  Inputs libsndfile reads natively at the model rate skip the decode and read
+  directly; a different rate or a container libsndfile cannot open (e.g. mp4)
+  goes through the in-process decode. The ffmpeg *binary* remains a dep only
+  for the Tier-1 aubio container fallback (`AudioSource::open`).
 - **Post-proc** — small files selected by `output_semantics`; emit the existing
   HIR, then reuse `ScoreBuilder` → `MidiFileWriter`.
 - **`external/`** holds git submodules (basic-pitch first, then tf-mags, demucs).
@@ -96,7 +102,7 @@ not a from-scratch transcription engine.
 | Phase | Scope |
 |---|---|
 | **1a** | ~~ONNX foundation~~ **Done + verified:** `onnx_session` (Core ML EP) + `ModelDescriptor` + fail-fast I/O validation + a real-model smoke test. `nmp.onnx` loads, Core ML active, A4 → MIDI 69. |
-| **1b** | **basic-pitch** adapter (ffmpeg-resample→window→overlap-stitch) + `piano_roll` post-proc → HIR; 14-file corpus → **100% recall / 68% precision, correct octave+chroma** (Core ML, ~63/246 nodes, ~2 s). |
+| **1b** | **basic-pitch** adapter (in-process FFmpeg decode→window→overlap-stitch) + `piano_roll` post-proc → HIR; 14-file corpus → **100% recall / 68% precision, correct octave+chroma** (Core ML, ~63/246 nodes, ~2 s). |
 | **1c** | **Pitch-bends** — (a) ~~extract~~ **done**: the `contour` map decodes into `Note.pitchBends` (14-bit ticks); (b) ~~emit 0xE0~~ **done**: the writer emits bends + the reader round-trips them (a constant-pitch note stays byte-identical); (c) ~~per-pitch channels~~ **done**: each distinct bent pitch gets its own channel 1..15 (ascending pitch, capped); the writer scaffolds per-channel program/sustain (byte-identical when only channel 0). `--no-pitch-bends` gates (a); `--multiple-pitch-bends` gates (c). See [plans/basic-pitch-tier1.md](../plans/basic-pitch-tier1.md). |
 | **2** | **TF-MAGS** (Onsets&Frames) via ONNX export + a mel front-end — a second model exercising the same seam. |
 | **3** | **Demucs** `Separator` + per-stem transcription (melody / accompaniment / vocals). |

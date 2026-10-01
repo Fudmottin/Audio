@@ -29,11 +29,11 @@ Whether to take the promotion the last step, at the **library** level:
    default to ON. Today we deliberately keep the flag defaulting OFF so the Tier-1
    aubio path stays byte-for-byte unaffected and dependency-light. This is the
    pivotal, not-yet-taken decision.
-2. **ffmpeg as a hard requirement.** basic-pitch's front-end relies on **ffmpeg**
-   (the installed aubio lacks `libsamplerate`). Because `basic` is now the *default*
-   model, ffmpeg is effectively a hard runtime requirement for a Tier-2 build. This
-   is documented; making the front-end ffmpeg-free (in-memory / static) is a separate
-   track — see [ffmpeg-in-memory.md](ffmpeg-in-memory.md).
+2. ~~**ffmpeg as a hard requirement.**~~ **Resolved by [ffmpeg-link.md](ffmpeg-link.md):**
+   the front-end now decodes **in-process** via the linked FFmpeg *libraries*
+   (Tier-2, gated) — no ffmpeg binary, no shell-out, no temp file. The aubio
+   engine's container fallback still uses the ffmpeg binary (Tier-1 behavior,
+   unchanged). The superseded miniaua variant: [ffmpeg-in-memory.md](ffmpeg-in-memory.md).
 
 ## 3. Done (the midicapture-side promotion)
 
@@ -53,19 +53,19 @@ Whether to take the promotion the last step, at the **library** level:
   we keep a soft flag and just flip defaults?
 - Does the Core ML EP being *non-fatal* (CPU fallback) stay acceptable as the
   promoted behavior, or should a missing EP warn loudly?
-- Do we retire the aubio `Transcriber` entirely, or keep it as the no-ffmpeg
+- Do we retire the aubio `Transcriber` entirely, or keep it as the no-ONNX
   fallback?
 
 ## 5. Depends on
 
 - **Pitch-bend parity** (already landed — features 1–3 of the port) — the port
   reached parity before it was made the default.
-- The **in-memory ffmpeg front-end** ([ffmpeg-in-memory.md](ffmpeg-in-memory.md))
-  would remove the ffmpeg hard-dependency, but is optional for the promotion.
+- The **in-process FFmpeg front-end** ([ffmpeg-link.md](ffmpeg-link.md) — implemented)
+  removed the ffmpeg *binary* dependency for basic-pitch.
 
 ## 6. Cross-References
 
 - [../libaudio/tier2.md](../libaudio/tier2.md) — Tier-2 architecture + phasing (basic-pitch is the decided path)
 - [../midicapture/summary.md](../midicapture/summary.md) — the current two-engine CLI
-- [ffmpeg-in-memory.md](ffmpeg-in-memory.md) — the ffmpeg front-end follow-up
+- [ffmpeg-link.md](ffmpeg-link.md) — the in-process FFmpeg front-end (implemented; supersedes ffmpeg-in-memory.md)
 - [transcriber-merge.md](transcriber-merge.md) — the prior unification that set up the `Analyzer` port both engines share

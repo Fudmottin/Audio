@@ -78,6 +78,13 @@ teardown. Output: mono float32 at `targetRate`.
 same pitches/durations within tolerance). The in-process decode uses the same
 libswresample engine, so output should be byte-identical for PCM containers.
 
+**Result: PASSED — byte-identical.** The 14-file corpus run on a pre-change
+baseline build (`git archive HEAD`) and on the in-process build produced
+identical output (100% recall / 68.2% precision; medians 5.1/11.8/9.7/0.0/0.0
+ms), matching the stored pre-change baseline. A real AAC-in-mp4 recording
+(Cranberries "Zombie" piano) also transcribes end-to-end in one command
+(722 notes; the libsndfile-unopenable container no longer aborts the CLI).
+
 ## 8. Non-goals
 
 - Does not change the ONNX model, windowing, post-processor, or tier structure.

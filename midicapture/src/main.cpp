@@ -909,9 +909,13 @@ int main(int argc, char* argv[]) {
                    << (multiplePitchBends ? " (multi-channel)" : "") << "\n";
          // The aubio-only DSP knobs are inert for basic-pitch (its window and
          // frame rate are fixed by the model); if the user passed any of them
-         // with the basic model, say so rather than failing silently.
-         if (vm.count("window-size") > 0 || vm.count("hop-size") > 0 ||
-             vm.count("silence") > 0 || vm.count("method") > 0) {
+         // with the basic model, say so rather than failing silently. Boost
+         // reports count() > 0 for a *defaulted* option, so gate each knob on
+         // !defaulted() to avoid a notice on every basic run.
+         if ((vm.count("window-size") > 0 && !vm["window-size"].defaulted()) ||
+             (vm.count("hop-size") > 0 && !vm["hop-size"].defaulted()) ||
+             (vm.count("silence") > 0 && !vm["silence"].defaulted()) ||
+             (vm.count("method") > 0 && !vm["method"].defaulted())) {
             std::cerr << "  Note: --window-size / --hop-size / --silence /"
                       << " --method are aubio-only; ignored by the \""
                       << modelName << "\" model.\n";

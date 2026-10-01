@@ -24,6 +24,7 @@ Consuming modules (midicapture, waterfall) include `<libaudio/*.h>` and must nev
 |---|---|---|---|
 | **aubio** (0.4.9) | Core DSP: FFT, pitch detection (YIN variants), onset detection, note segmentation, beat tracking, spectral analysis | `aubio` | GPL-3.0 |
 | **libsndfile** (1.2.2) | Audio file I/O (AIFF, WAV, FLAC, etc.) | `libsndfile` | LGPL-2.1+ |
+| **FFmpeg** (libavformat/libavcodec/libswresample/libavutil) | Container decode + resample/downmix for the `BasicPitch` in-process front-end (`detail::decodeToMonoFloat`) — **Tier-2 only**, via pkg-config | `ffmpeg` | LGPL-2.1+ |
 
 ### Why aubio?
 
@@ -47,6 +48,17 @@ This maps naturally to a C++ wrapper with constructors, methods, and properties.
 ### Why libsndfile?
 
 libsndfile handles audio file I/O (reading and writing). It supports AIFF, WAV, FLAC, OGG, MP3, and many other formats. It's already installed and well-integrated.
+
+### Why FFmpeg? (Tier-2 only)
+
+FFmpeg's *libraries* (linked, not the binary) give the Tier-2 `BasicPitch`
+adapter a front-end that decodes **any** container (mp4/m4a/AAC, OGG, …) and
+resamples it to the model's 22050 Hz mono float32 in one in-process streaming
+pass — no subprocess, no temp file. This is a **build-time** dependency gated
+by `LIBAUDIO_ENABLE_TIER2`; the Tier-1 aubio path does not link it. (The
+ffmpeg *binary* is still used at runtime by the Tier-1 `AudioSource` container
+fallback and midicapture's `--clean` MP3 encoding — a runtime, not a build,
+dependency.) See [tier2.md](tier2.md) → Front-end and [../plans/ffmpeg-link.md](../plans/ffmpeg-link.md).
 
 ### Detailed decisions
 

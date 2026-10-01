@@ -146,7 +146,9 @@ Engine selection:
   --no-pitch-bends       [basic only] Skip basic-pitch pitch-bend extraction.
   --multiple-pitch-bends [basic only] One channel per distinct bent pitch.
   --tempo (=120)         Tempo in BPM (both engines; a playback-rate control).
-  --ffmpeg (=/opt/homebrew/bin/ffmpeg)  [Tier-2] ffmpeg path (basic front-end).
+  --ffmpeg (=/opt/homebrew/bin/ffmpeg)  [Tier-2] ffmpeg *binary* path: aubio
+                           container-decode fallback + --clean MP3 encoding.
+                           Not used by basic-pitch (in-process decode).
 
 Corpus (Tier-2 only):
   --run-corpus DIR       Evaluate the 14-file corpus in DIR with --model.
@@ -162,8 +164,16 @@ Utility (all builds):
 > **Knob gating.** The aubio-only DSP knobs (window/hop/silence/method) tune
 > only the `aubio` engine; basic-pitch's window and frame rate are fixed by the
 > model, so they are inert there — if you pass an aubio-only knob with
-> `--model basic`, the tool prints a note that it was ignored.
+> `--model basic`, the tool prints a note that it was ignored (gated on
+> `!defaulted()`: boost reports `count() > 0` even for defaulted options,
+> which would otherwise fire on every basic run).
 > `--no-pitch-bends` / `--multiple-pitch-bends` tune only `basic` (default **on**/**off**).
+> `--ffmpeg` is deprecated for basic (basic-pitch decodes in-process); the note
+> prints only if the flag was explicitly passed.
+> **Input containers.** A container libsndfile cannot open (e.g. mp4) no longer
+> aborts: the CLI prints a note and the engine decodes the file itself (basic:
+> in-process via the FFmpeg libraries; aubio: the ffmpeg binary fallback), so
+> `midicapture song.mp4 out.mid` is one command.
 > A **Tier-1 build** omits `--model` / `--analyzer` / `--run-corpus` / `--ffmpeg` /
 > the pitch-bend flags entirely. See the [midicapture README](../../midicapture/README.md)
 
@@ -203,7 +213,7 @@ cmake --build . --config Release
 #   -> build-tier2/bin/midicapture
 ```
 
-Requires: aubio, libsndfile, Boost (program_options); **Tier-2 additionally** onnxruntime + a working Core ML EP + ffmpeg.
+Requires: aubio, libsndfile, Boost (program_options); **Tier-2 additionally** onnxruntime + a working Core ML EP + **FFmpeg (shared libraries, via pkg-config)**. The ffmpeg *binary* is still used at runtime by the aubio container fallback and `--clean` (corpus MP3 encoding).
 
 ---
 
