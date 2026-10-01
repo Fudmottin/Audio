@@ -296,27 +296,6 @@ void printSummary(const std::vector<FileMetrics>& results) {
 }
 
 // ============================================================================
-// Analyzer factory — select an analyzer by name.
-// ============================================================================
-
-std::unique_ptr<libaudio::Analyzer>
-makeAnalyzer(const std::string& name, const std::string& ffmpegPath) {
-   if (name == "basic-pitch") {
-      // The model is embedded in the binary; BasicPitch only needs ffmpeg.
-      return std::make_unique<libaudio::BasicPitch>(ffmpegPath);
-   }
-   if (name == "aubio") {
-      // The Tier-1 monophonic engine, now in libaudio; one instance is reused
-      // for every file (transcribe() resets its per-file state each call).
-      return std::make_unique<libaudio::Transcriber>(2048u, 512u, -40.0f,
-                                                     "yinfft", 120.0,
-                                                     ffmpegPath);
-   }
-   throw std::runtime_error("unknown analyzer: '" + name +
-                            "' (expected 'basic-pitch' or 'aubio')");
-}
-
-// ============================================================================
 // The `--clean` renderer (synthetic-voice assets).
 // ============================================================================
 
@@ -634,6 +613,41 @@ void cleanScaleSet(const std::string& dir, const std::string& ffmpegPath) {
 } // namespace
 
 // ============================================================================
+// Analyzer factory — select an analyzer by model name.
+//
+// Shared by the direct transcription path (main.cpp) and the corpus evaluator
+// so the model-name-to-engine mapping has a single source of truth. "basic"
+// and "basic-pitch" are synonyms; the aubio fields of `p` tune only the
+// Tier-1 `Transcriber`, and the pitch-bend fields only `BasicPitch`.
+// It lives at global scope (matching its declaration in corpusHarness.h), not
+// in the anonymous namespace above: a definition there would be a *distinct*
+// function and would leave unqualified calls ambiguous.
+// ============================================================================
+
+std::unique_ptr<libaudio::Analyzer> makeAnalyzer(const std::string& name,
+                                                 const AnalyzerParams& p) {
+   if (name == "basic" || name == "basic-pitch") {
+      // The model is embedded in the binary; BasicPitch only needs ffmpeg.
+      auto bp = std::make_unique<libaudio::BasicPitch>(p.ffmpegPath);
+      // Apply the pitch-bend policy; the bend deadband keeps its default.
+      libaudio::BasicPitchOptions options = bp->options();
+      options.includePitchBends = p.includePitchBends;
+      options.multiplePitchBends = p.multiplePitchBends;
+      bp->setOptions(options);
+      return bp;
+   }
+   if (name == "aubio") {
+      // The Tier-1 monophonic engine, now in libaudio; one instance is reused
+      // for every file (transcribe() resets its per-file state each call).
+      return std::make_unique<libaudio::Transcriber>(p.windowSize, p.hopSize,
+                                                     p.silenceDb, p.pitchMethod,
+                                                     p.tempoBpm, p.ffmpegPath);
+   }
+   throw std::runtime_error("unknown model: '" + name +
+                            "' (expected 'basic', 'basic-pitch', or 'aubio')");
+}
+
+// ============================================================================
 // runCorpus — the public entry point.
 // ============================================================================
 
@@ -673,25 +687,25 @@ int runCorpus(const std::string& dir, const std::string& analyzerName,
    }
 
    // Build the analyzer (this is where a bad name or a missing model fails).
+   // The corpus uses fixed aubio tuning (the struct defaults); only the ffmpeg
+   // path and the pitch-bend policy come from the command line.
+   AnalyzerParams params;
+   params.ffmpegPath = ffmpegPath;
+   params.includePitchBends = includePitchBends;
+   params.multiplePitchBends = multiplePitchBends;
    std::unique_ptr<libaudio::Analyzer> analyzer;
    try {
-      analyzer = makeAnalyzer(analyzerName, ffmpegPath);
+      analyzer = makeAnalyzer(analyzerName, params);
    } catch (const std::exception& e) {
       std::cerr << "Error: " << e.what() << "\n";
       return 1;
    }
 
-   // Report the execution path for the neural analyzer (Core ML or CPU).
-   if (analyzerName == "basic-pitch") {
+   // Report the execution path for the neural analyzer (Core ML or CPU). The
+   // pitch-bend policy is applied inside makeAnalyzer; here we only report it
+   // (the 'basic'/'basic-pitch' check covers both model-name synonyms).
+   if (analyzerName == "basic" || analyzerName == "basic-pitch") {
       auto* bp = dynamic_cast<libaudio::BasicPitch*>(analyzer.get());
-      if (bp) {
-         // Apply the pitch-bend policy from the command line; the other knobs
-         // (deadband) keep their defaults.
-         libaudio::BasicPitchOptions options = bp->options();
-         options.includePitchBends = includePitchBends;
-         options.multiplePitchBends = multiplePitchBends;
-         bp->setOptions(options);
-      }
       std::cout << "  Core ML:      "
                 << (bp && bp->coreMlActive() ? "active" : "cpu-fallback")
                 << "   Pitch bends: " << (includePitchBends ? "on" : "off")

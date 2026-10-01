@@ -23,10 +23,45 @@
 #ifndef MIDICAPTURE_CORPUS_HARNESS_H
 #define MIDICAPTURE_CORPUS_HARNESS_H
 
+#include <cstdint>
+#include <libaudio/analyzer.h>
+#include <memory>
 #include <string>
 
 // The analyzer-agnostic corpus evaluator. Only present in a Tier-2 build.
 #ifdef LIBAUDIO_HAS_TIER2
+
+/// The engine-configuration bundle, shared by the direct transcription path
+/// (main.cpp) and the corpus evaluator so the model-name-to-engine mapping has
+/// one source of truth. The aubio fields tune the Tier-1 monophonic
+/// `Transcriber` (ignored by `BasicPitch`, whose window and frame rate are
+/// fixed by the model); the pitch-bend fields tune `BasicPitch` (ignored by
+/// `Transcriber`, which never bends); `ffmpegPath` is used by both (basic-pitch
+/// needs it to resample + downmix the input, aubio only as a container-decode
+/// fallback).
+struct AnalyzerParams {
+   // aubio (Tier-1) tuning — ignored by basic-pitch.
+   uint32_t windowSize = 2048;
+   uint32_t hopSize = 512;
+   float silenceDb = -40.0f;
+   std::string pitchMethod = "yinfft";
+   double tempoBpm = 120.0;
+   // Shared: path to the ffmpeg executable (see above).
+   std::string ffmpegPath = "/opt/homebrew/bin/ffmpeg";
+   // basic-pitch tuning — ignored by aubio.
+   bool includePitchBends = true;
+   bool multiplePitchBends = false;
+};
+
+/// Select an `Analyzer` by model name.
+///
+/// @param name  "basic" / "basic-pitch" (synonyms, both select the
+///              polyphonic `BasicPitch`) or "aubio" (the Tier-1 monophonic
+///              `Transcriber`).
+/// @param p     The engine parameters (see `AnalyzerParams`).
+/// @throws std::runtime_error if `name` is not a known model.
+std::unique_ptr<libaudio::Analyzer> makeAnalyzer(const std::string& name,
+                                                 const AnalyzerParams& p);
 
 /// Run the evaluation harness.
 ///
@@ -34,7 +69,8 @@
 /// compare to the `.mid` ground truth beside it, and print the metrics table.
 ///
 /// @param dir           Directory holding the corpus (`*.mp3` + `*.mid`).
-/// @param analyzerName  Analyzer to run: "basic-pitch" or "aubio".
+/// @param analyzerName  Model to run: "basic"/"basic-pitch" (the polyphonic
+///                      neural engine) or "aubio" (the monophonic YIN engine).
 /// @param clean         When true, regenerate the 14 assets (`.mid` + `.mp3`)
 ///                      into `dir` before evaluating (the renderer half).
 /// @param ffmpegPath    Path to the ffmpeg executable (decode + mp3 encode).

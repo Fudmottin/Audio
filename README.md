@@ -8,7 +8,7 @@ Local-first audio processing utilities for macOS, written in C++.
 |--------|-------------|
 | [`aiffcapture/`](aiffcapture/) | Capture audio from BlackHole 2ch virtual device to uncompressed AIFF files. |
 | [`libaudio/`](libaudio/) | DSP library wrapping aubio and libsndfile — audio analysis, pitch detection, MIDI export. |
-| [`midicapture/`](midicapture/) | Audio → MIDI transcription (monophonic prototype). |
+| [`midicapture/`](midicapture/) | Audio → MIDI transcription (polyphonic basic-pitch by default; aubio monophonic as an option). |
 | [`waterfall/`](waterfall/) | Audio → frequency analysis; renders a SONAR-style waterfall of acoustic energy over time as a scriptable text format. |
 
 ### aiffcapture
@@ -21,7 +21,7 @@ A C++ DSP library (in `namespace libaudio`) providing audio analysis (pitch, ons
 
 ### midicapture
 
-A command-line utility that converts audio recordings (AIFF, WAV, FLAC) to Standard MIDI Files (SMF). Uses aubio for pitch detection (YINfft) and onset detection (spectral flux). See the [module README](midicapture/README.md) for build instructions and usage.
+A command-line utility that converts audio recordings (AIFF, WAV, FLAC, MP3, …) to Standard MIDI Files (SMF). It selects a transcription engine with `--model`: the polyphonic **basic-pitch** neural engine (ONNX + Core ML, the default in a Tier-2 build) or the monophonic **aubio** engine, both from libaudio. See the [module README](midicapture/README.md) for build instructions and usage.
 
 ### waterfall
 
@@ -55,12 +55,19 @@ Requires macOS, aubio (`brew install aubio`), and libsndfile (`brew install libs
 
 ```bash
 cd midicapture
+
+# Tier-1 (default): aubio monophonic engine only.
 mkdir build && cd build
 cmake .. -DCMAKE_BUILD_TYPE=Release
 cmake --build . --config Release
+
+# Tier-2: adds the polyphonic basic-pitch engine (the default model), --model, --run-corpus.
+mkdir ../build-tier2 && cd ../build-tier2
+cmake .. -DCMAKE_BUILD_TYPE=Release -DLIBAUDIO_ENABLE_TIER2=ON
+cmake --build . --config Release
 ```
 
-Requires macOS, aubio (`brew install aubio`), libsndfile (`brew install libsndfile`), and Boost (`brew install boost`).
+Requires macOS, aubio (`brew install aubio`), libsndfile (`brew install libsndfile`), and Boost (`brew install boost`). The Tier-2 build additionally needs onnxruntime (`brew install onnxruntime`) and ffmpeg (`brew install ffmpeg`).
 
 ### waterfall
 

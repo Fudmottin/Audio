@@ -60,7 +60,8 @@
 
 | Plan | Purpose |
 |------|---------|
-| [plans/basic-pitch-tier1.md](plans/basic-pitch-tier1.md) | Promote the basic-pitch port to Tier 1 — **deferred** (a future session) |
+| [plans/basic-pitch-tier1.md](plans/basic-pitch-tier1.md) | Promote basic-pitch — midicapture-side **done** (default `--model` in Tier-2); libaudio tier-flattening **open** |
+| [plans/ffmpeg-in-memory.md](plans/ffmpeg-in-memory.md) | In-process (miniaua) decode+resample to drop the ffmpeg shell-out — **plan only** (Q3) |
 | [plans/transcriber-merge.md](plans/transcriber-merge.md) | The prior Transcriber→Analyzer unification (done) |
 
 ## Future Modules (Planned)

@@ -3,40 +3,47 @@
  * @brief Entry point for midicapture — audio-to-MIDI transcription.
  *
  * This is the single entry point of the program. It parses command-line
- * arguments using Boost program_options, opens the input audio file,
- * runs pitch detection and onset detection, builds a HIR Score, and
- * writes the result to a MIDI file.
+ * arguments using Boost program_options, opens the input audio file, runs the
+ * selected transcription engine (an `libaudio::Analyzer`), and writes the
+ * resulting HIR Score to a Type 1 MIDI file.
  *
- * For the monophonic prototype:
+ * Two engines are selectable via `--model`:
+ *   - "basic" / "basic-pitch" (synonyms) — the Tier-2 polyphonic neural engine
+ *     (`BasicPitch`, ONNX + Core ML). The *default* in a Tier-2 build.
+ *   - "aubio" — the Tier-1 monophonic engine (`Transcriber`, YINfft + onset).
+ * A Tier-1 build has only "aubio"; `--model` is absent there.
+ *
+ * Direct transcription path:
  * 1. Read audio file metadata (sample rate, channels, duration).
- * 2. Run monophonic pitch detection (YINfft) frame by frame.
- * 3. Use onset detection (spectral flux) to find note boundaries.
- * 4. Build a simple Score with detected notes.
- * 5. Write the Score to a Type 1 MIDI file (480 ticks/qn).
+ * 2. Select the engine by `--model` and run it on the file.
+ * 3. The engine returns a HIR Score of detected notes.
+ * 4. Write the Score to a Type 1 MIDI file (480 ticks/qn).
  *
  * @section cli-interface Command-Line Interface
  *
  * Usage: midicapture [options] <input.aiff> <output.mid>
  *
  * Options:
- *   --window-size <int>  FFT window size (default: 2048).
- *   --hop-size <int>     Hop size (default: 512).
- *   --silence <float>    Silence threshold in dB (default: -40).
+ *   --model <string>     Transcription model (Tier-2): "basic" (default, the
+ *                        polyphonic neural engine) or "aubio" (monophonic).
+ *   --window-size <int>  FFT window size (default: 2048). [aubio only]
+ *   --hop-size <int>     Hop size (default: 512). [aubio only]
+ *   --silence <float>    Silence threshold in dB (default: -40). [aubio only]
  *   --tempo <float>      Tempo in BPM (default: 120).
- *   --method <string>    Pitch detection method (default: "yinfft").
+ *   --method <string>    Pitch detection method (default: "yinfft"). [aubio
+ * only]
+ *   --ffmpeg <string>    Path to ffmpeg (basic-pitch resample + downmix;
+ * Tier-2).
  *   --help               Print this message.
  *
- * @section monophonic-design Monophonic Prototype Design
+ * @section engine-design Engine Design
  *
- * The monophonic prototype assumes only one note at a time:
- * - Pitch detection runs YINfft on each audio frame.
- * - Onset detection (spectral flux) marks note starts.
- * - When energy stays below the silence threshold for a few hops,
- *   the note ends (hysteresis).
- * - Notes are sorted by start time and written to the MIDI file.
- *
- * Polyphony (chords) is a future enhancement: it will use spectral
- * peak tracking + multiple pitch detection to resolve overlapping notes.
+ * The "aubio" engine is monophonic: it tracks one note at a time (YINfft pitch
+ * per frame, spectral-flux onsets, an energy-hysteresis note state machine,
+ * and defragmentation). The "basic" engine is polyphonic and models the
+ * harmonic series, so it resolves the octave the monophonic YIN path cannot.
+ * Both emit the same HIR Score, which the shared `MidiFileWriter` turns into a
+ * Type 1 MIDI file.
  *
  */
 
@@ -44,10 +51,15 @@
 
 #include <filesystem>
 #include <iostream>
+#include <libaudio/analyzer.h>
 #include <libaudio/audioFile.h>
 #include <libaudio/hir.h>
 #include <libaudio/midiFileWriter.h>
 #include <libaudio/transcriber.h>
+#include <memory>
+#ifdef LIBAUDIO_HAS_TIER2
+#include <libaudio/basicPitch.h>
+#endif // LIBAUDIO_HAS_TIER2
 #include <midicapture/corpusHarness.h>
 #include <string>
 #include <vector>
@@ -77,31 +89,44 @@ static void printUsage(const char* programName) {
              << " [options] <input.aiff> <output.mid>\n"
              << "\nOptions:\n";
    std::cerr << "  --help                    Print this message.\n";
-   std::cerr
-      << "  --window-size <int>       FFT window size (default: 2048).\n";
-   std::cerr << "  --hop-size <int>          Hop size (default: 512).\n";
-   std::cerr << "  --silence <float>         Silence threshold in dB (default: "
-             << "-40).\n";
+#ifdef LIBAUDIO_HAS_TIER2
+   // A polyphonic (basic) and a monophonic (aubio) engine coexist in a Tier-2
+   // build, so the aubio-specific DSP knobs are tagged "[aubio only]". A
+   // Tier-1 build has only aubio, so no tag (and no --model) is shown.
+   static const char* aubioOnly = "   [aubio only]";
+   std::cerr << "  --model <string>          Transcription model: \"basic\" "
+             << "(default, the polyphonic basic-pitch engine) or \"aubio\" "
+             << "(the monophonic Tier-1 engine).\n";
+#else
+   static const char* aubioOnly = "";
+#endif
+   std::cerr << "  --window-size <int>       FFT window size (default: 2048)"
+             << aubioOnly << ".\n";
+   std::cerr << "  --hop-size <int>          Hop size (default: 512)"
+             << aubioOnly << ".\n";
+   std::cerr << "  --silence <float>         Silence threshold in dB (default:"
+             << " -40)" << aubioOnly << ".\n";
    std::cerr << "  --tempo <float>           Tempo in BPM (default: 120).\n";
-   std::cerr << "  --method <string>         Pitch detection method (default: "
-             << "\"yinfft\").\n";
+   std::cerr << "  --method <string>         Pitch detection method (default:"
+             << " \"yinfft\")" << aubioOnly << ".\n";
    std::cerr << "  --generate-test-midi-files  Generate a set of simple"
              << " monophonic scale MIDI files.\n";
    std::cerr << "  --output-dir <string>     Directory for generated MIDI files"
              << " (default: .).\n";
 #ifdef LIBAUDIO_HAS_TIER2
    std::cerr << "  --run-corpus DIR          Run the 14-file corpus evaluation"
-             << " in DIR.\n";
-   std::cerr << "  --analyzer <string>       Analyzer for --run-corpus: "
-             << "\"basic-pitch\" or \"aubio\" (default: basic-pitch).\n";
+             << " in DIR with --model.\n";
+   std::cerr
+      << "  --analyzer <string>       Deprecated: use --model instead.\n";
    std::cerr
       << "  --clean                   Regenerate the corpus assets before"
       << " evaluating.\n";
    std::cerr << "  --ffmpeg <string>         Path to the ffmpeg executable ("
-             << "default: /opt/homebrew/bin/ffmpeg).\n";
-   std::cerr << "  --no-pitch-bends          For --run-corpus: skip pitch-bend"
+             << "basic-pitch resample + downmix; default: "
+                "/opt/homebrew/bin/ffmpeg).\n";
+   std::cerr << "  --no-pitch-bends          For --model basic: skip pitch-bend"
              << " extraction (default: on).\n";
-   std::cerr << "  --multiple-pitch-bends    For --run-corpus: route each"
+   std::cerr << "  --multiple-pitch-bends    For --model basic: route each"
              << " distinct bent pitch to its own channel (default: off).\n";
 #endif // LIBAUDIO_HAS_TIER2
    std::cerr << "\nExamples:\n";
@@ -455,10 +480,18 @@ int main(int argc, char* argv[]) {
    std::string outputDir = ".";
 
 #ifdef LIBAUDIO_HAS_TIER2
-   // Corpus-evaluation mode (--run-corpus): run the analyzer-agnostic 14-file
-   // harness. These are parsed and used only in a Tier-2 build.
+   // Engine selection (--model) + the analyzer-agnostic corpus harness. These
+   // are parsed and used only in a Tier-2 build (BasicPitch + the harness
+   // exist only then).
+   //
+   // `modelName` is the canonical choice: "basic" by default (= the polyphonic
+   // basic-pitch engine); "aubio" selects the Tier-1 monophonic engine. The
+   // deprecated `--analyzer` alias binds to its OWN variable (`analyzerArg`,
+   // no default) so it can never clobber `modelName`'s default during Boost's
+   // notify(); it is folded into `modelName` after parsing instead.
    std::string runCorpusDir;
-   std::string analyzerName = "basic-pitch";
+   std::string modelName = "basic";
+   std::string analyzerArg;
    bool clean = false;
    std::string ffmpegPath = "/opt/homebrew/bin/ffmpeg";
    bool noPitchBends = false;
@@ -536,26 +569,34 @@ int main(int argc, char* argv[]) {
       " (default: current directory).");
 
 #ifdef LIBAUDIO_HAS_TIER2
-   // --run-corpus: the analyzer-agnostic 14-file corpus evaluator. Registered
-   // only in a Tier-2 build (the harness + analyzers exist only then).
-   desc.add_options()("run-corpus", po::value<std::string>(&runCorpusDir),
-                      "Run the 14-file corpus evaluation in DIR with "
-                      "--analyzer (no positional input needed).")(
-      "analyzer",
-      po::value<std::string>(&analyzerName)->default_value("basic-pitch"),
-      "Analyzer for --run-corpus: \"basic-pitch\" or \"aubio\".")(
+   // Engine selection (--model) + the analyzer-agnostic corpus evaluator.
+   // Registered only in a Tier-2 build (BasicPitch + the harness exist only
+   // then). --model accepts "basic" / "basic-pitch" (synonyms, both select the
+   // polyphonic BasicPitch engine; "basic" is the default) or "aubio" (the
+   // Tier-1 monophonic engine). --analyzer is a deprecated alias for --model,
+   // bound to its own variable so it never clobbers the --model default.
+   desc.add_options()(
+      "model", po::value<std::string>(&modelName)->default_value("basic"),
+      "Transcription model: \"basic\" (default, the polyphonic"
+      " basic-pitch engine) or \"aubio\" (the monophonic"
+      " Tier-1 engine).")("analyzer", po::value<std::string>(&analyzerArg),
+                          "Deprecated alias for --model. Use --model instead.")(
+      "run-corpus", po::value<std::string>(&runCorpusDir),
+      "Run the 14-file corpus evaluation in DIR with --model (no positional"
+      " input needed).")(
       "clean", po::bool_switch(&clean),
       "Before evaluating, regenerate the corpus assets (.mid + .mp3).")(
       "ffmpeg",
       po::value<std::string>(&ffmpegPath)
          ->default_value("/opt/homebrew/bin/ffmpeg"),
-      "Path to the ffmpeg executable (MP3 decode + encode).")(
+      "Path to the ffmpeg executable (basic-pitch resample + downmix, and the"
+      " aubio container-decode fallback).")(
       "no-pitch-bends", po::bool_switch(&noPitchBends),
-      "For --run-corpus with basic-pitch: skip pitch-bend extraction "
-      "(the default is on, matching the Python reference).")(
+      "For --model basic: skip pitch-bend extraction (the default is on,"
+      " matching the Python reference).")(
       "multiple-pitch-bends", po::bool_switch(&multiplePitchBends),
-      "For --run-corpus with basic-pitch: route each distinct bent pitch "
-      "to its own MIDI channel (the reference default is off — one channel).");
+      "For --model basic: route each distinct bent pitch to its own MIDI"
+      " channel (the reference default is off — one channel).");
 #endif // LIBAUDIO_HAS_TIER2
 
    // Define positional options: <input.aiff> <output.mid>.  These bind the
@@ -619,8 +660,29 @@ int main(int argc, char* argv[]) {
    testMode = (vm.count("test") > 0);
    generateTestMidiFiles = (vm.count("generate-test-midi-files") > 0);
 
+#ifdef LIBAUDIO_HAS_TIER2
+   // Fold the deprecated --analyzer alias into --model. `analyzerArg` carries
+   // no default of its own, so `vm.count("analyzer") > 0` reliably means "the
+   // user actually passed --analyzer" (a registered default would be > 0 even
+   // when the flag was absent). The alias wins over the --model default only
+   // when the user supplies it; an empty `--analyzer` value would otherwise
+   // clobber a good --model value, so we only override on a non-empty arg.
+   if (vm.count("analyzer") > 0 && !analyzerArg.empty()) {
+      std::cerr << "Warning: --analyzer is deprecated; use --model.\n";
+      modelName = analyzerArg;
+   }
+#endif // LIBAUDIO_HAS_TIER2
+
    // Print a POSIX-style help message.
    if (vm.count("help")) {
+#ifdef LIBAUDIO_HAS_TIER2
+      // A polyphonic (basic) + monophonic (aubio) engine coexist, so tag the
+      // aubio-only DSP knobs; a Tier-1 build has only aubio (no tag, no
+      // --model).
+      static const char* aubioOnly = "  [aubio only]";
+#else
+      static const char* aubioOnly = "";
+#endif
       std::cout
          << "midicapture — audio-to-MIDI transcription\n\n"
          << "Usage: " << argv[0] << " [options] <input.aiff> [output.mid]\n"
@@ -631,15 +693,26 @@ int main(int argc, char* argv[]) {
             "etc.).\n"
          << "  [output.mid]             Output MIDI filename (.mid).  When "
             "omitted, the input filename is reused.\n"
+#ifdef LIBAUDIO_HAS_TIER2
+         << "  --model arg (=basic)      Transcription model: \"basic\" "
+            "(default, the polyphonic\n"
+         << "                            basic-pitch engine) or \"aubio\" "
+            "(the monophonic Tier-1\n"
+         << "                            engine).\n"
+#endif
          << "  --window-size arg (=2048) FFT window size (power of 2, default: "
-            "2048).\n"
+            "2048)"
+         << aubioOnly << ".\n"
          << "  --hop-size arg (=512)     Hop size between frames (default: "
-            "512).\n"
+            "512)"
+         << aubioOnly << ".\n"
          << "  --silence arg (=-40)      Silence threshold in dB (default: "
-            "-40).\n"
+            "-40)"
+         << aubioOnly << ".\n"
          << "  --tempo arg (=120)        Tempo in BPM (default: 120).\n"
          << "  --method arg (=yinfft)    Pitch detection method (default: "
-            "\"yinfft\").\n"
+            "\"yinfft\")"
+         << aubioOnly << ".\n"
          << "  -t [ --test ]             Sanity test: write a single middle-C"
             " note (C4, velocity 100,\n"
          << "                            1s) regardless of the input audio."
@@ -652,17 +725,16 @@ int main(int argc, char* argv[]) {
          << "                            (default: current directory).\n"
 #ifdef LIBAUDIO_HAS_TIER2
          << "  --run-corpus DIR           Run the 14-file corpus evaluation in"
-            " DIR.\n"
-         << "  --analyzer arg (=basic-pitch)\n"
-         << "                            Analyzer for --run-corpus: "
-            "\"basic-pitch\" or \"aubio\".\n"
+            " DIR with --model.\n"
+         << "  --analyzer arg             Deprecated: use --model instead.\n"
          << "  --clean                    Regenerate the corpus assets before"
             " evaluating.\n"
          << "  --ffmpeg arg (=/opt/homebrew/bin/ffmpeg)\n"
-         << "                            Path to the ffmpeg executable.\n"
-         << "  --no-pitch-bends           For --run-corpus: skip pitch-bend"
+         << "                            Path to the ffmpeg executable"
+            " (basic-pitch resample + downmix).\n"
+         << "  --no-pitch-bends           For --model basic: skip pitch-bend"
             " extraction (default: on).\n"
-         << "  --multiple-pitch-bends     For --run-corpus: route each"
+         << "  --multiple-pitch-bends     For --model basic: route each"
             " distinct bent pitch to its own channel.\n"
 #endif // LIBAUDIO_HAS_TIER2
          << "\n";
@@ -687,7 +759,7 @@ int main(int argc, char* argv[]) {
    // generator mode above it needs no positional input and ignores the
    // analysis options, so it runs before the input-required check below.
    if (vm.count("run-corpus") > 0) {
-      return runCorpus(runCorpusDir, analyzerName, clean, ffmpegPath,
+      return runCorpus(runCorpusDir, modelName, clean, ffmpegPath,
                        !noPitchBends, multiplePitchBends);
    }
 #endif // LIBAUDIO_HAS_TIER2
@@ -740,8 +812,7 @@ int main(int argc, char* argv[]) {
    // channels, duration) to stdout for user feedback.
    // =====================================================================
 
-   std::cout
-      << "midicapture — audio-to-MIDI transcription (monophonic prototype)\n";
+   std::cout << "midicapture — audio-to-MIDI transcription\n";
    std::cout
       << "============================================================\n\n";
 
@@ -779,30 +850,89 @@ int main(int argc, char* argv[]) {
       std::cout << "  Duration: " << duration << " seconds\n";
       std::cout << "  Format: " << audioReader.formatName() << "\n\n";
 
+      // =====================================================================
+      // Select the engine and print a model-aware configuration block.
+      //
+      // Domain context: a Tier-2 build offers two engines behind the Analyzer
+      // port. The aubio-only DSP knobs (window / hop / silence / method) tune
+      // only the monophonic aubio engine; the basic-pitch engine's window and
+      // frame rate are fixed by the model, so those knobs are inert there. A
+      // Tier-1 build has only the aubio engine (and no --model flag). The
+      // shared makeAnalyzer factory (corpusHarness.h) is the single source of
+      // truth for the model-name -> engine mapping, used here and by the
+      // corpus harness.
+      // =====================================================================
+      std::unique_ptr<libaudio::Analyzer> analyzer;
+#ifdef LIBAUDIO_HAS_TIER2
+      AnalyzerParams params;
+      params.windowSize = windowSize;
+      params.hopSize = hopSize;
+      params.silenceDb = silenceDb;
+      params.pitchMethod = pitchMethod;
+      params.tempoBpm = tempoBpm;
+      params.ffmpegPath = ffmpegPath;
+      params.includePitchBends = !noPitchBends;
+      params.multiplePitchBends = multiplePitchBends;
+      analyzer = makeAnalyzer(modelName, params);
+#endif
+
       std::cout << "Configuration:\n";
+#ifdef LIBAUDIO_HAS_TIER2
+      if (modelName == "aubio") {
+         std::cout << "  Engine: aubio (Tier-1 monophonic)\n";
+         std::cout << "  Window size: " << windowSize << "\n";
+         std::cout << "  Hop size: " << hopSize << "\n";
+         std::cout << "  Silence threshold: " << silenceDb << " dB\n";
+         std::cout << "  Pitch method: " << pitchMethod << "\n";
+      } else {
+         auto* bp = dynamic_cast<libaudio::BasicPitch*>(analyzer.get());
+         std::cout << "  Engine: " << analyzer->name()
+                   << " (Tier-2 polyphonic)\n";
+         std::cout << "  Core ML: "
+                   << (bp && bp->coreMlActive() ? "active" : "cpu-fallback")
+                   << "\n";
+         std::cout << "  Pitch bends: " << (!noPitchBends ? "on" : "off")
+                   << (multiplePitchBends ? " (multi-channel)" : "") << "\n";
+         // The aubio-only DSP knobs are inert for basic-pitch (its window and
+         // frame rate are fixed by the model); if the user passed any of them
+         // with the basic model, say so rather than failing silently.
+         if (vm.count("window-size") > 0 || vm.count("hop-size") > 0 ||
+             vm.count("silence") > 0 || vm.count("method") > 0) {
+            std::cerr << "  Note: --window-size / --hop-size / --silence /"
+                      << " --method are aubio-only; ignored by the \""
+                      << modelName << "\" model.\n";
+         }
+      }
+#else
+      analyzer =
+         std::make_unique<libaudio::Transcriber>(windowSize, hopSize, silenceDb,
+                                                 pitchMethod, tempoBpm);
+      std::cout << "  Engine: aubio (Tier-1 monophonic)\n";
       std::cout << "  Window size: " << windowSize << "\n";
       std::cout << "  Hop size: " << hopSize << "\n";
       std::cout << "  Silence threshold: " << silenceDb << " dB\n";
-      std::cout << "  Tempo: " << tempoBpm << " BPM\n";
-      std::cout << "  Pitch method: " << pitchMethod << "\n\n";
+      std::cout << "  Pitch method: " << pitchMethod << "\n";
+#endif
+      std::cout << "  Tempo: " << tempoBpm << " BPM\n\n";
 
       // =====================================================================
-      // Transcribe the audio file to MIDI.
+      // Transcribe the audio file to MIDI with the selected engine.
       //
-      // Domain context: The Transcriber orchestrates the full transcription
-      // pipeline:
-      // 1. Read audio hops from the file.
-      // 2. Run pitch detection (YINfft) on each hop.
-      // 3. Run onset detection (spectral flux) on each hop.
-      // 4. Build a HIR Score with detected notes.
-      // 5. Write the Score to a Type 1 MIDI file.
+      // Domain context: `Analyzer::transcribe` is the analyzer-agnostic seam;
+      // both engines read the file, detect notes, and return a HIR Score. The
+      // caller then writes that Score to a Type 1 MIDI file.
       // =====================================================================
-
-      libaudio::Transcriber transcriber(windowSize, hopSize, silenceDb,
-                                        pitchMethod, tempoBpm);
 
       // Transcribe the audio file.
-      Score score = transcriber.transcribe(inputPath);
+      Score score = analyzer->transcribe(inputPath);
+
+      // The HIR stores note times in seconds; the MIDI writer maps seconds to
+      // ticks (and sets the tempo meta-event) via the Score's tempo.
+      // basic-pitch fixes its own output tempo at 120 internally, so set it
+      // here to honour --tempo uniformly across both engines (a no-op for
+      // aubio, which already forwards it). This is a playback-rate control,
+      // not a note-content change.
+      score.tempo = tempoBpm;
 
       std::cout << "Detected " << score.notes.size() << " notes.\n\n";
 

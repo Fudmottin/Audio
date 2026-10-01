@@ -67,6 +67,11 @@ Used in the COMM chunk for sample rate:
 | **aiffcapture** | Phase 1 utility: captures audio from BlackHole 2ch and writes to AIFF files. |
 | **DRM-free AIFF** | Unencrypted AIFF file produced by stripping DRM from Apple Music content. |
 | **Audio → MIDI** | The transcription pipeline: audio file → DSP analysis → AI inference → MIDI file. |
+| **Analyzer** | The abstract libaudio port: a thing that turns an audio file into a HIR `Score`. Two concrete engines implement it (below). |
+| **Transcriber** | The Tier-1 engine `libaudio::Transcriber`: monophonic YINfft pitch + spectral-flux onsets + defrag. Selected by midicapture `--model aubio`. |
+| **BasicPitch** | The Tier-2 engine `libaudio::BasicPitch`: a Spotify basic-pitch ONNX model (Core ML) for *polyphonic* piano. Selected by `--model basic` and the **default** in a Tier-2 build. |
+| **basic-pitch** | The upstream Spotify (2022) polyphonic piano transcription model. In midicapture, `basic` and `basic-pitch` are synonymous `--model` values. |
+| **--model** | midicapture's engine selector (Tier-2 only): `basic` (default) / `basic-pitch` (synonym) / `aubio`. `--analyzer` is its deprecated alias. |
 | **MIDI file** | Musical Instrument Digital Interface file. Standard format for representing musical performance data. |
 | **DAW** | Digital Audio Workstation (e.g., Logic Pro, GarageBand). |
 | **DRM** | Digital Rights Management. Apple Music's encryption layer. |

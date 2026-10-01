@@ -1,55 +1,71 @@
-# Plan: Promote the basic-pitch port to Tier 1
+# Plan: Fully promote basic-pitch
 
-> **Status: ⏸ Planned (deferred — a future session, not the current one).**
-> Captured here per the project rule that anything worth implementing is worth
-> recording. The current work (pitch-bends parity) is the *first* step toward
-> this; this promotion is a later, separate effort.
+> **Status: ⚠️ Partially done.** The **midicapture-side** promotion is complete:
+> `basic` (basic-pitch) is the **default `--model`** in a Tier-2 build, `--analyzer`
+> is a deprecated alias, and it works for direct transcription (not just
+> `--run-corpus`). The **libaudio-side** decision — whether to *flatten the tiering*
+> (make ONNX a required dep / always-on) — is **still open** and the user has chosen
+> to **keep both Tier-1 and Tier-2 builds as-is** for now. This file tracks that
+> remaining decision. See [../libaudio/tier2.md](../libaudio/tier2.md) and
+> [../midicapture/summary.md](../midicapture/summary.md) for the current state.
 
-## 1. Where we are
+## 1. Where we are (current state)
 
 basic-pitch is **Tier-2**: gated behind `LIBAUDIO_ENABLE_TIER2` (default OFF),
 ONNX Runtime + Core ML is an *optional* dependency, and the aubio `Transcriber`
-remains the default Tier-1 engine. The `--analyzer {basic-pitch|aubio}` switch
-selects between them. basic-pitch is the *better* engine (resolves the octave the
-monophonic YIN path cannot — 100% recall / 68% precision on the 14-file corpus vs
-aubio's 6%).
+remains available as the `aubio` model. **But** in a Tier-2 build the midicapture
+CLI now **defaults to `basic`** (the better engine — resolves the octave the
+monophonic YIN path cannot: 100% recall / 68% precision on the 14-file corpus vs
+aubio's 6%). `--model {basic|basic-pitch|aubio}` selects the engine for both the
+direct path and `--run-corpus`; `--analyzer` is a deprecated alias. The two build
+flavors (Tier-1 aubio-only, Tier-2 with basic-pitch) are unchanged.
 
-## 2. Goal
+## 2. The remaining open question (not yet decided)
 
-Make basic-pitch the **primary** transcription path — the thing you get by
-default, with the aubio engine demoted to a fallback/legacy option — and treat it
-as first-class (a "Tier-1-class" engine), not an optional experiment.
+Whether to take the promotion the last step, at the **library** level:
 
-## 3. Likely steps (to be scoped in the dedicated session)
+1. **Flatten the tiering.** Either (a) make ONNX Runtime a *required* dependency and
+   remove `LIBAUDIO_ENABLE_TIER2` (always-on), or (b) keep the flag but flip its
+   default to ON. Today we deliberately keep the flag defaulting OFF so the Tier-1
+   aubio path stays byte-for-byte unaffected and dependency-light. This is the
+   pivotal, not-yet-taken decision.
+2. **ffmpeg as a hard requirement.** basic-pitch's front-end relies on **ffmpeg**
+   (the installed aubio lacks `libsamplerate`). Because `basic` is now the *default*
+   model, ffmpeg is effectively a hard runtime requirement for a Tier-2 build. This
+   is documented; making the front-end ffmpeg-free (in-memory / static) is a separate
+   track — see [ffmpeg-in-memory.md](ffmpeg-in-memory.md).
 
-1. **Flatten the tiering.** Decide the end-state model: (a) ONNX becomes a
-   *required* dependency and `LIBAUDIO_ENABLE_TIER2` is removed (always-on), or
-   (b) keep the flag but flip its default to ON and make the CLI default to
-   basic-pitch. This is the pivotal decision.
-2. **Front-end hardening.** basic-pitch's front-end relies on **ffmpeg** (the
-   installed aubio lacks `libsamplerate`). Promoting it makes ffmpeg a hard
-   runtime requirement for transcription — document that and the failure mode.
-3. **Reconcile the HIR / writer.** The `Note`/`Score`/writer are shared by both
-   engines. Confirm the aubio path still produces clean output after the bend
-   fields (from the current session) land, so the demotion doesn't regress Tier-1.
-4. **Corpus & docs.** Flip the default in the harness + `--help`; update the
-   lode (this file, [../libaudio/tier2.md](../libaudio/tier2.md), [../audio-to-midi.md](../audio-to-midi.md)
-   §3, [../summary.md](../summary.md)) to reflect basic-pitch as the primary path.
+## 3. Done (the midicapture-side promotion)
 
-## 4. Open questions (resolve in that session)
+1. ✅ **`--model` for direct transcription** (not just `--run-corpus`): `basic`
+   (default) / `basic-pitch` (synonym) → `BasicPitch`; `aubio` → `Transcriber`.
+2. ✅ **`--analyzer` as a deprecated alias** (warns, still works; bound to its own
+   var to avoid a Boost default-clobber).
+3. ✅ **`basic` is the default** engine in a Tier-2 build.
+4. ✅ **Per-engine knob gating** (aubio-only / basic-only knobs; inert on the other
+   engine, with a warning) and a uniform `--tempo` across both engines.
+5. ✅ **Docs** (midicapture/README, root README, lode) updated to the two-engine,
+   default-basic reality.
+
+## 4. Open questions (resolve before flattening)
 
 - Is ONNX Runtime acceptable as a **hard** dependency for the whole build, or do
   we keep a soft flag and just flip defaults?
 - Does the Core ML EP being *non-fatal* (CPU fallback) stay acceptable as the
   promoted behavior, or should a missing EP warn loudly?
-- Do we retire the aubio `Transcriber` entirely, or keep it as a no-ffmpeg fallback?
+- Do we retire the aubio `Transcriber` entirely, or keep it as the no-ffmpeg
+  fallback?
 
 ## 5. Depends on
 
-- **This session's pitch-bend work** (features 1–3) landing first — the port must
-  reach *parity* (and the bend improvements) before it is promoted to primary.
+- **Pitch-bend parity** (already landed — features 1–3 of the port) — the port
+  reached parity before it was made the default.
+- The **in-memory ffmpeg front-end** ([ffmpeg-in-memory.md](ffmpeg-in-memory.md))
+  would remove the ffmpeg hard-dependency, but is optional for the promotion.
 
 ## 6. Cross-References
 
-- [../libaudio/tier2.md](../libaudio/tier2.md) — current Tier-2 architecture + phasing (§5 Phase 1c = the current bend work)
+- [../libaudio/tier2.md](../libaudio/tier2.md) — Tier-2 architecture + phasing (basic-pitch is the decided path)
+- [../midicapture/summary.md](../midicapture/summary.md) — the current two-engine CLI
+- [ffmpeg-in-memory.md](ffmpeg-in-memory.md) — the ffmpeg front-end follow-up
 - [transcriber-merge.md](transcriber-merge.md) — the prior unification that set up the `Analyzer` port both engines share

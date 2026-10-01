@@ -80,10 +80,11 @@ transcribed on its own. Cost: a trained model (or a C++ port) and a heavier
 dependency.
 
   - **basic-pitch** (Spotify, 2022): a small neural network for *polyphonic*
-    piano, directly MIDI-out. The practical modern baseline and the most likely
-    "swap the analyzer" upgrade for midicapture when a local runtime is
-    acceptable. → **This is the decided path:** host it (and later TF-MAGS /
-    Demucs) inside libaudio on ONNX Runtime. See §7.
+    piano, directly MIDI-out. → **This is the decided path, and it has landed:**
+    hosted inside libaudio on ONNX Runtime (+ Core ML) as `libaudio::BasicPitch`
+    and is now the **default `--model` in a Tier-2 midicapture build** (it resolves
+    the §5 octave problem monophonic DSP cannot — 100% recall on the 14-file corpus
+    vs aubio's ~6%). Later hosts for TF-MAGS / Demucs. See §7.
   - **NNoteS** (2021): neural, per-note; relevant for monophonic robustness.
 
 **Tier 3 — large / foundation models.**
@@ -103,10 +104,11 @@ renderer-independent middle layer that every analyzer can feed and every output
 1. **Fix monophonic** — *done* (defragmentation, §5). Single-line repertoire.
 2. **Stem separation + per-stem monophonic** — covers most song recordings
    (melody + accompaniment), reusing the fixed Tier-1 machine per stem.
-3. **Swap the analyzer for basic-pitch** (Tier 2) where a local runtime fits —
-   for genuine polyphony / chords that no amount of monophonic tuning resolves.
-   The *how* — hosting these models in libaudio on ONNX Runtime — is decided;
-   see §7.
+3. **Swap the analyzer for basic-pitch** (Tier 2) for genuine polyphony / chords
+   that no amount of monophonic tuning resolves. **Done in Tier-2 builds:**
+   `libaudio::BasicPitch` (ONNX Runtime + Core ML) is the **default `--model`** in
+   midicapture; `--model aubio` keeps the monophonic Tier-1 machine. The *how* —
+   hosting these models in libaudio — is decided; see §7.
 
 **Waterfall's role is verification, not boundary detection.** With peak
 normalization every row shows every note of a chord at ≥25% and a fundamental's

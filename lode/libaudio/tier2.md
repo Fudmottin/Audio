@@ -110,11 +110,13 @@ requested but its failure is non-fatal (CPU fallback).
 (Δoct ≤ 0.5) and chroma (0.0); per-file onset 2–15 ms. It resolves the §5 octave
 problem monophonic YIN cannot (aubio on the same corpus: 6% recall,
 octave-unreliable); the precision dip is long/whole-note fragmentation, not a
-pitch error. `midicapture --run-corpus test-midi --analyzer {basic-pitch|aubio}`.
+pitch error. It is now midicapture's **default `--model`** in a Tier-2 build
+(`aubio` is the monophonic fallback): `midicapture --run-corpus test-midi
+--model {basic|aubio}` (`--analyzer` is a deprecated alias for `--model`).
 
 ## 6. Cross-References
 
 - [summary.md](summary.md) — the libaudio module overview (Tier-1 core)
 - [../audio-to-midi.md](../audio-to-midi.md) — the cross-module problem framing (§5 octave, §6 eval)
 - [hir.md](hir.md) — the `Score` / `Note` the adapter emits
-- [../plans/basic-pitch-tier1.md](../plans/basic-pitch-tier1.md) — the future Tier-1 promotion plan
+- [../plans/basic-pitch-tier1.md](../plans/basic-pitch-tier1.md) — the remaining basic-pitch promotion work (midicapture default: done; libaudio tier-flattening: open)

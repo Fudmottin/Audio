@@ -9,11 +9,12 @@
 `midicapture` is a command-line utility that analyzes audio recordings and generates **Type 1 MIDI files** (480 ticks per quarter note), compatible with Apple Logic Pro. It is the second phase of the Audio project.
 
 The module uses:
-- **libaudio**: the transcription engine — `libaudio::Transcriber` (aubio YINfft +
-  spectral-flux onsets, Tier-1) and `libaudio::BasicPitch` (Core ML, Tier-2) —
-  both concrete `libaudio::Analyzer`s; plus audio I/O (libsndfile) and MIDI writing.
-  The monophonic aubio pipeline itself now *lives in libaudio*; midicapture is a
-  thin CLI front-end that selects an analyzer.
+- **libaudio**: the transcription engines — `libaudio::Transcriber` (aubio YINfft +
+  spectral-flux onsets, Tier-1, monophonic) and `libaudio::BasicPitch` (ONNX/Core ML,
+  Tier-2, polyphonic) — both concrete `libaudio::Analyzer`s; plus audio I/O (libsndfile)
+  and MIDI writing. midicapture is a thin CLI front-end that selects an engine via
+  `--model` (default: the polyphonic `basic` engine in a Tier-2 build) and writes the
+  resulting HIR `Score` to a Type 1 MIDI file.
 - **Boost program_options**: Command-line argument parsing
 
 ---
@@ -39,7 +40,7 @@ Audio/
 │   │   └── corpusHarness.h       # Analyzer-agnostic 14-file corpus evaluator
 │   └── src/
 │       ├── main.cpp              # CLI entry point (Boost program_options; --run-corpus)
-│       └── corpusHarness.cpp     # Corpus harness (recall/precision/Δ; the --analyzer switch)
+│       └── corpusHarness.cpp     # Tier-2 corpus harness (recall/precision/Δ) + makeAnalyzer
 └── lode/midicapture/    # Module documentation
 ```
 
@@ -74,11 +75,13 @@ graph LR
 
 ---
 
-## 4. State Machine (Monophonic, energy-gated)
+## 4. State Machine (the `aubio` engine — monophonic, energy-gated)
 
-The monophonic prototype uses a two-state machine gated on **energy**, not on
-the pitch detector's confidence (YINfft reports a usable fundamental even for
+The `aubio` engine uses a two-state machine gated on **energy**, not on the
+pitch detector's confidence (YINfft reports a usable fundamental even for
 noise; on rendered piano its confidence reads ~0, so it is not a usable gate).
+This describes the monophonic engine only; the `basic` engine segments notes
+from its neural onset/contour maps instead (see [libaudio/tier2.md](../libaudio/tier2.md)).
 
 | State | Condition | Action |
 |-------|-----------|--------|
@@ -111,7 +114,7 @@ recombined into a single note by the same-pitch merge in §8.
 | **Pitch stability** | 5 hops (100 ms) | A pitch change needs 5 agreeing hops |
 | **Min note lifetime** | 5 hops | Drops the wobble-fragment debris |
 | **Min replace lifetime** | 5 hops | A note must be credible before it is replaced |
-| **Tempo** | from `--tempo` (120) | Drives the merge gap + MIDI ticks |
+| **Tempo** | from `--tempo` (120) | aubio merge gap + MIDI ticks (both engines) |
 | **MIDI format** | Type 1, 480 ticks/qn | Logic Pro compatible |
 | **CLI library** | Boost program_options | Standard, robust, extensible |
 
@@ -119,90 +122,88 @@ recombined into a single note by the same-pitch merge in §8.
 
 ## 6. CLI Interface
 
-An input file is required, **except** in `--test` mode (which needs none) or
-`--generate-test-midi-files` mode (which writes a set of files and needs no
-input at all — see [testmidi.md](testmidi.md)).
-When `--input` is given without `--output`, the output path defaults to
-`<input>.mid` (extension replaced); in `--test` mode with no input it
-defaults to `midicapture-test.mid`.
+An input file is required, **except** in `--test` mode (needs none) or
+`--generate-test-midi-files` mode (writes a file set; see [testmidi.md](testmidi.md)).
+When `--input` is given without `--output`, the output defaults to
+`<input>.mid` (extension replaced); `--test` with no input uses `midicapture-test.mid`.
 
-`--help` prints a POSIX-style help message with a `Usage:` line and exits — no
-input file required.
+`--help` prints a POSIX-style usage message and exits — no input file required.
 
 ```
 midicapture — audio-to-MIDI transcription
 
 Usage: ./midicapture [options] <input.aiff> [output.mid]
 
-Main options:
-  -h [ --help ]             Print usage information.
-  <input.aiff>              Input audio file path (AIFF, WAV, FLAC, etc.).
-  [output.mid]             Output MIDI filename (.mid).  When omitted, the
-                            input filename is reused with a .mid extension.
-  -o [ --output ] arg       Output MIDI file path (.mid).  (Equivalent to the
-                            positional form; prefer positional for input.)
-  --input / -i             Accepted but **prefer the positional form**: a
-                            trailing argument after `--input` is captured as
-                            the *output*, so the intended input is silently
-                            lost.  See the [midicapture README](../../midicapture/README.md)
-                            Known Limitations for details.
-  --window-size arg (=2048) FFT window size (power of 2, default: 2048).
-  --hop-size arg (=512)     Hop size between frames (default: 512).
-  --silence arg (=-40)      Silence threshold in dB (default: -40) — note
-                            on/off hysteresis level.
-  --tempo arg (=120)        Tempo in BPM (default: 120) — drives the merge
-                            gap and the MIDI tick conversion.
-  --method arg (=yinfft)    Pitch detection method (default: "yinfft").
-  -t [ --test ]             Sanity test: write a single middle-C note
-                            (C4, velocity 100, 1s) regardless of input.
-  --generate-test-midi-files
-                            Generate a set of simple monophonic scale MIDI files
-                            in --output-dir (default: CWD). All other options
-                            are ignored.
+Engine selection:
+  --model arg (=basic)   (Tier-2) "basic" / "basic-pitch" (synonyms, the
+                           polyphonic basic-pitch engine — the default) or
+                           "aubio" (the monophonic engine).
+  --analyzer arg         (Tier-2) Deprecated alias for --model.
+  --window-size (=2048)  [aubio only] FFT window size (power of 2).
+  --hop-size (=512)      [aubio only] Hop size between frames.
+  --silence (=-40)       [aubio only] Silence threshold in dB (note on/off).
+  --method (=yinfft)     [aubio only] Pitch detection method.
+  --no-pitch-bends       [basic only] Skip basic-pitch pitch-bend extraction.
+  --multiple-pitch-bends [basic only] One channel per distinct bent pitch.
+  --tempo (=120)         Tempo in BPM (both engines; a playback-rate control).
+  --ffmpeg (=/opt/homebrew/bin/ffmpeg)  [Tier-2] ffmpeg path (basic front-end).
+
+Corpus (Tier-2 only):
+  --run-corpus DIR       Evaluate the 14-file corpus in DIR with --model.
+  --clean                Regenerate the corpus assets first.
+
+Utility (all builds):
+  -o [ --output ] arg    Output .mid.   --input / -i  Prefer positional instead.
+  -t [ --test ]          Write a fixed single middle-C note; no analysis.
+  --generate-test-midi-files  Write the 14-file corpus to --output-dir.
+  -h [ --help ]          Usage.
 ```
 
-> **Tier-2 builds** additionally offer the analyzer-agnostic corpus evaluator:
-> `--run-corpus DIR --analyzer {basic-pitch|aubio} [--no-pitch-bends]
-> [--multiple-pitch-bends] [--clean] [--ffmpeg PATH]`
-> (see [tier2](../libaudio/tier2.md)).
-> `--no-pitch-bends` gates basic-pitch's bend extraction (default **on** =
-> Python parity); it does **not** change the onset/length/pitch/velocity
-> metrics (those exclude bends) — it only stops the analyzer from attaching
-> bend vectors to notes.
-> `--multiple-pitch-bends` routes each distinct bent pitch to its own MIDI
-> channel 1..15 (default **off** = reference parity, one channel).
+> **Knob gating.** The aubio-only DSP knobs (window/hop/silence/method) tune
+> only the `aubio` engine; basic-pitch's window and frame rate are fixed by the
+> model, so they are inert there — if you pass an aubio-only knob with
+> `--model basic`, the tool prints a note that it was ignored.
+> `--no-pitch-bends` / `--multiple-pitch-bends` tune only `basic` (default **on**/**off**).
+> A **Tier-1 build** omits `--model` / `--analyzer` / `--run-corpus` / `--ffmpeg` /
+> the pitch-bend flags entirely. See the [midicapture README](../../midicapture/README.md)
 
 Examples:
 ```bash
-midicapture song.aiff                          # → song.mid
+midicapture song.aiff                          # → song.mid (default model: basic)
 midicapture song.aiff output.mid               # explicit output
-midicapture song.aiff -o out.mid               # explicit output via flag
-midicapture --help                             # usage only
+midicapture --model aubio song.aiff out.mid    # the monophonic engine
+midicapture --run-corpus ./test-midi           # evaluate the 14-file corpus (Tier-2)
 midicapture --test song.aiff                   # fixed sanity note -> song.mid
-midicapture -t --output sanity.mid             # sanity note, no input needed
-midicapture --generate-test-midi-files            # 14 corpus files in CWD
 midicapture --generate-test-midi-files --output-dir ./test-midi
 ```
 
 > ⚠️ **Prefer the positional form for the input file.** The `--input` / `-i`
-> flags are registered as *aliases* of the positional name so both forms
-> work, but a trailing argument after `--input` is captured by the *output*
-> slot (Boost's positional slots cannot carry short flags), and the intended
-> input is silently dropped.  See the [midicapture README](../../midicapture/README.md)
-> Known Limitations.
+> flags are aliases of the positional name, but a trailing argument after
+> `--input` is captured by the *output* slot and the intended input is silently
+> dropped. See the [midicapture README](../../midicapture/README.md) Known Limitations.
 
 ---
 
 ## 7. Build
 
+midicapture builds libaudio as a sub-project; the tier is chosen by `LIBAUDIO_ENABLE_TIER2` (default OFF).
+
 ```bash
 cd midicapture
+# Tier-1 (default): aubio monophonic engine only — no --model, no corpus, no ffmpeg.
 mkdir build && cd build
 cmake .. -DCMAKE_BUILD_TYPE=Release
 cmake --build . --config Release
+#   -> build/bin/midicapture
+
+# Tier-2: adds basic-pitch (the default model), --model, --run-corpus.
+mkdir ../build-tier2 && cd ../build-tier2
+cmake .. -DCMAKE_BUILD_TYPE=Release -DLIBAUDIO_ENABLE_TIER2=ON
+cmake --build . --config Release
+#   -> build-tier2/bin/midicapture
 ```
 
-Requires: aubio, libsndfile, Boost (program_options).
+Requires: aubio, libsndfile, Boost (program_options); **Tier-2 additionally** onnxruntime + a working Core ML EP + ffmpeg.
 
 ---
 
@@ -224,13 +225,14 @@ clean 62-byte real-transcription file on `aiffcapture/final-fantasy.aiff`).
 
 ### Transcription quality (resolved — details in defrag.md)
 
-The long-standing Tier-1 transcription issues are all **fixed**; the symptom /
-root-cause / fix write-ups, the measurements, and the YIN octave problem now
-live in [defrag.md](defrag.md) (split out so both files stay under the cap):
-decaying-note fragmentation (1447 → 101 on `final-fantasy.aiff`), the YIN
-octave problem on weak-fundamental renders, and the old stereo segfault.
-Robust octave is handled by the Tier-2 basic-pitch analyzer
-([../libaudio/tier2.md](../libaudio/tier2.md)). Minor Tier-1 artifacts remain
+The long-standing Tier-1 (aubio) transcription issues are all **fixed**; the
+symptom / root-cause / fix write-ups, the measurements, and the YIN octave
+problem now live in [defrag.md](defrag.md) (split out so both files stay under
+the cap): decaying-note fragmentation (1447 → 101 on `final-fantasy.aiff`), the
+YIN octave problem on weak-fundamental renders, and the old stereo segfault.
+Those are aubio-engine concerns. **Robust octave and polyphony come from the
+`basic` (basic-pitch) engine — the default in Tier-2 builds**
+([../libaudio/tier2.md](../libaudio/tier2.md)). Minor aubio artifacts remain
 (first note often missed; quiet decay tails fall below `--silence`) — see
 [defrag.md](defrag.md) §3.
 

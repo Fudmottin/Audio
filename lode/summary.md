@@ -10,7 +10,7 @@ Build a suite of local-first audio processing utilities targeting macOS (later P
 |-------|--------|-------------|
 | **Audio → AIFF** (capture) | Complete | Capture audio from BlackHole 2ch to 16-bit signed integer AIFF files. |
 | **DSP Library** (libaudio) | **Built** | Wraps aubio/libsndfile (Tier-1) + ONNX Runtime/Core ML (Tier-2: basic-pitch). HIR is the analyzer-agnostic seam. |
-| **Audio → MIDI** (transcription) | **In Progress** | Analyzer-agnostic behind the `Analyzer` port: Tier-1 `libaudio::Transcriber` (YINfft + defrag) and Tier-2 `libaudio::BasicPitch` (Core ML, resolves the octave). → Type 1 MIDI. |
+| **Audio → MIDI** (transcription) | **In Progress** | Analyzer-agnostic behind the `Analyzer` port: Tier-1 `libaudio::Transcriber` (YINfft + defrag) and Tier-2 `libaudio::BasicPitch` (Core ML, resolves the octave — the **default `--model`** in a Tier-2 build; aubio is the fallback). → Type 1 MIDI. |
 | **Audio → Waterfall** (frequency analysis) | **Mostly complete** | SONAR-style spectral display (text + MP4 video, PCM and MIDI modes). |
 | **MIDI → Sheet Music** | Planned | Generate readable sheet music from MIDI data. |
 | **Sheet Music → MIDI** | Planned | Generate playable audio from sheet music representations. |
@@ -69,6 +69,11 @@ Audio/
   **Tier-2 (basic-pitch, Core ML):** resolves the octave — 100% recall, correct
   octave + chroma on the 14-file corpus ([audio-to-midi.md](audio-to-midi.md) §7).
   Writer validity is solved.
+- **Default engine (Tier-2):** the `basic` (basic-pitch) engine is the default
+  `--model` in a Tier-2 build — it resolves the octave YIN cannot; `--model aubio`
+  is the monophonic fallback, and `--analyzer` is a deprecated alias for `--model`.
+  A Tier-1 build has only aubio and no `--model` flag. See
+  [midicapture/summary.md](midicapture/summary.md) §6.
 
 ## Key Decisions
 
