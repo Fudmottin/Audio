@@ -1,11 +1,8 @@
-# Plan: In-memory (in-process) audio decode — replace the ffmpeg shell-out
+# Plan: In-process (in-process) audio decode — replace the ffmpeg shell-out
 
-> **Status: 📋 Plan (not started).** Per the user's Q3 decision, the current
-> ffmpeg-based decode is **kept as-is** for now; this is the *follow-up track*
-> that makes the read path fully in-process. `basic-pitch-tier1.md` §2(2)
-> references this as the way to remove ffmpeg as a Tier-2 hard requirement.
-> See [basic-pitch-tier1.md](basic-pitch-tier1.md) for the tier-flattening track
-> and [../libaudio/tier2.md](../libaudio/tier2.md) for the BasicPitch front-end.
+> **Status: ✅ Superseded.** The miniaua approach below was superseded by the
+> **FFmpeg shared-library link** plan, which is now implemented. See
+> [ffmpeg-link.md](ffmpeg-link.md) for the current (in-process, linked) decode.
 
 ---
 
@@ -73,7 +70,7 @@ Make the read path **in-process, in-memory, streaming**:
 > (feed windows to the model as they decode, for very long / live input) is a
 > separate, larger redesign and is **not** part of this plan.
 
-## 3. Candidate approaches
+## 3. Candidate approaches (miniaua — SUPERSEDED)
 
 All candidates are **permissively licensed** (public domain) and **single-file** —
 matching the project's "local, dependency-light" constraint and the existing
@@ -85,60 +82,25 @@ precedent of vendoring (`midicsv-1.1/` in midicapture).
 | **dr_libs** | public domain | WAV, MP3, FLAC, … (modular `dr_*`) | no (pair with stb_resample) | yes | modular; no built-in resampler |
 | **stb_vorbis + stb_resample** | public domain | Vorbis (+ stb_wav for WAV only) | stb_resample (yes) | frame-by-frame | assemble from parts; no MP3/FLAC |
 
-**Recommendation: miniaua** — it bundles *both* the decoders libsndfile covers and
-the exotic ones (MP3 / FLAC / Vorbis) **and** a quality streaming resampler, so one
-header replaces *both* the ffmpeg decode **and** the resample step. `dr_libs` is the
-runner-up if we prefer modular, but it lacks a resampler.
+**Why superseded:** miniaua does not decode AAC/M4A, WMA, or other formats
+present in real-world recordings and the MAESTRO dataset. The user chose to
+link to the FFmpeg shared libraries instead (see [ffmpeg-link.md](ffmpeg-link.md)),
+which covers all formats and uses the same libswresample engine the ffmpeg CLI
+applies today (identical audio quality).
 
-**Resample strategy** (the one quality knob): ffmpeg currently does an anti-aliased
-multirate resample. miniaua's `ma_resampler` (SINC, high cutoff) is an in-process
-equivalent:
-- `decodeToRate(22050)` (BasicPitch): SINC resample to 22050 mono float32.
-- `open()` 48k fallback (aubio): SINC to 48000 mono — or skip resample and hand the
-  consumer its native rate (aubio resamples internally); decide in Q4.
+## 4. Open questions (resolved by the ffmpeg-link plan)
 
-## 4. Open questions (resolve before implementing)
+1. ~~Which library~~ → **FFmpeg shared libraries** (libavformat, libavcodec, libswresample, libavutil)
+2. ~~Vendored vs. dependency~~ → **linked** (Homebrew dylibs, pkg-config discovery)
+3. ~~Where it lives~~ → `libaudio/src/ffmpegDecode.cpp` (new internal unit)
+4. ~~`open()` native path~~ → unchanged (libsndfile native read stays; the in-process decode replaces only the `decodeToRate` path)
+5. ~~API shape for in-memory~~ → `decodeToMonoFloat(path, rate) → std::vector<float>` (free function; `AudioSource` stays a path view)
+6. ~~`--ffmpeg` flag~~ → **deprecated** (still accepted, ignored, prints a notice)
+7. ~~Parity gate~~ → 14-file corpus must produce identical/better notes
 
-1. **Which library** — miniaua (recommended) / dr_libs / stb_*?
-2. **Vendored vs. dependency** — add the single file to `libaudio/src/` and compile
-   it in, or `FetchContent`? Precedent says vendor.
-3. **Where it lives** — extend `audioDecode.cpp` (replace the ffmpeg branch with an
-   in-process decode) or a new internal unit? Keep `AudioSource`'s public API
-   unchanged if possible.
-4. **`open()` native path** — keep libsndfile as the native reader (it is already a
-   hard dep) and use miniaua only for the *fallback*; or fully replace libsndfile
-   with miniaua for one decode path?
-5. **API shape for in-memory** — today `AudioSource` is a *path* view. An in-process
-   decode yields a *buffer*. Does `AudioSource` grow a `path | vector<float>` union,
-   or do we add a sibling `AudioBuffer` type?
-6. **`--ffmpeg` flag** — once the read path is in-process, does midicapture drop the
-   `--ffmpeg` flag, or keep it inert / deprecated?
-7. **Parity gate** — the swap must be *byte-identical or better* on the 14-file
-   corpus (no recall/precision regression) before it lands. Reuse the corpus harness
-   + `midicsv` / `timidity` round-trip as the gate.
+## 5. Cross-references
 
-## 5. Scope & non-goals
-
-- **Scope:** `libaudio/src/audioDecode.cpp` + `AudioSource` (and a new internal
-  decode + resample unit if a chosen library warrants it). Tier-1-layer, no ONNX.
-- **Non-goal:** does **not** change the build, the two-tier structure, the ONNX
-  model, or the engines. Orthogonal to the tier-flattening track
-  ([basic-pitch-tier1.md](basic-pitch-tier1.md)). Per Q3, **not implemented this
-  session** — this is the next step.
-
-## 6. Payoff when done
-
-- Removes the **ffmpeg binary hard-requirement** for a Tier-2 build (the last
-  non-ONNX external runtime dep of the default `basic` engine).
-- Removes **throwaway temp files** + the "input dir must be writable" failure mode.
-- Cuts **peak memory** (no disk-WAV + in-RAM double buffer) and **startup time**
-  (no subprocess).
-- Makes the read path fully **local and self-contained**: an exotic container → a
-  `Score` with no external tool.
-
-## 7. Cross-references
-
-- [basic-pitch-tier1.md](basic-pitch-tier1.md) — the tier-flattening track (this is its §2(2) "ffmpeg as a hard requirement" sub-item)
-- [../libaudio/tier2.md](../libaudio/tier2.md) — the `BasicPitch` front-end that consumes `decodeToRate(22050)`
+- [ffmpeg-link.md](ffmpeg-link.md) — **the active plan** (FFmpeg library link, implemented)
+- [basic-pitch-tier1.md](basic-pitch-tier1.md) — the tier-flattening track
+- [../libaudio/tier2.md](../libaudio/tier2.md) — the `BasicPitch` front-end
 - [../libaudio/decisions.md](../libaudio/decisions.md) — the libsndfile / aubio wrapper decisions
-- **Source of truth:** `libaudio/include/libaudio/audioDecode.h` + `libaudio/src/audioDecode.cpp`

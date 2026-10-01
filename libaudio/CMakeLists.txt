@@ -98,6 +98,16 @@ endif()
 # Tier 2 — optional neural transcription via ONNX Runtime.
 # ============================================================================
 if(LIBAUDIO_ENABLE_TIER2)
+    # --- FFmpeg shared libraries (in-process decode; replaces the binary shell-out)
+    # Required for BasicPitch's front-end: decode + resample any container to
+    # 22050 Hz mono float32 without a subprocess or temp file. Homebrew installs
+    # these as .dylib (LGPL, dynamic link is compliant).
+    pkg_check_modules(FFMPEG REQUIRED
+        libavformat libavcodec libswresample libavutil)
+    target_link_libraries(libaudio PUBLIC ${FFMPEG_LIBRARIES})
+    target_include_directories(libaudio PRIVATE ${FFMPEG_INCLUDE_DIRS})
+    target_link_directories(libaudio PUBLIC ${FFMPEG_LIBRARY_DIRS})
+    message(STATUS "libaudio: FFmpeg linked (in-process decode)")
     # (b) Find onnxruntime via its installed CMake config, against the Homebrew
     #     prefix. `brew install onnxruntime` places the config package at
     #     /opt/homebrew/opt/onnxruntime/lib/cmake/onnxruntime.
@@ -114,15 +124,17 @@ if(LIBAUDIO_ENABLE_TIER2)
         target_include_directories(libaudio PUBLIC "${_onnx_inc_parent}")
     endif()
 
-    # The Tier-2 sources live in two subdirectories mirroring the architecture:
-    # src/onnx/ (the generic ONNX runtime layer) and src/basicPitch/ (the
-    # Spotify basic-pitch model adapter). The headers stay flat in include/.
+    # The Tier-2 sources live in subdirectories mirroring the architecture:
+    # src/onnx/ (the generic ONNX runtime layer), src/basicPitch/ (the model
+    # adapter), and src/ffmpegDecode.cpp (in-process decode; Tier-2 front-end).
+    # The headers stay flat in include/.
     target_sources(libaudio PRIVATE
         src/onnx/onnxTensor.cpp
         src/onnx/onnxSession.cpp
         src/basicPitch/modelDescriptor.cpp
         src/basicPitch/basicPitch.cpp
         src/basicPitch/pianoRoll.cpp
+        src/ffmpegDecode.cpp
     )
 
     # PUBLIC so consumers (midicapture/waterfall) that use the Tier-2 types
@@ -164,6 +176,7 @@ if(LIBAUDIO_ENABLE_TIER2)
     # header itself is generated into the build tree).
     target_include_directories(libaudio
         PRIVATE
+            src
             src/onnx
             src/basicPitch
             "${CMAKE_CURRENT_BINARY_DIR}/generated")

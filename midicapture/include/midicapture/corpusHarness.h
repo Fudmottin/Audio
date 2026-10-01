@@ -36,9 +36,9 @@
 /// one source of truth. The aubio fields tune the Tier-1 monophonic
 /// `Transcriber` (ignored by `BasicPitch`, whose window and frame rate are
 /// fixed by the model); the pitch-bend fields tune `BasicPitch` (ignored by
-/// `Transcriber`, which never bends); `ffmpegPath` is used by both (basic-pitch
-/// needs it to resample + downmix the input, aubio only as a container-decode
-/// fallback).
+/// `Transcriber`, which never bends); `ffmpegPath` is used by the aubio engine
+/// (container-decode fallback) and for corpus MP3 encoding. Not used by
+/// `BasicPitch` (its decode + resample is in-process via FFmpeg libraries).
 struct AnalyzerParams {
    // aubio (Tier-1) tuning — ignored by basic-pitch.
    uint32_t windowSize = 2048;
@@ -46,7 +46,7 @@ struct AnalyzerParams {
    float silenceDb = -40.0f;
    std::string pitchMethod = "yinfft";
    double tempoBpm = 120.0;
-   // Shared: path to the ffmpeg executable (see above).
+   // aubio container-decode fallback + corpus MP3 encoding.
    std::string ffmpegPath = "/opt/homebrew/bin/ffmpeg";
    // basic-pitch tuning — ignored by aubio.
    bool includePitchBends = true;

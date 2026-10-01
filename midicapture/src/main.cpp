@@ -32,8 +32,8 @@
  *   --tempo <float>      Tempo in BPM (default: 120).
  *   --method <string>    Pitch detection method (default: "yinfft"). [aubio
  * only]
- *   --ffmpeg <string>    Path to ffmpeg (basic-pitch resample + downmix;
- * Tier-2).
+ *   --ffmpeg <string>    Path to ffmpeg (aubio container-decode fallback +
+ * corpus MP3 encoding; not used by basic-pitch).
  *   --help               Print this message.
  *
  * @section engine-design Engine Design
@@ -121,9 +121,10 @@ static void printUsage(const char* programName) {
    std::cerr
       << "  --clean                   Regenerate the corpus assets before"
       << " evaluating.\n";
-   std::cerr << "  --ffmpeg <string>         Path to the ffmpeg executable ("
-             << "basic-pitch resample + downmix; default: "
-                "/opt/homebrew/bin/ffmpeg).\n";
+   std::cerr << "  --ffmpeg <string>         Path to the ffmpeg executable"
+             << " (aubio container-decode fallback + corpus MP3 encoding)."
+             << " Not used by basic-pitch (in-process decode). Default:"
+             << " /opt/homebrew/bin/ffmpeg.\n";
    std::cerr << "  --no-pitch-bends          For --model basic: skip pitch-bend"
              << " extraction (default: on).\n";
    std::cerr << "  --multiple-pitch-bends    For --model basic: route each"
@@ -589,8 +590,8 @@ int main(int argc, char* argv[]) {
       "ffmpeg",
       po::value<std::string>(&ffmpegPath)
          ->default_value("/opt/homebrew/bin/ffmpeg"),
-      "Path to the ffmpeg executable (basic-pitch resample + downmix, and the"
-      " aubio container-decode fallback).")(
+      "Path to the ffmpeg executable (aubio container-decode fallback and"
+      " corpus MP3 encoding). Not used by basic-pitch (in-process decode).")(
       "no-pitch-bends", po::bool_switch(&noPitchBends),
       "For --model basic: skip pitch-bend extraction (the default is on,"
       " matching the Python reference).")(
@@ -730,8 +731,9 @@ int main(int argc, char* argv[]) {
          << "  --clean                    Regenerate the corpus assets before"
             " evaluating.\n"
          << "  --ffmpeg arg (=/opt/homebrew/bin/ffmpeg)\n"
-         << "                            Path to the ffmpeg executable"
-            " (basic-pitch resample + downmix).\n"
+         << "                            Path to the ffmpeg executable (aubio"
+            " container-decode fallback + corpus MP3 encoding). Not used by"
+            " basic-pitch (in-process decode).\n"
          << "  --no-pitch-bends           For --model basic: skip pitch-bend"
             " extraction (default: on).\n"
          << "  --multiple-pitch-bends     For --model basic: route each"
@@ -840,15 +842,27 @@ int main(int argc, char* argv[]) {
    }
 
    try {
-      AudioFileReader audioReader(inputPath);
+      // Best-effort header: libsndfile cannot open every container (e.g. an
+      // mp4). If the probe fails we cannot print the sample rate and friends,
+      // but that is not fatal — each engine decodes the file itself (basic:
+      // in-process via the FFmpeg libraries; aubio: the ffmpeg binary
+      // fallback), so the transcription below still runs.
+      try {
+         AudioFileReader audioReader(inputPath);
 
-      std::cout << "Input file: " << inputPath << "\n";
-      std::cout << "  Sample rate: " << audioReader.sampleRate() << " Hz\n";
-      std::cout << "  Channels: " << audioReader.channels() << "\n";
-      std::cout << "  Total frames: " << audioReader.totalFrames() << "\n";
-      double duration = audioReader.duration();
-      std::cout << "  Duration: " << duration << " seconds\n";
-      std::cout << "  Format: " << audioReader.formatName() << "\n\n";
+         std::cout << "Input file: " << inputPath << "\n";
+         std::cout << "  Sample rate: " << audioReader.sampleRate() << " Hz\n";
+         std::cout << "  Channels: " << audioReader.channels() << "\n";
+         std::cout << "  Total frames: " << audioReader.totalFrames() << "\n";
+         double duration = audioReader.duration();
+         std::cout << "  Duration: " << duration << " seconds\n";
+         std::cout << "  Format: " << audioReader.formatName() << "\n\n";
+      } catch (const std::exception& e) {
+         std::cerr << "Input file: " << inputPath << "\n"
+                   << "  Note: libsndfile cannot open this container ("
+                   << e.what() << "); the engine will decode it via FFmpeg.\n"
+                   << "\n";
+      }
 
       // =====================================================================
       // Select the engine and print a model-aware configuration block.
@@ -901,6 +915,13 @@ int main(int argc, char* argv[]) {
             std::cerr << "  Note: --window-size / --hop-size / --silence /"
                       << " --method are aubio-only; ignored by the \""
                       << modelName << "\" model.\n";
+         }
+         // Only warn when the user actually passed the flag: boost reports
+         // count() > 0 for a defaulted option, which would turn this into a
+         // notice on every basic run.
+         if (vm.count("ffmpeg") > 0 && !vm["ffmpeg"].defaulted()) {
+            std::cerr << "  Note: --ffmpeg is no longer used by basic-pitch"
+                      << " (decode is in-process).\n";
          }
       }
 #else

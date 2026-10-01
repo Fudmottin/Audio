@@ -15,13 +15,16 @@
  * @section basic-pitch-pipeline Pipeline
  *
  * `transcribe(path)`:
- *   1. Resolve the path via `AudioSource` (libsndfile, else an ffmpeg decode).
- *   2. Read the whole file as mono; resample to 22050 Hz if needed.
- *   3. Prepend the front pad, cut into overlapping 43844-sample windows
+ *   1. Get mono float32 at the model's rate: probe the file with libsndfile
+ *      and read directly when its rate matches (or is unknown); otherwise — a
+ *      different rate, or a container libsndfile cannot open (e.g. mp4) —
+ *      decode + resample in-process via the FFmpeg libraries (no subprocess,
+ *      no temp file).
+ *   2. Prepend the front pad, cut into overlapping 43844-sample windows
  *      (hop 36164), and run each window through the model.
- *   4. Overlap-stitch the per-window note/onset maps (trim the 30-frame overlap
+ *   3. Overlap-stitch the per-window note/onset maps (trim the 30-frame overlap
  *      per window; apply the global start/end trims) into one global map.
- *   5. Decode the global map with `PianoRoll` into `Note`s; assemble the
+ *   4. Decode the global map with `PianoRoll` into `Note`s; assemble the
  * `Score`.
  *
  * The exact windowing / trim math mirrors the reference `inference.py`
@@ -109,14 +112,11 @@ class BasicPitch : public Analyzer {
  public:
    // Prepare for transcription. The basic-pitch model (`nmp.onnx`) is embedded
    // into the binary at build time (see `nmp_onnx_data.h`), so there is no
-   // model path to resolve on disk.
-   //
-   // @param ffmpegPath  Path to ffmpeg, used only if the input cannot be read
-   //                    directly by libsndfile (the `AudioSource` fallback).
+   // model path to resolve on disk. Audio decode + resample is in-process
+   // (FFmpeg shared libraries); no external tool is needed.
    //
    // @throws std::runtime_error if the model cannot be loaded.
-   explicit BasicPitch(
-      const std::string& ffmpegPath = "/opt/homebrew/bin/ffmpeg");
+   BasicPitch();
 
    // Destructor. Releases the ONNX session.
    ~BasicPitch();

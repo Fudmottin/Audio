@@ -1,20 +1,17 @@
 // audioDecode.cpp — resolve an input audio path to one libsndfile can open.
 //
-// Two related guarantees live here, both built on the same probe-first design:
-//   - `open()`:       a path libsndfile can read (native rate; the consumer
-//                     resamples). Most sources open directly; only an
-//                     unreadable container is ffmpeg-decoded to a throwaway 48
-//                     kHz mono WAV.
-//   - `decodeToRate()`: a path libsndfile can read *at a specific rate* — the
-//                     source is ffmpeg-decoded + resampled into a throwaway
-//                     mono float32 WAV. The `BasicPitch` adapter uses this to
-//                     hand its 22050 Hz model correctly-rate mono audio.
+// This file implements `AudioSource::open()`, the Tier-1 container-fallback
+// path: if libsndfile cannot read a container, decode it to a throwaway 48 kHz
+// mono PCM16 WAV with the ffmpeg *binary* and use that. The temp file is
+// unlinked when the `AudioSource` is destroyed.
 //
-// The probe-first choice is deliberate: the corpus and both adapters must read
-// the *same* bytes through the *same* path, so a file libsndfile reads natively
-// is used as-is (no re-encode, no resampling surprise — it is read at its own
-// rate). Only a file libsndfile genuinely cannot open is ffmpeg-decoded, and
-// the resulting temp file is unlinked when the `AudioSource` is destroyed.
+// The probe-first choice is deliberate: a file libsndfile reads natively is
+// used as-is (no re-encode, no disk write). Only a file libsndfile genuinely
+// cannot open triggers the ffmpeg fallback.
+//
+// Note: the Tier-2 `BasicPitch` adapter does NOT use this path. It calls
+// `detail::decodeToMonoFloat` (see `ffmpegDecode.cpp`), which links the FFmpeg
+// shared libraries in-process — no subprocess, no temp file.
 
 #include <cstdlib>
 #include <filesystem>
@@ -150,18 +147,6 @@ AudioSource AudioSource::open(std::string_view inputPath,
    //    "readable" — the consumer resamples from there.
    const std::string temp =
       ffmpegDecodeToTemp(path, 48000, "pcm_s16le", "decoded", ffmpegPath);
-   return AudioSource(std::move(temp), /*owned=*/true);
-}
-
-AudioSource AudioSource::decodeToRate(std::string_view inputPath,
-                                      uint32_t targetRate,
-                                      const std::string& ffmpegPath) {
-   // Decode + resample the source straight into a `targetRate` Hz mono float32
-   // WAV and read that. Float32 output keeps the model's sample precision (no
-   // 16-bit round trip) and is exactly what the reader hands back as floats.
-   const std::string tag = "decoded" + std::to_string(targetRate);
-   const std::string temp =
-      ffmpegDecodeToTemp(inputPath, targetRate, "pcm_f32le", tag, ffmpegPath);
    return AudioSource(std::move(temp), /*owned=*/true);
 }
 

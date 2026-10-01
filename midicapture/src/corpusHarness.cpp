@@ -627,8 +627,9 @@ void cleanScaleSet(const std::string& dir, const std::string& ffmpegPath) {
 std::unique_ptr<libaudio::Analyzer> makeAnalyzer(const std::string& name,
                                                  const AnalyzerParams& p) {
    if (name == "basic" || name == "basic-pitch") {
-      // The model is embedded in the binary; BasicPitch only needs ffmpeg.
-      auto bp = std::make_unique<libaudio::BasicPitch>(p.ffmpegPath);
+      // The model is embedded in the binary; decode + resample is in-process
+      // (FFmpeg shared libraries). No external tool path needed.
+      auto bp = std::make_unique<libaudio::BasicPitch>();
       // Apply the pitch-bend policy; the bend deadband keeps its default.
       libaudio::BasicPitchOptions options = bp->options();
       options.includePitchBends = p.includePitchBends;

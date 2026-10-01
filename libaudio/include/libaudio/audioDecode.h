@@ -14,20 +14,10 @@
  *      temporary 48 kHz / mono / PCM16 WAV with `ffmpeg` and use that. The
  *      temp file is deleted when the `AudioSource` is destroyed.
  *
- * This is the single place in libaudio that shells out to ffmpeg *for reading*.
- * It is shared by the Tier-2 `BasicPitch` adapter and the Tier-1 `Transcriber`
- * engine, so every analyzer decodes the same way and one file never has two
- * different decode strategies.
- *
- * Two entry points:
- *   - `open()` resolves a path libsndfile can read at its *native* rate (the
- *     consumer resamples); it only touches disk for a container libsndfile
- *     cannot read.
- *   - `decodeToRate()` additionally resamples to a specific rate, for a model
- *     that wants a fixed input rate (`BasicPitch` → 22050 Hz mono). This is the
- *     robust in-front-end substitute for an aubio `TemporalProcessor` resample,
- *     which requires `libsamplerate` and the installed aubio is not built with
- *     it (its resampler would otherwise silently return silence).
+ * This is the Tier-1 container-fallback path. The Tier-2 `BasicPitch` adapter
+ * does **not** use `AudioSource` for its decode + resample: it calls the
+ * in-process `decodeToMonoFloat` (see `src/ffmpegDecode.h`) which links the
+ * FFmpeg shared libraries directly — no subprocess, no temp file.
  *
  * @section audio-decode-tier1 Tier-1 grouping
  *
@@ -77,24 +67,6 @@ class AudioSource {
    // @throws std::runtime_error if neither libsndfile nor ffmpeg can read it.
    static AudioSource open(std::string_view inputPath,
                            const std::string& ffmpegPath);
-
-   // Decode `inputPath` to a temporary mono float32 WAV at `targetRate` Hz
-   // (resampled with ffmpeg) and return an AudioSource owning that file.
-   //
-   // Use this when an analyzer wants the audio at a fixed sample rate rather
-   // than the file's native rate (the `BasicPitch` adapter feeds a 22050 Hz
-   // model, so it calls this with 22050). ffmpeg's decoder does a proper
-   // anti-aliased multirate resample, so the result is high quality.
-   //
-   // @param inputPath   The audio file to decode + resample (any container).
-   // @param targetRate  Desired output sample rate in Hz (e.g. 22050).
-   // @param ffmpegPath  Path to the ffmpeg executable.
-   //
-   // @return An AudioSource pointing at the `targetRate` Hz mono WAV.
-   // @throws std::runtime_error if ffmpeg cannot decode the input.
-   static AudioSource decodeToRate(std::string_view inputPath,
-                                   uint32_t targetRate,
-                                   const std::string& ffmpegPath);
 
    ~AudioSource();
 

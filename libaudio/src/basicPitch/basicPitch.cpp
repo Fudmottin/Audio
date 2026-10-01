@@ -37,7 +37,6 @@
 #include <cmath>
 #include <cstdint>
 #include <filesystem>
-#include <libaudio/audioDecode.h>
 #include <libaudio/audioFile.h>
 #include <libaudio/basicPitch.h>
 #include <libaudio/scoreBuilder.h>
@@ -46,6 +45,7 @@
 #include <utility>
 #include <vector>
 
+#include "ffmpegDecode.h"
 #include "nmp_onnx_data.h"
 
 namespace libaudio {
@@ -65,7 +65,6 @@ struct BasicPitch::Impl {
    mutable OnnxSession
       session; // mutable: run() is non-const but logically const
    PianoRoll roll;
-   std::string ffmpegPath;
 
    int64_t sampleRate = 0;    // 22050
    int64_t windowSamples = 0; // 43844
@@ -293,9 +292,8 @@ static void applyBendPolicy(std::vector<Note>& notes,
 // BasicPitch — public API implementation.
 // ============================================================================
 
-BasicPitch::BasicPitch(const std::string& ffmpegPath)
+BasicPitch::BasicPitch()
    : impl_(std::make_unique<Impl>(basicPitchDescriptor())) {
-   impl_->ffmpegPath = ffmpegPath;
    // Load the model from the embedded blob (weights + CQT are compiled into the
    // binary — nothing to resolve on disk) with the Core ML EP requested; a CPU
    // fallback is not fatal (coreMlActive() reports the actual path).
@@ -334,38 +332,34 @@ const BasicPitchOptions& BasicPitch::options() const {
 Score BasicPitch::transcribe(std::string_view path) const {
    const ModelDescriptor& desc = *impl_->desc;
    const uint32_t modelRate = static_cast<uint32_t>(desc.sampleRate);
+   const std::string filePath(path);
 
-   // --- 1. Resolve a path the reader can open, and get mono at the model rate.
-   AudioSource src = AudioSource::open(path, impl_->ffmpegPath);
-
-   // Probe the source rate (the probe leaves the reader at frame 0, so it is
-   // still readable afterwards). When the file is not at the model's 22050 Hz
-   // rate, resample by having ffmpeg decode the source straight into a
-   // 22050 Hz mono float32 WAV and reading that, *rather than* the in-process
-   // aubio resampler: the installed aubio is not built with libsamplerate, so
-   // `TemporalProcessor::resample` would silently return silence for a 48 kHz
-   // file. ffmpeg is already required by this front-end, and its decoder does a
-   // proper anti-aliased multirate resample.
-   AudioFileReader probe(src.path());
-   const uint32_t fileRate = probe.sampleRate();
-
+   // --- 1. Get mono float32 at the model's rate. ---
+   // Fast path: if libsndfile can read the file at the model's rate (or the
+   // rate is unknown), read directly. Otherwise (different rate, or a
+   // container libsndfile cannot open), decode + resample in-process via the
+   // FFmpeg libraries — no temp file, no subprocess.
    std::vector<float> mono;
-   if (fileRate != 0 && fileRate != modelRate) {
-      AudioSource resampled =
-         AudioSource::decodeToRate(src.path(), modelRate, impl_->ffmpegPath);
-      AudioFileReader reader(
-         resampled.path()); // `resampled` lives for this read
-      mono = readAllMono(reader);
-   } else {
-      // At the model's rate already (or the rate is unknown — read as-is).
-      mono = readAllMono(probe);
+   try {
+      AudioFileReader reader(filePath);
+      const uint32_t fileRate = reader.sampleRate();
+      if (fileRate == 0 || fileRate == modelRate) {
+         // At the model's rate already — read directly with libsndfile.
+         mono = readAllMono(reader);
+      } else {
+         // Different rate — in-process FFmpeg decode + resample.
+         mono = detail::decodeToMonoFloat(filePath, modelRate);
+      }
+   } catch (const std::runtime_error&) {
+      // libsndfile cannot open this container — in-process FFmpeg decode.
+      mono = detail::decodeToMonoFloat(filePath, modelRate);
    }
 
    // `origLen` is the (resampled) length *before* the front pad — it drives the
    // final stitching truncation, exactly as the reference's `original_length`.
    const int64_t origLen = static_cast<int64_t>(mono.size());
 
-   // --- 3. Front pad, then cut into overlapping windows and run the model. --
+   // --- 2. Front pad, then cut into overlapping windows and run the model. --
    std::vector<float> padded(static_cast<size_t>(desc.frontPadSamples) +
                                 mono.size(),
                              0.0f);
@@ -453,7 +447,7 @@ Score BasicPitch::transcribe(std::string_view path) const {
       }
    }
 
-   // --- 4. Truncate to the expected global length and build the maps. -------
+   // --- 3. Truncate to the expected global length and build the maps. -------
    // The reference trims to int(origLen / hop * (annotNFrames -
    // overlapFrames)).
    const int64_t accumRows =
@@ -492,7 +486,7 @@ Score BasicPitch::transcribe(std::string_view path) const {
                 contourMap.data.begin());
    }
 
-   // --- 5. Decode the global maps into notes and assemble the Score. --------
+   // --- 4. Decode the global maps into notes and assemble the Score. --------
    // When a contour was accumulated, `process` also traces each note's bend
    // (the 4-arg overload); otherwise it is the faithful no-bend path.
    std::vector<Note> notes;
