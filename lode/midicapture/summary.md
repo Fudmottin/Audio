@@ -145,6 +145,16 @@ Engine selection:
   --method (=yinfft)     [aubio only] Pitch detection method.
   --no-pitch-bends       [basic only] Skip basic-pitch pitch-bend extraction.
   --multiple-pitch-bends [basic only] One channel per distinct bent pitch.
+  --onset-threshold <f>  [basic only] Min onset activation, 0..1 (default 0.5).
+  --frame-threshold <f>  [basic only] Min frame activation, 0..1 (default 0.3).
+  --min-note-len <ms>    [basic only] Min note length (default 127.7; merges
+                             shorter duplicates into the predecessor).
+  --min-freq <hz>        [basic only] Lowest Hz kept (default 27.5, A0).
+  --max-freq <hz>        [basic only] Highest Hz kept (default 4186, C8).
+  --velocity-scale <int> [basic only] Velocity = clamp(round(scale*amp), 1, 127).
+  --bend-deadband <bins> [basic only] Near-flat bend floor (default 1.0).
+  --no-infer-onsets      [basic only] Skip the onset-inference step (default on).
+  --no-melodia           [basic only] Skip the melodia trick (default on).
   --tempo (=120)         Tempo in BPM (both engines; a playback-rate control).
   --ffmpeg (=/opt/homebrew/bin/ffmpeg)  [Tier-2] ffmpeg *binary* path: aubio
                            container-decode fallback + --clean MP3 encoding.
@@ -171,6 +181,13 @@ Utility (all builds):
 > `!defaulted()`: boost reports `count() > 0` even for defaulted options,
 > which would otherwise fire on every basic run).
 > `--no-pitch-bends` / `--multiple-pitch-bends` tune only `basic` (default **on**/**off**).
+> The basic-pitch **note-creation knobs** (onset/frame threshold, min-note-len,
+> min/max-freq, velocity-scale, bend-deadband, --no-infer-onsets, --no-melodia)
+> tune only `basic`; their defaults are the reference values, so a no-flag run is
+> byte-identical to the baseline (14/14 corpus parity). The symmetric gate applies
+> in reverse: pass any of these with `--model aubio` and the tool prints a note
+> that it was ignored. `--midi-tempo` is deliberately not a flag — `--tempo`
+> (tempoBpm) already sets the output tempo.
 > `--ffmpeg` is deprecated for basic (basic-pitch decodes in-process); the note
 > prints only if the flag was explicitly passed.
 > **Input containers.** A container libsndfile cannot open (e.g. mp4) no longer
@@ -178,8 +195,8 @@ Utility (all builds):
 > in-process via the FFmpeg libraries; aubio: the ffmpeg binary fallback), so
 > `midicapture song.mp4 out.mid` is one command.
 > A **Tier-1 build** omits `--model` / `--analyzer` / `--run-corpus` /
-> `--dump-raw-map` / `--ffmpeg` / the pitch-bend flags entirely. See the
-> [midicapture README](../../midicapture/README.md)
+> `--dump-raw-map` / `--ffmpeg` / the pitch-bend + note-creation flags entirely.
+> See the [midicapture README](../../midicapture/README.md)
 
 Examples:
 ```bash

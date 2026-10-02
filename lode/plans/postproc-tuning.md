@@ -1,14 +1,17 @@
 # Plan: Tunable post-processing for the basic-pitch (NMP) path
 
-> **Status: 🔧 In progress — Phase 1 (raw-map dump) done & committed; Phases 2–5 pending.**
-> Code freeze is **lifted** (the user authorized implementation; the prior session's
-> in-process FFmpeg decode + `!defaulted()` fix is already committed). Phase 1 added
-> the model-front-end factor (`Impl::runFrontEnd`), `BasicPitch::getRawPredictions`,
-> a small dependency-free binary raw-map format (`rawMap.{h,cpp}`), and the
-> `midicapture --dump-raw-map` flag — all byte-identical to the no-flag baseline.
-> This plan is the source of truth for the remaining phases. Short-term priority is
-> **improving the basic-pitch NMP post-processing** over the Tier-1 path
-> ("that road seems to bear more fruit"); **Tier-1 improvement is deprioritized**
+> **Status: 🔧 In progress — Phase 2 (knob promotion + clamps + Boost flags) done
+> & committed; Phases 3–5 pending.** Code freeze is **lifted** (the user authorized
+> implementation). Phase 1 added the model-front-end factor (`Impl::runFrontEnd`),
+> `BasicPitch::getRawPredictions`, a dependency-free binary raw-map format
+> (`rawMap.{h,cpp}`), and the `midicapture --dump-raw-map` flag. Phase 2 promoted
+> the four note-creation knobs out of `ModelDescriptor` into `BasicPitchOptions`
+> (same defaults), added the missing knobs (min/max frequency, the `melodia` /
+> `infer-onsets` gates, `midiTempo`), clamped each per §6, and wired Boost flags
+> into `midicapture` (the direct path) — all byte-identical to the no-flag baseline
+> (14/14 corpus parity; corpus metrics unchanged). This plan is the source of truth
+> for the remaining phases. Short-term priority is **improving the basic-pitch NMP
+> post-processing** over the Tier-1 path; **Tier-1 improvement is deprioritized**
 > for now.
 
 ---
@@ -77,9 +80,16 @@ parameter in our port today (always-on or skipped).
 | velocity_scale | int | 127 | [1, 127] | no |
 
 **Min/max frequency is the lever to add first:** upstream `constrain_frequency`
-zeroes activations outside the band; our port *skips it* (no band requested).
-Exposing it suppresses bass rumble / inharmonic low bins on real recordings — a
-direct precision knob.
+zeroes activations outside the band; our port previously *skipped it* (no band
+requested). Exposing it suppresses bass rumble / inharmonic low bins on real
+recordings — a direct precision knob.
+
+**Inclusive band (deliberate deviation):** our `constrainFrequency` keeps the bins
+in `[lo, hi]` *inclusive* (zeroing `[0, lo)` and `[hi+1, nBins)`), whereas upstream
+is *half-open* (it zeroes `frames[:, max_idx:]`, dropping the `max_freq` column
+itself). This makes the literal defaults `27.5/4186` keep **all 88** bins — a true
+no-op, hence byte-identical. For a non-default `max_freq` we keep one extra top bin
+vs upstream; a benign, sane "endpoints included" choice.
 
 ## 5. Non-tunable (fixed by the model — do not expose)
 
@@ -207,7 +217,13 @@ if it isn't, fetch it”), since **onnxruntime is the point**.
 1. ✅ **Raw-map dump** (§9) — done: `getRawPredictions` + binary raw-map format +
    `--dump-raw-map`; the model front-end is factored so a no-flag `transcribe` is
    unchanged (the 14-file corpus stays byte-identical).
-2. **Knob promotion** descriptor→options + clamps + Boost flags (§3/4/5/6/7).
+2. ✅ **Knob promotion** descriptor→options + clamps + Boost flags (§3/4/5/6/7) —
+   done: the four note-creation knobs now live in `BasicPitchOptions`; the missing
+   knobs (min/max frequency, the `melodia`/`infer-onsets` gates, `midiTempo`) are
+   added; each is clamped per §6; Boost flags wired into `midicapture`'s direct
+   path. A no-flag run stays byte-identical (14/14 corpus parity; metrics
+   unchanged); `--midi-tempo` is intentionally not a flag (redundant with
+   `--tempo`).
 3. **Separate experimental method** + a sweep driver (§8).
 4. **MAESTRO GT harness** + fixed set + `--fuzz` (§10).
 5. The **options-menu techniques**, highest-leverage first (§11).
@@ -216,13 +232,15 @@ if it isn't, fetch it”), since **onnxruntime is the point**.
 
 The **transcription path is complete and faithful** to the pinned commit:
 in-process decode+resample+mono → window → overlap-stitch → all of
-`note_creation` (infer-onsets, peak-detect, reverse-time walk, melodia, min-len,
-velocity, frame→time) → `get_pitch_bends` → MIDI emission. The CQT lives *inside*
-the ONNX model; the front-end only resamples + windows. **Not ported:** the
-min/max-frequency band (§4) and `sonify_*` (unneeded — we use timidity / waterfall);
-`melodia` / `infer-onsets` are always-on rather than toggled (Phase 2 adds gates).
-The raw-map dump is now a **binary** file (§9), not upstream's JSON. Upstream may
-have moved past the pin; new models are disk-loaded ONNX per §13.
+`note_creation` (constrain-frequency, infer-onsets, peak-detect, reverse-time walk,
+melodia, min-len, velocity, frame→time) → `get_pitch_bends` → MIDI emission. The
+CQT lives *inside* the ONNX model; the front-end only resamples + windows. Now
+ported (Phase 2): the min/max-frequency band (`constrainFrequency`, inclusive) and
+the `melodia` / `infer-onsets` gates (on by default = the reference; off via the
+`--no-melodia` / `--no-infer-onsets` flags). **Not ported:** `sonify_*` (unneeded —
+we use timidity / waterfall). The raw-map dump is a **binary** file (§9), not
+upstream's JSON. Upstream may have moved past the pin; new models are disk-loaded
+ONNX per §13.
 
 ---
 *Companion state: [../libaudio/tier2.md](../libaudio/tier2.md) (corpus numbers,

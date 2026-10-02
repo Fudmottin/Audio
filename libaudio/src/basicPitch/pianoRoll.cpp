@@ -62,6 +62,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <libaudio/basicPitch.h>
 #include <libaudio/pianoRoll.h>
 #include <utility>
 #include <vector>
@@ -156,6 +157,58 @@ Map2D mapFromTensor(const Tensor& t) {
    return m;
 }
 
+// ============================================================================
+// freqToBin / constrainFrequency — the frequency-band constraint.
+//
+// The reference's `constrain_frequency` zeroes the note + onset activations
+// outside a [min_freq, max_freq] band before any detection. `freqToBin` maps
+// a frequency (Hz) to a MIDI number (and hence a bin, given the MIDI offset)
+// exactly as `librosa.hz_to_midi` does; `constrainFrequency` keeps the
+// *inclusive* bin band [lo, hi] and zeros everything outside it.
+//
+// Parity note: the reference's band is *half-open* at the top (it zeroes
+// `[max_freq_idx:]`, so `max_freq` = C8 drops the C8 column). We keep the band
+// *inclusive* so the literal full-range defaults (A0..C8 = all 88 bins) are a
+// true no-op and a no-flag run stays byte-identical; a non-default boundary
+// keeps one extra edge bin versus the reference, a benign "endpoints included"
+// deviation.
+// ============================================================================
+[[nodiscard]] int64_t freqToBin(double hz, int64_t midiOffset) {
+   // librosa.hz_to_midi: 69 + 12*log2(hz/440). Guard the log for hz <= 0.
+   const double midi = 69.0 + 12.0 * std::log2(hz > 0.0 ? hz / 440.0 : 1.0);
+   return static_cast<int64_t>(
+      std::llround(midi - static_cast<double>(midiOffset)));
+}
+
+// Zero the note + onset columns outside the inclusive band [minFreq, maxFreq].
+// A band that covers the whole map (the defaults) is a no-op.
+void constrainFrequency(Map2D& frames, Map2D& onsets, double minFreq,
+                        double maxFreq, int64_t midiOffset) {
+   const int64_t nBins = frames.cols;
+   if (nBins <= 0) {
+      return; // empty map: nothing to constrain
+   }
+   int64_t lo = freqToBin(minFreq, midiOffset);
+   int64_t hi = freqToBin(maxFreq, midiOffset);
+   if (lo < 0) {
+      lo = 0;
+   }
+   if (hi >= nBins) {
+      hi = nBins - 1;
+   }
+   if (lo > hi) {
+      return; // inverted / empty band: nothing to keep
+   }
+   for (int64_t c = 0; c < lo; ++c) {
+      frames.zeroColumnRange(0, frames.rows, c);
+      onsets.zeroColumnRange(0, onsets.rows, c);
+   }
+   for (int64_t c = hi + 1; c < nBins; ++c) {
+      frames.zeroColumnRange(0, frames.rows, c);
+      onsets.zeroColumnRange(0, onsets.rows, c);
+   }
+}
+
 // A note as detected before time/velocity conversion: (startFrame, endFrame,
 // pitchBin, amplitude). `endFrame` is the index of the first frame *after* the
 // note; the note's end *time* is `times[endFrame]` (matching the reference,
@@ -178,15 +231,14 @@ struct RawNote {
 // as named constants (mirroring basic_pitch/constants.py and note_creation.py).
 // ============================================================================
 struct PianoRoll::Impl {
-   // --- Post-processing knobs (from the ModelDescriptor) -------------------
-   float onsetThreshold = 0.5f;   // min onset activation to be considered
-   float frameThreshold = 0.3f;   // min frame activation to keep a note alive
-   int64_t minNoteLenFrames = 11; // discard notes shorter than this (frames)
-   int64_t midiOffset = 21;       // MIDI number of pitch bin 0 (A0)
-   uint8_t velocityScale = 127;   // velocity = clamp(round(scale * amp))
-
-   // --- Sample-rate (from the descriptor); the 22050 model rate -------------
-   uint32_t sampleRate = 22050;
+   // --- Model-fixed timing constants (from the ModelDescriptor) -------------
+   // Part of the model's I/O contract (fixed by the trained model), not
+   // tunable knobs: the *tunable* knobs arrive per call via
+   // `BasicPitchOptions` (see `decode`). `midiOffset` is the MIDI number of
+   // pitch bin 0 (A0); `sampleRate` drives the min-note-length and frame→time
+   // math (`windowSamples` is declared below).
+   int64_t midiOffset = 21;     // MIDI number of pitch bin 0 (A0)
+   uint32_t sampleRate = 22050; // the 22050 model rate
 
    // --- Reference timing constants (not in the descriptor) ------------------
    // The model's internal FFT hop in samples (constants.py FFT_HOP = 256).
@@ -224,25 +276,23 @@ struct PianoRoll::Impl {
    static constexpr int64_t nPitchBendTicks = 8192;
 
    explicit Impl(const ModelDescriptor& d)
-      : onsetThreshold(d.onsetThreshold)
-      , frameThreshold(d.frameThreshold)
-      , minNoteLenFrames(d.minNoteLenFrames)
-      , midiOffset(d.midiOffset)
-      , velocityScale(d.velocityScale)
+      : midiOffset(d.midiOffset)
       , sampleRate(d.sampleRate)
       , windowSamples(d.windowSamples) {}
 
    // Port of `output_to_notes_polyphonic` (+ `get_infered_onsets`, and
    // `get_pitch_bends` when a contour is supplied). `frames` is the stitched
-   // note-activation map (kept intact for amplitude + the onset difference);
-   // `onsets` is the stitched onset map, *modified* by the inferred-onset step;
-   // `contour` is the stitched fine-pitch map (used only when `includeBends`
-   // is set). Returns notes with times in seconds, velocities clamped to
-   // [1, 127], and (when `includeBends`) `pitchBends` filled with MIDI ticks.
-   [[nodiscard]] std::vector<Note> decode(const Map2D& frames, Map2D onsets,
-                                          const Map2D& contour,
-                                          int64_t annotNFrames,
-                                          bool includeBends) const {
+   // note-activation map (taken by value: the frequency-band constraint zeros
+   // it in place) and also the source of the onset difference + amplitude;
+   // `onsets` is the stitched onset map, *modified* by the band constraint and
+   // the inferred-onset step; `contour` is the stitched fine-pitch map (used
+   // only when `options.includePitchBends` is set). `options` carries every
+   // tunable knob. Returns notes with times in seconds, velocities clamped to
+   // [1, 127], and (when `options.includePitchBends`) `pitchBends` filled with
+   // MIDI ticks.
+   [[nodiscard]] std::vector<Note>
+   decode(Map2D frames, Map2D onsets, const Map2D& contour,
+          int64_t annotNFrames, const BasicPitchOptions& options) const {
       std::vector<Note> notes;
       if (frames.rows <= 0 || frames.cols <= 0) {
          return notes; // nothing to decode
@@ -252,13 +302,29 @@ struct PianoRoll::Impl {
       const int64_t nFreqs = frames.cols;
       const int64_t maxFreqIdx = nFreqs - 1; // highest valid pitch bin
 
-      // The reference's constrain_frequency() zeroes activations outside a
-      // [min_freq, max_freq] band, but both are None (no band requested), so
-      // the whole 88-bin range is kept and the step is a no-op. We skip it
-      // rather than zero nothing.
+      // --- 0. Constrain to the requested frequency band. -------------------
+      // The reference's constrain_frequency() zeroes the note + onset
+      // activations outside a [min_freq, max_freq] band before detection, in
+      // this order: constrain, infer, peaks, walk, melodia. With the default
+      // band (A0..C8 = all 88 bins, kept *inclusive*) this is a no-op, so a
+      // no-flag run stays byte-identical. `frames` is by value, so the
+      // in-place zeroing does not touch the caller's map.
+      constrainFrequency(frames, onsets, options.minFrequency,
+                         options.maxFrequency, midiOffset);
+
+      // Minimum note length, in frames: the option is in milliseconds (the
+      // reference's unit); convert with the reference's exact formula
+      // (ms → frames at the model's 22050/256 frame rate). 127.7 ms → 11
+      // frames, matching the previous hardcoded value.
+      const int64_t minNoteLenFrames = static_cast<int64_t>(std::llround(
+         (options.minNoteLenMs / 1000.0) *
+         (static_cast<double>(sampleRate) / static_cast<double>(fftHop))));
 
       // --- 1. Infer onsets from sharp rises in the note (frame) activations.
-      getInferredOnsets(onsets, frames, /*nDiff=*/2);
+      // Gated by the option (on by default, the reference behaviour).
+      if (options.inferOnsets) {
+         getInferredOnsets(onsets, frames, /*nDiff=*/2);
+      }
 
       // --- 2. Detect onset peaks and walk them in reverse time order. ---
       // A cell is a peak when it is strictly greater than its temporal
@@ -273,7 +339,8 @@ struct PianoRoll::Impl {
             const bool higherThanPrev = (t == 0) || (v > onsets.at(t - 1, f));
             const bool higherThanNext =
                (t == nFrames - 1) || (v > onsets.at(t + 1, f));
-            if (higherThanPrev && higherThanNext && v >= onsetThreshold) {
+            if (higherThanPrev && higherThanNext &&
+                v >= options.onsetThreshold) {
                peaks.emplace_back(t, f);
             }
          }
@@ -298,7 +365,7 @@ struct PianoRoll::Impl {
          int64_t i = s + 1;
          int64_t k = 0; // consecutive sub-threshold frames since the last hit
          while (i < nFrames - 1 && k < energyTolerance) {
-            if (remaining.at(i, f) < frameThreshold) {
+            if (remaining.at(i, f) < options.frameThreshold) {
                ++k;
             } else {
                k = 0;
@@ -330,10 +397,11 @@ struct PianoRoll::Impl {
       // While any remaining energy exceeds the frame threshold, take the global
       // maximum as a note centre and grow it in both time directions. Each pass
       // zeroes at least the centre cell, so the count of above-threshold cells
-      // strictly decreases and the loop terminates.
-      while (true) {
+      // strictly decreases and the loop terminates. Gated by the option (on by
+      // default); the constant loop condition makes an off-trick loop a no-op.
+      while (options.melodiaTrick) {
          const Map2D::Argmax mw = remaining.maxWithIndex();
-         if (mw.row < 0 || mw.value <= frameThreshold) {
+         if (mw.row < 0 || mw.value <= options.frameThreshold) {
             break;
          }
          const int64_t iMid = mw.row;
@@ -344,7 +412,7 @@ struct PianoRoll::Impl {
          int64_t i = iMid + 1;
          int64_t k = 0;
          while (i < nFrames - 1 && k < energyTolerance) {
-            if (remaining.at(i, f) < frameThreshold) {
+            if (remaining.at(i, f) < options.frameThreshold) {
                ++k;
             } else {
                k = 0;
@@ -364,7 +432,7 @@ struct PianoRoll::Impl {
          i = iMid - 1;
          k = 0;
          while (i > 0 && k < energyTolerance) {
-            if (remaining.at(i, f) < frameThreshold) {
+            if (remaining.at(i, f) < options.frameThreshold) {
                ++k;
             } else {
                k = 0;
@@ -399,7 +467,7 @@ struct PianoRoll::Impl {
       // it is reused for every note. Matches
       // scipy.signal.windows.gaussian(51, std=5).
       const bool bendable =
-         includeBends && contour.rows > 0 && contour.cols > 0;
+         options.includePitchBends && contour.rows > 0 && contour.cols > 0;
       std::vector<double> gauss;
       if (bendable) {
          const int64_t winLen = 2 * bendBinTolerance + 1; // 51
@@ -423,9 +491,9 @@ struct PianoRoll::Impl {
             rn.endFrame >= nFrames ? nFrames - 1 : rn.endFrame)];
          n.pitch = static_cast<uint8_t>(rn.pitchBin + midiOffset);
          // velocity = clamp(round(velocityScale * amplitude), 1, 127).
-         int vel =
-            static_cast<int>(std::llround(static_cast<double>(velocityScale) *
-                                          static_cast<double>(rn.amplitude)));
+         int vel = static_cast<int>(
+            std::llround(static_cast<double>(options.velocityScale) *
+                         static_cast<double>(rn.amplitude)));
          if (vel < 1) {
             vel = 1;
          }
@@ -647,20 +715,23 @@ PianoRoll::PianoRoll(PianoRoll&& other) noexcept = default;
 PianoRoll& PianoRoll::operator=(PianoRoll&& other) noexcept = default;
 
 std::vector<Note> PianoRoll::process(const Tensor& frames, const Tensor& onsets,
-                                     int64_t annotNFrames) const {
+                                     int64_t annotNFrames,
+                                     const BasicPitchOptions& options) const {
    Map2D f = mapFromTensor(frames);
    Map2D o = mapFromTensor(onsets);
-   // No contour map → no pitch bends (the faithful no-bend path).
-   return impl_->decode(f, o, Map2D{}, annotNFrames, /*includeBends=*/false);
+   // No contour map → no pitch bends (the faithful no-bend path; the decode
+   // reads `options.includePitchBends` but the empty contour makes it moot).
+   return impl_->decode(f, o, Map2D{}, annotNFrames, options);
 }
 
 std::vector<Note> PianoRoll::process(const Tensor& frames, const Tensor& onsets,
                                      const Tensor& contour,
-                                     int64_t annotNFrames) const {
+                                     int64_t annotNFrames,
+                                     const BasicPitchOptions& options) const {
    Map2D f = mapFromTensor(frames);
    Map2D o = mapFromTensor(onsets);
    Map2D c = mapFromTensor(contour);
-   return impl_->decode(f, o, c, annotNFrames, /*includeBends=*/true);
+   return impl_->decode(f, o, c, annotNFrames, options);
 }
 
 } // namespace libaudio

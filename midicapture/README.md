@@ -116,16 +116,25 @@ cmake --build . --config Release
 | `--silence` | float | -40 | *aubio only* | Silence threshold in dB (note on/off hysteresis). |
 | `--method` | string | "yinfft" | *aubio only* | Pitch detection method. |
 | `--tempo` | float | 120 | all | Tempo in BPM (a playback-rate control; note times stay in seconds). |
-| `--ffmpeg` | string | `/opt/homebrew/bin/ffmpeg` | Tier-2 | Path to the ffmpeg executable (basic-pitch resample + downmix). |
+| `--ffmpeg` | string | `/opt/homebrew/bin/ffmpeg` | Tier-2 | Path to the ffmpeg executable (aubio container-decode fallback + `--clean` MP3 encoding). Not used by basic-pitch (in-process decode). |
 | `--no-pitch-bends` | flag | off (bends on) | *basic only* | Skip basic-pitch's pitch-bend extraction. |
 | `--multiple-pitch-bends` | flag | off | *basic only* | Route each distinct bent pitch to its own MIDI channel 1..15. |
+| `--onset-threshold` | float | 0.5 | *basic only* | Min onset activation, 0..1. |
+| `--frame-threshold` | float | 0.3 | *basic only* | Min frame activation, 0..1. |
+| `--min-note-len` | float (ms) | 127.7 | *basic only* | Min note length; shorter notes merge into the predecessor. |
+| `--min-freq` | float (Hz) | 27.5 (A0) | *basic only* | Lowest frequency kept (the band is *inclusive*). |
+| `--max-freq` | float (Hz) | 4186 (C8) | *basic only* | Highest frequency kept (the band is *inclusive*). |
+| `--velocity-scale` | int | 127 | *basic only* | Velocity = clamp(round(scale × amplitude), 1, 127). |
+| `--bend-deadband` | float (bins) | 1.0 | *basic only* | Near-flat bend floor; a note that never moves this much is not bent. |
+| `--no-infer-onsets` | flag | on (inference on) | *basic only* | Skip the onset-inference decode step. |
+| `--no-melodia` | flag | on (trick on) | *basic only* | Skip the melodia-trick decode step. |
 | `-t, --test` | flag | — | all | Sanity test: write a single middle-C note (C4, vel 100, 1 s) regardless of input; no analysis. |
 | `--run-corpus` | string (dir) | — | Tier-2 | Run the 14-file corpus evaluation in DIR with `--model` (no positional input). |
 | `--clean` | flag | — | Tier-2 | With `--run-corpus`: regenerate the corpus assets (`.mid` + `.mp3`) first. |
 | `--output-dir` | string | `.` | — | Directory for `--generate-test-midi-files` output. |
 | `--generate-test-midi-files` | flag | — | all | Generate the 14-file monophonic-scale corpus; all other options ignored. |
 
-\*The `*aubio only*` / `*basic only*` knobs are inert on the other engine (basic-pitch's window and frame rate are fixed by the model; the aubio engine never bends). If you pass an aubio-only knob with the `basic` model, the tool prints a note that it was ignored.
+\*The `*aubio only*` / `*basic only*` knobs are inert on the other engine (basic-pitch's window and frame rate are fixed by the model; the aubio engine never bends). If you pass an aubio-only knob with the `basic` model — or a basic-only knob (the pitch-bend + note-creation flags) with `--model aubio` — the tool prints a note that it was ignored. The note-creation defaults are the reference values, so a no-flag run stays byte-identical to the baseline. `--midi-tempo` is deliberately not a flag: `--tempo` already sets the output tempo.
 
 ### aubio Pitch Detection Methods (`--method`, aubio engine only)
 
@@ -202,8 +211,8 @@ Tier-2 build.
 
 - **`basic` (basic-pitch) is the default model in Tier-2 builds** — the engine that resolves the octave and handles chords. `aubio` is the monophonic fallback / legacy option.
 - **`--analyzer` is a deprecated alias** for `--model` (kept for backward compatibility, warns on use).
-- **`--model`, `--analyzer`, `--run-corpus`, `--ffmpeg`, and the pitch-bend flags are Tier-2-only.** A Tier-1 build has only the aubio engine and omits them entirely.
-- **Engine tuning is per-engine.** `--window-size`/`--hop-size`/`--silence`/`--method` tune only aubio; `--no-pitch-bends`/`--multiple-pitch-bends` tune only basic. Passing a knob to the wrong engine is a no-op with a warning.
+- **`--model`, `--analyzer`, `--run-corpus`, `--dump-raw-map`, `--ffmpeg`, and the pitch-bend + note-creation flags are Tier-2-only.** A Tier-1 build has only the aubio engine and omits them entirely.
+- **Engine tuning is per-engine.** `--window-size`/`--hop-size`/`--silence`/`--method` tune only aubio; `--no-pitch-bends`/`--multiple-pitch-bends` and the note-creation knobs (onset/frame threshold, min-note-len, min/max-freq, velocity-scale, bend-deadband, `--no-infer-onsets`, `--no-melodia`) tune only basic. Passing a knob to the wrong engine is a no-op with a warning.
 - **YINfft** is the default aubio pitch method; **spectral flux** is the default aubio onset method.
 - **480 ticks per quarter note**, **Type 1 MIDI** (Logic Pro compatibility).
 - **Pimpl pattern** throughout libaudio; **HIR** is the single source of truth for MIDI and future LilyPond output.

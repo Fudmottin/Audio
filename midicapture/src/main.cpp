@@ -130,6 +130,24 @@ static void printUsage(const char* programName) {
              << " extraction (default: on).\n";
    std::cerr << "  --multiple-pitch-bends    For --model basic: route each"
              << " distinct bent pitch to its own channel (default: off).\n";
+   std::cerr << "  --onset-threshold <f>     For --model basic: min onset"
+             << " activation, 0..1 (default: 0.5).\n";
+   std::cerr << "  --frame-threshold <f>     For --model basic: min frame"
+             << " activation, 0..1 (default: 0.3).\n";
+   std::cerr << "  --min-note-len <ms>       For --model basic: min note"
+             << " length (default: 127.7 ms).\n";
+   std::cerr << "  --min-freq <hz>           For --model basic: lowest Hz to"
+             << " keep (default: 27.5, A0).\n";
+   std::cerr << "  --max-freq <hz>           For --model basic: highest Hz to"
+             << " keep (default: 4186, C8).\n";
+   std::cerr << "  --velocity-scale <int>    For --model basic: velocity"
+             << " = clamp(round(scale*amp), 1, 127) (default: 127).\n";
+   std::cerr << "  --bend-deadband <bins>    For --model basic: near-flat"
+             << " bend floor (default: 1.0).\n";
+   std::cerr << "  --no-infer-onsets         For --model basic: skip"
+             << " onset inference (default: on).\n";
+   std::cerr << "  --no-melodia              For --model basic: skip the"
+             << " melodia trick (default: on).\n";
    std::cerr << "  --dump-raw-map <path>     For --model basic: run the model"
              << " once and write its raw stitched maps to <path>; writes no"
              << " MIDI.\n";
@@ -502,6 +520,19 @@ int main(int argc, char* argv[]) {
    std::string ffmpegPath = "/opt/homebrew/bin/ffmpeg";
    bool noPitchBends = false;
    bool multiplePitchBends = false;
+   // basic-pitch note-creation knobs (the post-processing policy). Each
+   // carries the no-op default so a run with none of them stays
+   // byte-identical; `makeAnalyzer` maps them onto `BasicPitchOptions` and
+   // `setOptions` clamps each to its sane range.
+   float onsetThreshold = 0.5f;
+   float frameThreshold = 0.3f;
+   double minNoteLenMs = 127.7;
+   int velocityScale = 127;
+   double minFrequency = 27.5;
+   double maxFrequency = 4186.0;
+   double bendDeadband = 1.0;
+   bool noInferOnsets = false;
+   bool noMelodia = false;
 #endif // LIBAUDIO_HAS_TIER2
 
    // Define the options: name, type, description.
@@ -603,6 +634,27 @@ int main(int argc, char* argv[]) {
       "multiple-pitch-bends", po::bool_switch(&multiplePitchBends),
       "For --model basic: route each distinct bent pitch to its own MIDI"
       " channel (the reference default is off — one channel).")(
+      "onset-threshold", po::value<float>(&onsetThreshold)->default_value(0.5f),
+      "For --model basic: min onset activation, 0..1 (default: 0.5).")(
+      "frame-threshold", po::value<float>(&frameThreshold)->default_value(0.3f),
+      "For --model basic: min frame activation, 0..1 (default: 0.3).")(
+      "min-note-len", po::value<double>(&minNoteLenMs)->default_value(127.7),
+      "For --model basic: min note length in ms (default: 127.7; below this,"
+      " a note is merged into its predecessor).")(
+      "min-freq", po::value<double>(&minFrequency)->default_value(27.5),
+      "For --model basic: lowest frequency (Hz) to keep (default: 27.5, A0).")(
+      "max-freq", po::value<double>(&maxFrequency)->default_value(4186.0),
+      "For --model basic: highest frequency (Hz) to keep (default: 4186, C8).")(
+      "velocity-scale", po::value<int>(&velocityScale)->default_value(127),
+      "For --model basic: velocity = clamp(round(scale*amplitude), 1, 127)"
+      " (default: 127).")(
+      "bend-deadband", po::value<double>(&bendDeadband)->default_value(1.0),
+      "For --model basic: near-flat pitch-bend floor in bins (default: 1.0;"
+      " a note that never moves by this much is not bent).")(
+      "no-infer-onsets", po::bool_switch(&noInferOnsets),
+      "For --model basic: skip the onset-inference decode step (default: on).")(
+      "no-melodia", po::bool_switch(&noMelodia),
+      "For --model basic: skip the melodia-trick decode step (default: on).")(
       "dump-raw-map", po::value<std::string>(&dumpRawMapPath),
       "For --model basic: run the model once and write its raw stitched"
       " activation maps (note/onset/contour) to PATH as a binary raw-map"
@@ -747,6 +799,24 @@ int main(int argc, char* argv[]) {
             " extraction (default: on).\n"
          << "  --multiple-pitch-bends     For --model basic: route each"
             " distinct bent pitch to its own channel.\n"
+         << "  --onset-threshold <f>      For --model basic: min onset"
+            " activation, 0..1 (default: 0.5).\n"
+         << "  --frame-threshold <f>      For --model basic: min frame"
+            " activation, 0..1 (default: 0.3).\n"
+         << "  --min-note-len <ms>        For --model basic: min note length"
+            " (default: 127.7 ms).\n"
+         << "  --min-freq <hz>            For --model basic: lowest Hz to"
+            " keep (default: 27.5, A0).\n"
+         << "  --max-freq <hz>            For --model basic: highest Hz to"
+            " keep (default: 4186, C8).\n"
+         << "  --velocity-scale <int>     For --model basic: velocity ="
+            " clamp(round(scale*amp), 1, 127) (default: 127).\n"
+         << "  --bend-deadband <bins>     For --model basic: near-flat"
+            " bend floor (default: 1.0).\n"
+         << "  --no-infer-onsets          For --model basic: skip onset"
+            " inference (default: on).\n"
+         << "  --no-melodia               For --model basic: skip the"
+            " melodia trick (default: on).\n"
          << "  --dump-raw-map <path>      For --model basic: run the model"
             " once and write its raw stitched maps to <path>; writes no"
             " MIDI.\n"
@@ -940,6 +1010,20 @@ int main(int argc, char* argv[]) {
       params.ffmpegPath = ffmpegPath;
       params.includePitchBends = !noPitchBends;
       params.multiplePitchBends = multiplePitchBends;
+      // The basic-pitch note-creation knobs. Each CLI var holds its no-op
+      // default when the flag is absent, so a no-flag run maps onto the
+      // reference and stays byte-identical. `midiTempo` is intentionally not
+      // flagged here: --tempo (tempoBpm) sets the output tempo via the
+      // `score.tempo` override below, and the corpus uses the struct default.
+      params.onsetThreshold = onsetThreshold;
+      params.frameThreshold = frameThreshold;
+      params.minNoteLenMs = minNoteLenMs;
+      params.velocityScale = velocityScale;
+      params.minFrequency = minFrequency;
+      params.maxFrequency = maxFrequency;
+      params.bendDeadbandBins = bendDeadband;
+      params.inferOnsets = !noInferOnsets;
+      params.melodiaTrick = !noMelodia;
       analyzer = makeAnalyzer(modelName, params);
 #endif
 
@@ -951,6 +1035,29 @@ int main(int argc, char* argv[]) {
          std::cout << "  Hop size: " << hopSize << "\n";
          std::cout << "  Silence threshold: " << silenceDb << " dB\n";
          std::cout << "  Pitch method: " << pitchMethod << "\n";
+         // The basic-pitch note-creation knobs are inert for aubio; if the
+         // user passed any of them with the aubio model, say so rather than
+         // failing silently (gate on !defaulted() so a no-flag run is quiet).
+         if ((vm.count("onset-threshold") > 0 &&
+              !vm["onset-threshold"].defaulted()) ||
+             (vm.count("frame-threshold") > 0 &&
+              !vm["frame-threshold"].defaulted()) ||
+             (vm.count("min-note-len") > 0 &&
+              !vm["min-note-len"].defaulted()) ||
+             (vm.count("min-freq") > 0 && !vm["min-freq"].defaulted()) ||
+             (vm.count("max-freq") > 0 && !vm["max-freq"].defaulted()) ||
+             (vm.count("velocity-scale") > 0 &&
+              !vm["velocity-scale"].defaulted()) ||
+             (vm.count("bend-deadband") > 0 &&
+              !vm["bend-deadband"].defaulted()) ||
+             vm.count("no-infer-onsets") > 0 || vm.count("no-melodia") > 0) {
+            std::cerr
+               << "  Note: the basic-pitch note-creation knobs (--onset-"
+               << "threshold, --frame-threshold, --min-note-len, --min-freq,"
+               << " --max-freq, --velocity-scale, --bend-deadband,"
+               << " --no-infer-onsets, --no-melodia) are ignored by the \""
+               << modelName << "\" model.\n";
+         }
       } else {
          auto* bp = dynamic_cast<libaudio::BasicPitch*>(analyzer.get());
          std::cout << "  Engine: " << analyzer->name()

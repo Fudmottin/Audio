@@ -35,10 +35,14 @@
 /// (main.cpp) and the corpus evaluator so the model-name-to-engine mapping has
 /// one source of truth. The aubio fields tune the Tier-1 monophonic
 /// `Transcriber` (ignored by `BasicPitch`, whose window and frame rate are
-/// fixed by the model); the pitch-bend fields tune `BasicPitch` (ignored by
-/// `Transcriber`, which never bends); `ffmpegPath` is used by the aubio engine
-/// (container-decode fallback) and for corpus MP3 encoding. Not used by
+/// fixed by the model); the `BasicPitch` fields (note-detection thresholds,
+/// the frequency band, the decode gates, the output tempo, and the pitch-bend
+/// policy) map 1:1 onto `BasicPitchOptions` and are ignored by `Transcriber`
+/// (which never bends). `ffmpegPath` is used by the aubio engine
+/// (container-decode fallback) and for corpus MP3 encoding; it is not used by
 /// `BasicPitch` (its decode + resample is in-process via FFmpeg libraries).
+/// The `BasicPitch` defaults are the no-op baseline, so a run with no tuning
+/// stays byte-identical to the reference.
 struct AnalyzerParams {
    // aubio (Tier-1) tuning — ignored by basic-pitch.
    uint32_t windowSize = 2048;
@@ -48,9 +52,21 @@ struct AnalyzerParams {
    double tempoBpm = 120.0;
    // aubio container-decode fallback + corpus MP3 encoding.
    std::string ffmpegPath = "/opt/homebrew/bin/ffmpeg";
-   // basic-pitch tuning — ignored by aubio.
-   bool includePitchBends = true;
-   bool multiplePitchBends = false;
+   // basic-pitch tuning — ignored by aubio. These map 1:1 onto
+   // `BasicPitchOptions` (see `makeAnalyzer`); the defaults are the no-op
+   // baseline, so a no-flag run is byte-identical to the reference.
+   float onsetThreshold = 0.5f;   // min onset activation (0..1)
+   float frameThreshold = 0.3f;   // min frame activation (0..1)
+   double minNoteLenMs = 127.7;   // min note length (ms)
+   int velocityScale = 127;       // velocity = clamp(round(scale*amp), 1, 127)
+   double minFrequency = 27.5;    // lowest Hz to keep (A0)
+   double maxFrequency = 4186.0;  // highest Hz to keep (C8)
+   bool inferOnsets = true;       // infer onsets the model missed
+   bool melodiaTrick = true;      // the melodia trick
+   double midiTempo = 120.0;      // output tempo (bpm)
+   double bendDeadbandBins = 1.0; // near-flat bend floor (bins)
+   bool includePitchBends = true; // decode the contour into bends
+   bool multiplePitchBends = false; // route bent notes to distinct channels
 };
 
 /// Select an `Analyzer` by model name.

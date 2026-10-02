@@ -37,6 +37,7 @@
 #include <cmath>
 #include <cstdint>
 #include <filesystem>
+#include <iostream>
 #include <libaudio/audioFile.h>
 #include <libaudio/basicPitch.h>
 #include <libaudio/rawMap.h>
@@ -480,6 +481,67 @@ static void applyBendPolicy(std::vector<Note>& notes,
 }
 
 // ============================================================================
+// clampOptions — bound every knob to its sane range (see the header).
+//
+// A non-finite float is a hard error (a NaN/±inf can only come from a
+// malformed input, so fail fast rather than propagate it into the model). An
+// out-of-range *finite* value is clamped to the nearest bound with a one-line
+// note to stderr. Bool knobs pass through untouched. Every default lies inside
+// its range, so a run with no tuning is a no-op (byte-identical baseline).
+// ============================================================================
+BasicPitchOptions clampOptions(const BasicPitchOptions& in) {
+   BasicPitchOptions o = in;
+
+   // Fail fast on any non-finite float knob.
+   if (!std::isfinite(o.onsetThreshold) || !std::isfinite(o.frameThreshold) ||
+       !std::isfinite(o.minNoteLenMs) || !std::isfinite(o.minFrequency) ||
+       !std::isfinite(o.maxFrequency) || !std::isfinite(o.midiTempo) ||
+       !std::isfinite(o.bendDeadbandBins)) {
+      throw std::invalid_argument(
+         "basic-pitch: a tuning knob is not a finite number (NaN/inf)");
+   }
+
+   // One shared helper clamps a finite double-ish value into [lo, hi] and
+   // notes any move to stderr (never a silent accept).
+   const auto clampRange = [](const char* name, double v, double lo,
+                              double hi) {
+      if (v < lo) {
+         std::cerr << "  " << name << " = " << v << " is below " << lo
+                   << "; using " << lo << "\n";
+         return lo;
+      }
+      if (v > hi) {
+         std::cerr << "  " << name << " = " << v << " is above " << hi
+                   << "; using " << hi << "\n";
+         return hi;
+      }
+      return v;
+   };
+
+   o.onsetThreshold = static_cast<float>(
+      clampRange("onset-threshold", o.onsetThreshold, 0.0, 1.0));
+   o.frameThreshold = static_cast<float>(
+      clampRange("frame-threshold", o.frameThreshold, 0.0, 1.0));
+   o.minNoteLenMs =
+      clampRange("min-note-len (ms)", o.minNoteLenMs, 20.0, 2000.0);
+   o.minFrequency = clampRange("min-freq (Hz)", o.minFrequency, 27.5, 4186.0);
+   o.maxFrequency = clampRange("max-freq (Hz)", o.maxFrequency, 27.5, 4186.0);
+   o.midiTempo = clampRange("midi-tempo (bpm)", o.midiTempo, 20.0, 300.0);
+   o.bendDeadbandBins =
+      clampRange("bend-deadband (bins)", o.bendDeadbandBins, 0.0, 40.0);
+   if (o.velocityScale < 1) {
+      std::cerr << "  velocity-scale = " << o.velocityScale
+                << " is below 1; using 1.\n";
+      o.velocityScale = 1;
+   } else if (o.velocityScale > 127) {
+      std::cerr << "  velocity-scale = " << o.velocityScale
+                << " is above 127; using 127.\n";
+      o.velocityScale = 127;
+   }
+   return o;
+}
+
+// ============================================================================
 // BasicPitch — public API implementation.
 // ============================================================================
 
@@ -511,7 +573,7 @@ bool BasicPitch::coreMlActive() const {
 
 void BasicPitch::setOptions(const BasicPitchOptions& options) {
    if (impl_) {
-      impl_->options_ = options;
+      impl_->options_ = clampOptions(options);
    }
 }
 
@@ -535,9 +597,10 @@ Score BasicPitch::transcribe(std::string_view path) const {
    std::vector<Note> notes;
    if (raw.haveContour) {
       notes = impl_->roll.process(raw.noteMap, raw.onsetMap, raw.contourMap,
-                                  raw.annotNFrames);
+                                  raw.annotNFrames, impl_->options_);
    } else {
-      notes = impl_->roll.process(raw.noteMap, raw.onsetMap, raw.annotNFrames);
+      notes = impl_->roll.process(raw.noteMap, raw.onsetMap, raw.annotNFrames,
+                                  impl_->options_);
    }
 
    // Bend post-processing that is ours, not the reference's: clear the bend of
@@ -558,7 +621,7 @@ Score BasicPitch::transcribe(std::string_view path) const {
    for (Note& n : notes) {
       builder.addNote(std::move(n));
    }
-   builder.setTempo(120.0);
+   builder.setTempo(impl_->options_.midiTempo);
    builder.setTitle(std::filesystem::path(std::string(path)).stem().string());
    return builder.build();
 }

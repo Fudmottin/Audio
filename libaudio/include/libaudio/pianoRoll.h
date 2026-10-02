@@ -7,11 +7,11 @@
  * trick) → velocity inference → frame-to-time conversion. The output is a
  * list of HIR `Note`s with times in seconds and velocities in 0–127.
  *
- * This is a small, stateful unit: it holds the post-processing knobs from
- * the `ModelDescriptor` and the timing constants needed to convert model
- * frames to seconds. The `BasicPitch` adapter stays thin: it does the
- * front-end (resample + window + overlap-stitch) and then calls
- * `PianoRoll::process` to get notes.
+ * This is a small, stateful unit: it holds the *model-fixed* timing constants
+ * from the `ModelDescriptor`; the *tunable* post-processing knobs arrive per
+ * call via `BasicPitchOptions`. It also converts model frames to seconds. The
+ * `BasicPitch` adapter stays thin: it does the front-end (resample + window +
+ * overlap-stitch) and then calls `PianoRoll::process` to get notes.
  *
  * When the fine-pitch *contour* map is supplied (the 4-arg `process` overload),
  * the port of `basic_pitch/note_creation.py::get_pitch_bends` runs as well: for
@@ -36,6 +36,13 @@
 
 namespace libaudio {
 
+// The tunable knobs that drive the decode (note-detection thresholds, the
+// frequency band, the infer-onsets / melodia gates, the output tempo, and the
+// bend policy). Forward-declared here to avoid a header cycle with
+// `basicPitch.h` (which includes this one); the full type is pulled in by
+// `pianoRoll.cpp`.
+struct BasicPitchOptions;
+
 // ============================================================================
 // PianoRoll — decode raw note/onset activation maps into HIR Notes.
 //
@@ -44,10 +51,11 @@ namespace libaudio {
 // into discrete note events. It is the C++ analogue of
 // `basic_pitch/note_creation.py::output_to_notes_polyphonic`.
 //
-// State: holds the post-processing knobs (thresholds, min length, velocity
-// scale) and the timing constants (sample rate, window length) from the
-// `ModelDescriptor`. No external resources — the Pimpl exists for
-// encapsulation only.
+// State: holds only the *model-fixed* timing constants (MIDI offset, sample
+// rate, window length) from the `ModelDescriptor`. The *tunable* post-
+// processing knobs arrive per call via `BasicPitchOptions` (see `process`),
+// keeping the descriptor a pure I/O contract. No external resources — the
+// Pimpl exists for encapsulation only.
 //
 // Movable, non-copyable (house style for all libaudio classes).
 // ============================================================================
@@ -76,12 +84,14 @@ class PianoRoll {
     * @param annotNFrames  Per-window output frame count (172 for basic-pitch).
     *                      Used by the frame-to-time conversion; it is the
     *                      *untrimmed* frame count, not the stitched count.
+    * @param options       The tunable knobs (thresholds, frequency band, the
+    *                      infer-onsets / melodia gates, velocity scale).
     * @return Detected notes, with times in seconds and velocities 1–127 and
     *         **no** pitch bends (`Note.pitchBends` left empty).
     */
-   [[nodiscard]] std::vector<Note> process(const Tensor& frames,
-                                           const Tensor& onsets,
-                                           int64_t annotNFrames) const;
+   [[nodiscard]] std::vector<Note>
+   process(const Tensor& frames, const Tensor& onsets, int64_t annotNFrames,
+           const BasicPitchOptions& options) const;
 
    /**
     * Process stitched note + onset + *contour* activation maps into HIR Notes,
@@ -99,13 +109,14 @@ class PianoRoll {
     * @param contour       The stitched fine-pitch contour map `(n_frames,
     * 264)`.
     * @param annotNFrames  Per-window output frame count (172 for basic-pitch).
+    * @param options       The tunable knobs (thresholds, frequency band, the
+    *                      infer-onsets / melodia gates, velocity scale).
     * @return Detected notes with `pitchBends` filled (MIDI ticks, one per frame
     *         of the note).
     */
-   [[nodiscard]] std::vector<Note> process(const Tensor& frames,
-                                           const Tensor& onsets,
-                                           const Tensor& contour,
-                                           int64_t annotNFrames) const;
+   [[nodiscard]] std::vector<Note>
+   process(const Tensor& frames, const Tensor& onsets, const Tensor& contour,
+           int64_t annotNFrames, const BasicPitchOptions& options) const;
 
  private:
    struct Impl;

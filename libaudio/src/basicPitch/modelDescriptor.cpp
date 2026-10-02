@@ -128,12 +128,6 @@ const ModelDescriptor& basicPitchDescriptor() {
       d.nContourBins = 264; // 3 per semitone (fine pitch / pitch-bend)
       d.midiOffset = 21;    // A0
       d.overlapFrames = 30; // DEFAULT_OVERLAPPING_FRAMES
-
-      // Post-processing defaults (inference.py DEFAULT_*).
-      d.onsetThreshold = 0.5f;
-      d.frameThreshold = 0.3f;
-      d.minNoteLenFrames = 11; // ~127.7 ms at 86 fps
-      d.velocityScale = 127;
       return d;
    }();
    return descriptor;

@@ -64,7 +64,7 @@
 | [plans/ffmpeg-link.md](plans/ffmpeg-link.md) | In-process decode+resample via **linked FFmpeg libraries** (replaces the basic-pitch ffmpeg shell-out) — ✅ **implemented** |
 | [plans/ffmpeg-in-memory.md](plans/ffmpeg-in-memory.md) | In-process (miniaua) decode+resample — **superseded** by [ffmpeg-link.md](plans/ffmpeg-link.md) |
 | [plans/transcriber-merge.md](plans/transcriber-merge.md) | The prior Transcriber→Analyzer unification (done) |
-| [plans/postproc-tuning.md](plans/postproc-tuning.md) | Tunable basic-pitch (NMP) post-processing: knob promotion, clamps, Boost flags, raw-map dump, MAESTRO GT — **in progress** (Phase 1 raw-map dump done & committed) |
+| [plans/postproc-tuning.md](plans/postproc-tuning.md) | Tunable basic-pitch (NMP) post-processing: knob promotion, clamps, Boost flags, raw-map dump, MAESTRO GT — **in progress** (Phases 1–2 done: raw-map dump; knob promotion + clamps + Boost flags) |
 
 ## Future Modules (Planned)
 

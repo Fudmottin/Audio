@@ -150,7 +150,7 @@ void testBendPostProcessing() {
    {
       auto fo = makeFramesOnsets();
       auto notes = roll.process(fo.first, fo.second, makeContour(centerCol),
-                                annotNFrames);
+                                annotNFrames, BasicPitchOptions{});
       check(notes.size() == 1, "one note decoded from the synthetic maps");
       if (!notes.empty()) {
          const int64_t frames = e - s;
@@ -173,7 +173,7 @@ void testBendPostProcessing() {
    {
       auto fo = makeFramesOnsets();
       auto notes = roll.process(fo.first, fo.second, makeContour(centerCol + 3),
-                                annotNFrames);
+                                annotNFrames, BasicPitchOptions{});
       check(notes.size() == 1, "offset note decoded (one note)");
       if (!notes.empty()) {
          const int64_t frames = e - s;
@@ -193,12 +193,13 @@ void testBendPostProcessing() {
       }
    }
 
-   // Case C: the 3-arg overload (no contour supplied) never fills bends.
+   // Case C: the no-contour overload never fills bends.
    {
       auto fo = makeFramesOnsets();
-      auto notes = roll.process(fo.first, fo.second, annotNFrames);
+      auto notes =
+         roll.process(fo.first, fo.second, annotNFrames, BasicPitchOptions{});
       check(notes.size() == 1 && notes[0].pitchBends.empty(),
-            "3-arg process (no contour) yields a note with no bends");
+            "no-contour process yields a note with no bends");
    }
 }
 
@@ -299,10 +300,12 @@ void testRawMapRoundTrip() {
 
       // The decode must agree: re-decoding the read-back maps yields the same
       // notes as decoding the in-memory originals (lossless for the post-proc).
-      const std::vector<Note> a = roll.process(pred.noteMap, pred.onsetMap,
-                                               pred.contourMap, annotNFrames);
-      const std::vector<Note> b = roll.process(back.noteMap, back.onsetMap,
-                                               back.contourMap, annotNFrames);
+      const std::vector<Note> a =
+         roll.process(pred.noteMap, pred.onsetMap, pred.contourMap,
+                      annotNFrames, BasicPitchOptions{});
+      const std::vector<Note> b =
+         roll.process(back.noteMap, back.onsetMap, back.contourMap,
+                      annotNFrames, BasicPitchOptions{});
       check(a.size() == b.size(), "decoded note count matches");
       bool same = a.size() == b.size();
       for (size_t i = 0; same && i < a.size(); ++i) {

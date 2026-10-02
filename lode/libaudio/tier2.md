@@ -52,8 +52,10 @@ conversion step, which is why it leads.
 - **`ModelDescriptor`** — in-code declaration of a model: id/version/opset; input
   contract (sample-rate, channels, front-end type, frame-rate, note range);
   output contract (names/shapes + an `output_semantics` enum that *selects* the
-  post-processor); post-proc knobs. Fail-fast `validateInput` / `validateOutputs`
-  let the test harness validate a model's I/O instead of silently mis-reading it.
+  post-processor). A **pure I/O contract** — the tunable note-creation knobs live
+  on `BasicPitchOptions` (§3), not here. Fail-fast `validateInput` /
+  `validateOutputs` let the test harness validate a model's I/O instead of
+  silently mis-reading it.
 - **`manifest`** — per-model provenance: submodule commit, weight sha256, license,
   converting tool + the runtime it was validated on.
 - **Front-end** — resample to the model's rate + window. For basic-pitch this is
@@ -92,9 +94,13 @@ conversion step, which is why it leads.
 | **Post-proc** | port of `note_creation.py`: onset/frame-threshold note detector + inferred onsets + min/max-freq gate → notes; velocity = `round(127·amplitude)`; **pitch-bends** (`get_pitch_bends`) decode the 264-bin `contour` map into `Note.pitchBends` (14-bit MIDI ticks via a 51-bin Gaussian argmax, then a 1-bin deadband + overlap drop); those bends are emitted as `0xE0` by the writer and round-trip through the reader; **per-pitch channels** route each distinct bent pitch to its own channel 1..15 (gated by `multiplePitchBends`; default off = reference parity). On these decaying `timidity` renders it fragments long/whole notes into extra same-pitch notes (correct pitch; precision ~40–80%). |
 | **Model file** | `basic_pitch/saved_models/icassp_2022/nmp.onnx` (230,444 bytes, tf2onnx 1.15.1) — lives in the `external/basic-pitch` submodule (pinned) and is **embedded into the binary at build time** (generated header, SHA-256-verified). Code + weights **Apache-2.0**. |
 
-Tunable post-proc constants (in `ModelDescriptor` + the harness): onset threshold
-**0.5**, frame threshold **0.3**, min note length **11 frames**, velocity scale
-**127**.
+Tunable post-proc knobs (in `BasicPitchOptions`; the descriptor is a pure I/O
+contract): onset threshold **0.5**, frame threshold **0.3**, min note length
+**127.7 ms** (11 frames), velocity scale **127**, min/max frequency **27.5 / 4186
+Hz** (A0..C8; the band is kept *inclusive*), the `inferOnsets` / `melodiaTrick`
+gates (both on), and `midiTempo` **120**. All default to the reference values so a
+no-flag run is byte-identical (14/14 corpus parity, metrics unchanged); each is
+clamped per [../plans/postproc-tuning.md](../plans/postproc-tuning.md) §6.
 
 ## 4. Reuse (the C++ stays small)
 

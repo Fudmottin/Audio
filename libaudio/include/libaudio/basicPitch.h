@@ -53,17 +53,85 @@
 namespace libaudio {
 
 // ============================================================================
-// BasicPitchOptions — the user-tunable knobs specific to basic-pitch.
+// BasicPitchOptions — the user-tunable knobs for the basic-pitch
+// post-processor.
 //
-// These are the post-processing choices the reference exposes (the Python
-// `model_output_to_notes` kwargs `include_pitch_bends` /
-// `multiple_pitch_bends`) plus one intentional *improvement* over the reference
-// (the bend deadband, see below). They are separate from the model's fail-fast
-// contract
-// (`ModelDescriptor`): the options change how a *given* model output is turned
-// into notes, not what the model expects.
+// These are how a *given* model output is turned into notes: the note-detection
+// thresholds, the frequency band, the decode gates, the output tempo, and the
+// pitch-bend policy. They are separate from the model's fail-fast I/O contract
+// (`ModelDescriptor`): the options change the *post-processing*, not what the
+// model expects. The defaults mirror the reference's `predict()` /
+// `model_output_to_notes()` so that a run with no tuning is byte-identical to
+// the baseline; `clampOptions` bounds the tunable range (declared below).
 // ============================================================================
 struct BasicPitchOptions {
+   // --- Note-detection thresholds (moved off the model contract) ----------
+   /**
+    * Onset activation threshold (0..1). A candidate onset peak must reach this
+    * activation. The reference default is 0.5.
+    */
+   float onsetThreshold = 0.5f;
+
+   /**
+    * Frame (sustain) activation threshold (0..1). A note's sustain run extends
+    * while the note energy stays above this. The reference default is 0.3.
+    */
+   float frameThreshold = 0.3f;
+
+   /**
+    * Minimum note length, in milliseconds. Notes shorter than this are
+    * discarded. (The reference stores this in *frames*; we keep the
+    * time-domain form and convert at decode time with the reference's exact
+    * formula, so 127.7 ms → 11 frames at 86.13 fps.) The reference default is
+    * 127.7 ms.
+    */
+   double minNoteLenMs = 127.7;
+
+   /**
+    * Velocity scale: `velocity = clamp(round(scale * maxAmplitude), 1, 127)`.
+    * The reference default is 127.
+    */
+   int velocityScale = 127;
+
+   // --- Frequency band -----------------------------------------------------
+   /**
+    * Lowest frequency (Hz) to consider; activations below it are zeroed.
+    * 27.5 Hz = A0, the lowest piano key (MIDI 21). With the defaults the band
+    * spans the whole 88-key range, so it is a no-op.
+    */
+   double minFrequency = 27.5;
+
+   /**
+    * Highest frequency (Hz) to consider; activations above it are zeroed.
+    * 4186 Hz = C8, the highest piano key (MIDI 108). Together with
+    * `minFrequency` this is the inclusive band the decode keeps (a port of the
+    * reference `constrain_frequency`); the defaults cover all 88 bins.
+    */
+   double maxFrequency = 4186.0;
+
+   // --- Decode gates -------------------------------------------------------
+   /**
+    * Infer onsets the model missed (sharp rises in the note energy). The
+    * reference default is on.
+    */
+   bool inferOnsets = true;
+
+   /**
+    * The melodia trick: claim notes that have no onset peak by growing the
+    * remaining-energy maxima in both time directions. The reference default is
+    * on.
+    */
+   bool melodiaTrick = true;
+
+   // --- Output timing ------------------------------------------------------
+   /**
+    * The output MIDI tempo (bpm). The reference default is 120. (`midicapture`
+    * additionally honours its `--tempo` flag on the written file; this is the
+    * engine's internal value for library / knob-sweep use.)
+    */
+   double midiTempo = 120.0;
+
+   // --- Pitch bends --------------------------------------------------------
    /**
     * Decode the model's fine-pitch contour map into `Note::pitchBends`.
     * True is the reference (Python) default.
@@ -96,6 +164,19 @@ struct BasicPitchOptions {
     */
    double bendDeadbandBins = 1.0;
 };
+
+// ============================================================================
+// clampOptions — bound the tunable knobs to their sane ranges.
+//
+// The tuner's guardrail (not a parity requirement): a non-finite float is an
+// *error* (fail fast, like the descriptor's validation); an out-of-range
+// finite value is clamped to the nearest bound with a one-line note to stderr
+// (never a silent accept, never a crash). Every default already lies inside its
+// range, so a run with no tuning is byte-identical (all the clamps no-op on the
+// defaults). `setOptions` applies it, so whatever a caller passes is stored in
+// a safe form.
+// ============================================================================
+[[nodiscard]] BasicPitchOptions clampOptions(const BasicPitchOptions& options);
 
 // ============================================================================
 // BasicPitch — the basic-pitch transcriber adapter (audio → Score).
@@ -159,11 +240,18 @@ class BasicPitch : public Analyzer {
     *
     * The options live on the concrete `BasicPitch` (not on the generic
     * `Analyzer` port, which is `transcribe` + `name` only) because they are
-    * specific to basic-pitch's three-way note/onset/contour output.
+    * specific to basic-pitch's three-way note/onset/contour output. They are
+    * clamped to their sane ranges (`clampOptions`) before being stored: a
+    * non-finite knob is an error, an out-of-range knob is clamped to its bound
+    * with a note to stderr. A no-flag run is unaffected (the defaults are in
+    * range), so `transcribe` stays byte-identical.
+    *
+    * @throws std::invalid_argument if any knob is non-finite (NaN / ±inf).
     */
    void setOptions(const BasicPitchOptions& options);
 
-   // The currently active options (the defaults until `setOptions` is called).
+   // The currently active options, already clamped (the defaults until
+   // `setOptions` is called).
    [[nodiscard]] const BasicPitchOptions& options() const;
 
  private:

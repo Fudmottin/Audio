@@ -3,11 +3,12 @@
  * @brief The in-code declaration of what a Tier-2 model expects and produces.
  *
  * A `ModelDescriptor` is a self-describing contract for one neural model:
- * its identity, its audio I/O contract, the *meaning* of its outputs, and its
- * tunable post-processing knobs. It is the thing that lets a generic
- * `OnnxSession` (which only knows raw tensors) be driven correctly by a
- * model-specific adapter, and lets the test harness validate a model's I/O
- * fail-fast instead of silently producing wrong numbers.
+ * its identity, its audio I/O contract, and the *meaning* of its outputs. It
+ * is the thing that lets a generic `OnnxSession` (which only knows raw
+ * tensors) be driven correctly by a model-specific adapter, and lets the test
+ * harness validate a model's I/O fail-fast instead of silently producing wrong
+ * numbers. (The *tunable* post-processing knobs deliberately live elsewhere —
+ * on the `BasicPitchOptions` — so the descriptor stays a pure I/O contract.)
  *
  * @section model-descriptor-role Role in the architecture
  *
@@ -105,17 +106,6 @@ struct ModelDescriptor {
    /** Output frames trimmed per window during overlap-stitching (basic-pitch:
     * 30). */
    int64_t overlapFrames = 0;
-
-   // --- Post-processing knobs (defaults from the upstream tool) -----------
-   /** Onset activation threshold (basic-pitch: 0.5). */
-   float onsetThreshold = 0.5f;
-   /** Frame (sustain) activation threshold (basic-pitch: 0.3). */
-   float frameThreshold = 0.3f;
-   /** Minimum note length in frames (basic-pitch: 11 ≈ 127.7 ms at 86 fps). */
-   int64_t minNoteLenFrames = 11;
-   /** Velocity scale: velocity = round(scale * maxAmplitude) (basic-pitch:
-    * 127). */
-   uint8_t velocityScale = 127;
 
    // --- Fail-fast validation ---------------------------------------------
    /**

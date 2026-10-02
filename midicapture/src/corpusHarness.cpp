@@ -630,10 +630,21 @@ std::unique_ptr<libaudio::Analyzer> makeAnalyzer(const std::string& name,
       // The model is embedded in the binary; decode + resample is in-process
       // (FFmpeg shared libraries). No external tool path needed.
       auto bp = std::make_unique<libaudio::BasicPitch>();
-      // Apply the pitch-bend policy; the bend deadband keeps its default.
+      // Apply the full post-processing policy from `p` (note-creation knobs +
+      // the pitch-bend policy); `setOptions` clamps each to its sane range.
       libaudio::BasicPitchOptions options = bp->options();
       options.includePitchBends = p.includePitchBends;
       options.multiplePitchBends = p.multiplePitchBends;
+      options.bendDeadbandBins = p.bendDeadbandBins;
+      options.onsetThreshold = p.onsetThreshold;
+      options.frameThreshold = p.frameThreshold;
+      options.minNoteLenMs = p.minNoteLenMs;
+      options.velocityScale = p.velocityScale;
+      options.minFrequency = p.minFrequency;
+      options.maxFrequency = p.maxFrequency;
+      options.inferOnsets = p.inferOnsets;
+      options.melodiaTrick = p.melodiaTrick;
+      options.midiTempo = p.midiTempo;
       bp->setOptions(options);
       return bp;
    }
