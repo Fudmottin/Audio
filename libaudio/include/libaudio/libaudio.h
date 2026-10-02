@@ -65,6 +65,7 @@
 #include "onnxSession.h"
 #include "onnxTensor.h"
 #include "pianoRoll.h"
+#include "rawMap.h"
 #endif
 
 #endif // LIBAUDIO_LIBAUDIO_H

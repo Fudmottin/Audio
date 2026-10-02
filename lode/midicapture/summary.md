@@ -153,6 +153,9 @@ Engine selection:
 Corpus (Tier-2 only):
   --run-corpus DIR       Evaluate the 14-file corpus in DIR with --model.
   --clean                Regenerate the corpus assets first.
+  --dump-raw-map PATH    Run basic-pitch once; write the raw stitched maps
+                         (note/onset/contour + timing) to PATH as a binary
+                         raw-map file. Writes no MIDI; needs a positional input.
 
 Utility (all builds):
   -o [ --output ] arg    Output .mid.   --input / -i  Prefer positional instead.
@@ -174,8 +177,9 @@ Utility (all builds):
 > aborts: the CLI prints a note and the engine decodes the file itself (basic:
 > in-process via the FFmpeg libraries; aubio: the ffmpeg binary fallback), so
 > `midicapture song.mp4 out.mid` is one command.
-> A **Tier-1 build** omits `--model` / `--analyzer` / `--run-corpus` / `--ffmpeg` /
-> the pitch-bend flags entirely. See the [midicapture README](../../midicapture/README.md)
+> A **Tier-1 build** omits `--model` / `--analyzer` / `--run-corpus` /
+> `--dump-raw-map` / `--ffmpeg` / the pitch-bend flags entirely. See the
+> [midicapture README](../../midicapture/README.md)
 
 Examples:
 ```bash
@@ -245,6 +249,14 @@ Those are aubio-engine concerns. **Robust octave and polyphony come from the
 ([../libaudio/tier2.md](../libaudio/tier2.md)). Minor aubio artifacts remain
 (first note often missed; quiet decay tails fall below `--silence`) — see
 [defrag.md](defrag.md) §3.
+
+### Build / test
+
+- **`ctest` → “No tests were found”** on a `build-tier2` run: the ctest suite
+  is registered under libaudio's subdirectory, not midicapture's, so `ctest`
+  from `midicapture/build-tier2` finds none. The corpus CLI run (`--run-corpus`)
+  is the real verification. **Deferred by user** (see
+  [../plans/postproc-tuning.md](../plans/postproc-tuning.md)).
 
 ---
 

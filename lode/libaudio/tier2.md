@@ -41,7 +41,14 @@ conversion step, which is why it leads.
   (runtime layer) and `src/basicPitch/` (the model adapter); headers stay flat in
   `include/`.
 - **Per-model adapters** (e.g. `BasicPitch`) — know *one* model's I/O contract and
-  `output_semantics`; emit libaudio HIR `Note`s.
+  `output_semantics`; emit libaudio HIR `Note`s. `BasicPitch::getRawPredictions`
+  runs the model **once** and returns the stitched note/onset/contour maps
+  (`RawPredictions`, `rawMap.{h,cpp}`) — the pre-decode state a post-proc knob-sweep
+  reads **without re-running the model**. The resampled audio is *not* cached (it is
+  cheap + regenerable from the source); the maps (the expensive model run) are the
+  artifact. A small dependency-free **binary** file format (`writeRawPredictions` /
+  `readRawPredictions`) round-trips it byte-for-byte. Exposed by `midicapture
+  --dump-raw-map` (raw-map dump: [../plans/postproc-tuning.md](../plans/postproc-tuning.md) §9).
 - **`ModelDescriptor`** — in-code declaration of a model: id/version/opset; input
   contract (sample-rate, channels, front-end type, frame-rate, note range);
   output contract (names/shapes + an `output_semantics` enum that *selects* the

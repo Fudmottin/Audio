@@ -59,6 +59,7 @@
 #include <memory>
 #ifdef LIBAUDIO_HAS_TIER2
 #include <libaudio/basicPitch.h>
+#include <libaudio/rawMap.h>
 #endif // LIBAUDIO_HAS_TIER2
 #include <midicapture/corpusHarness.h>
 #include <string>
@@ -129,6 +130,9 @@ static void printUsage(const char* programName) {
              << " extraction (default: on).\n";
    std::cerr << "  --multiple-pitch-bends    For --model basic: route each"
              << " distinct bent pitch to its own channel (default: off).\n";
+   std::cerr << "  --dump-raw-map <path>     For --model basic: run the model"
+             << " once and write its raw stitched maps to <path>; writes no"
+             << " MIDI.\n";
 #endif // LIBAUDIO_HAS_TIER2
    std::cerr << "\nExamples:\n";
    std::cerr << "  " << programName << " input.aiff output.mid\n";
@@ -491,6 +495,7 @@ int main(int argc, char* argv[]) {
    // no default) so it can never clobber `modelName`'s default during Boost's
    // notify(); it is folded into `modelName` after parsing instead.
    std::string runCorpusDir;
+   std::string dumpRawMapPath;
    std::string modelName = "basic";
    std::string analyzerArg;
    bool clean = false;
@@ -597,7 +602,11 @@ int main(int argc, char* argv[]) {
       " matching the Python reference).")(
       "multiple-pitch-bends", po::bool_switch(&multiplePitchBends),
       "For --model basic: route each distinct bent pitch to its own MIDI"
-      " channel (the reference default is off — one channel).");
+      " channel (the reference default is off — one channel).")(
+      "dump-raw-map", po::value<std::string>(&dumpRawMapPath),
+      "For --model basic: run the model once and write its raw stitched"
+      " activation maps (note/onset/contour) to PATH as a binary raw-map"
+      " file; writes no MIDI. Requires a positional input audio file.");
 #endif // LIBAUDIO_HAS_TIER2
 
    // Define positional options: <input.aiff> <output.mid>.  These bind the
@@ -738,6 +747,9 @@ int main(int argc, char* argv[]) {
             " extraction (default: on).\n"
          << "  --multiple-pitch-bends     For --model basic: route each"
             " distinct bent pitch to its own channel.\n"
+         << "  --dump-raw-map <path>      For --model basic: run the model"
+            " once and write its raw stitched maps to <path>; writes no"
+            " MIDI.\n"
 #endif // LIBAUDIO_HAS_TIER2
          << "\n";
       return 0;
@@ -772,6 +784,47 @@ int main(int argc, char* argv[]) {
       printUsage(argv[0]);
       return 1;
    }
+
+#ifdef LIBAUDIO_HAS_TIER2
+   // --dump-raw-map PATH: run the basic-pitch model once over the input and
+   // write its three stitched activation maps to PATH (a small binary raw-map
+   // file). Standalone: it writes no MIDI. The positional input was validated
+   // above; an output .mid, if given, is ignored in this mode.
+   if (vm.count("dump-raw-map") > 0) {
+      if (dumpRawMapPath.empty()) {
+         std::cerr << "Error: --dump-raw-map requires a PATH (the raw-map"
+                   << " output file).\n";
+         return 1;
+      }
+      BasicPitch bp;
+      const RawPredictions raw = bp.getRawPredictions(inputPath);
+      writeRawPredictions(raw, dumpRawMapPath);
+      auto fmtShape = [](const Tensor& t) {
+         std::string s = "(";
+         for (size_t i = 0; i < t.dims.size(); ++i) {
+            if (i > 0) {
+               s += ", ";
+            }
+            s += std::to_string(t.dims[i]);
+         }
+         return s + ")";
+      };
+      std::cout << "midicapture — raw-map dump (basic-pitch)\n";
+      std::cout
+         << "============================================================\n\n";
+      std::cout << "Input:      " << inputPath << "\n";
+      std::cout << "Raw map:    " << dumpRawMapPath << "\n";
+      std::cout << "  noteMap       " << fmtShape(raw.noteMap) << "\n";
+      std::cout << "  onsetMap      " << fmtShape(raw.onsetMap) << "\n";
+      std::cout << "  contourMap    " << fmtShape(raw.contourMap) << "\n";
+      std::cout << "  annotNFrames  " << raw.annotNFrames
+                << " (untrimmed per-window)\n";
+      std::cout << "  haveContour   " << (raw.haveContour ? "yes" : "no")
+                << "\n";
+      return 0;
+   }
+#endif // LIBAUDIO_HAS_TIER2
+
    if (outputPath.empty()) {
       if (inputPath.empty()) {
          // Sanity-test mode with no input file: default output name.

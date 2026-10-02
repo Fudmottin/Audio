@@ -134,6 +134,7 @@ if(LIBAUDIO_ENABLE_TIER2)
         src/basicPitch/modelDescriptor.cpp
         src/basicPitch/basicPitch.cpp
         src/basicPitch/pianoRoll.cpp
+        src/basicPitch/rawMap.cpp
         src/ffmpegDecode.cpp
     )
 

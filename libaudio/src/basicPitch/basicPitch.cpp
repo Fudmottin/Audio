@@ -39,6 +39,7 @@
 #include <filesystem>
 #include <libaudio/audioFile.h>
 #include <libaudio/basicPitch.h>
+#include <libaudio/rawMap.h>
 #include <libaudio/scoreBuilder.h>
 #include <stdexcept>
 #include <string>
@@ -89,6 +90,13 @@ struct BasicPitch::Impl {
       , overlapFrames(d.overlapFrames)
       , nNoteBins(d.nNoteBins)
       , nContourBins(d.nContourBins) {}
+
+   // The model front-end shared by `transcribe` and `getRawPredictions` (see
+   // its definition, after the decode helpers it calls): decode + window +
+   // run + overlap-stitch + truncate → the three stitched maps +
+   // `annotNFrames`.
+   [[nodiscard]] RawPredictions runFrontEnd(std::string_view path,
+                                            bool wantContour) const;
 };
 
 // ============================================================================
@@ -151,6 +159,189 @@ static std::vector<float> readAllMono(AudioFileReader& reader) {
       }
    }
    return mono;
+}
+
+// ============================================================================
+// Impl::runFrontEnd — decode + window + run + overlap-stitch + truncate.
+//
+// This is the model front-end factored out of `transcribe` so that `transcribe`
+// and `getRawPredictions` share it (no duplicated windowing / stitching math).
+// It runs the model once over `path` and returns the three stitched, global
+// activation maps plus `annotNFrames` — the pre-decode state a post-processor
+// (or a knob-sweep) consumes.
+//
+// `wantContour` decides whether the fine-pitch contour output is located and
+// accumulated: `transcribe` passes the option-derived gate (bends on) and
+// `getRawPredictions` passes `true`, so a cached map set always carries the
+// contour and can later be re-decoded with or without bends without another
+// model run. The resampled audio it reads is a *transient local* — never
+// returned and never stored: it is cheap and regenerable from the source on
+// demand, so caching the maps (the expensive model run) is all that is needed.
+// ============================================================================
+RawPredictions BasicPitch::Impl::runFrontEnd(std::string_view path,
+                                             bool wantContour) const {
+   const ModelDescriptor& desc = *this->desc;
+   const uint32_t modelRate = static_cast<uint32_t>(desc.sampleRate);
+   const std::string filePath(path);
+
+   // --- 1. Get mono float32 at the model's rate. ---
+   // Fast path: if libsndfile can read the file at the model's rate (or the
+   // rate is unknown), read directly. Otherwise (different rate, or a
+   // container libsndfile cannot open), decode + resample in-process via the
+   // FFmpeg libraries — no temp file, no subprocess.
+   std::vector<float> mono;
+   try {
+      AudioFileReader reader(filePath);
+      const uint32_t fileRate = reader.sampleRate();
+      if (fileRate == 0 || fileRate == modelRate) {
+         // At the model's rate already — read directly with libsndfile.
+         mono = readAllMono(reader);
+      } else {
+         // Different rate — in-process FFmpeg decode + resample.
+         mono = detail::decodeToMonoFloat(filePath, modelRate);
+      }
+   } catch (const std::runtime_error&) {
+      // libsndfile cannot open this container — in-process FFmpeg decode.
+      mono = detail::decodeToMonoFloat(filePath, modelRate);
+   }
+
+   // `origLen` is the (resampled) length *before* the front pad — it drives the
+   // final stitching truncation, exactly as the reference's `original_length`.
+   const int64_t origLen = static_cast<int64_t>(mono.size());
+
+   // --- 2. Front pad, then cut into overlapping windows and run the model. --
+   std::vector<float> padded(static_cast<size_t>(desc.frontPadSamples) +
+                                mono.size(),
+                             0.0f);
+   std::copy(mono.begin(), mono.end(),
+             padded.begin() +
+                static_cast<std::ptrdiff_t>(desc.frontPadSamples));
+   const int64_t paddedLen = static_cast<int64_t>(padded.size());
+
+   // Number of windows: the reference iterates `range(0, len, hop)`, i.e.
+   // ceil(len / hop). A positive hop is guaranteed by the descriptor.
+   const int64_t nWin = (paddedLen + this->hop - 1) / this->hop;
+
+   // Locate the note/onset outputs by *name* (never position): the runtime may
+   // return the model's outputs in any order. `desc.outputNames` is the
+   // semantic order {note, onset, contour}.
+   const auto outNames = this->session.outputNames();
+   int64_t noteIdx = -1;
+   int64_t onsetIdx = -1;
+   int64_t contourIdx = -1;
+   for (size_t i = 0; i < outNames.size(); ++i) {
+      if (desc.outputNames.size() > 0 && outNames[i] == desc.outputNames[0]) {
+         noteIdx = static_cast<int64_t>(i);
+      } else if (desc.outputNames.size() > 1 &&
+                 outNames[i] == desc.outputNames[1]) {
+         onsetIdx = static_cast<int64_t>(i);
+      } else if (wantContour && desc.outputNames.size() > 2 &&
+                 outNames[i] == desc.outputNames[2]) {
+         contourIdx = static_cast<int64_t>(i);
+      }
+   }
+   if (noteIdx < 0 || onsetIdx < 0) {
+      throw std::runtime_error(
+         "basic-pitch: could not locate the note/onset outputs by name");
+   }
+   // A missing contour (a model with no bend output) is not an error: it
+   // simply degrades to the faithful no-bend path for this run.
+   const bool haveContour = wantContour && contourIdx >= 0;
+
+   std::vector<float> accNote;
+   std::vector<float> accOnset;
+   std::vector<float> accContour;
+   int64_t annotNFrames = 0;
+   bool haveAnnot = false;
+   bool validatedInput = false;
+   bool validatedOutputs = false;
+
+   for (int64_t w = 0; w < nWin; ++w) {
+      const int64_t start = w * this->hop;
+
+      // One zero-filled window; fill the in-bounds samples, zero-pad the tail.
+      Tensor input({1, this->windowSamples, 1},
+                   static_cast<size_t>(this->windowSamples));
+      for (int64_t k = 0; k < this->windowSamples; ++k) {
+         const int64_t idx = start + k;
+         if (idx >= 0 && idx < paddedLen) {
+            input.data[static_cast<size_t>(k)] =
+               padded[static_cast<size_t>(idx)];
+         }
+      }
+      if (!validatedInput) {
+         desc.validateInput(input);
+         validatedInput = true;
+      }
+
+      std::vector<Tensor> outputs = this->session.run(input);
+      if (!validatedOutputs) {
+         desc.validateOutputs(outputs);
+         validatedOutputs = true;
+      }
+      if (!haveAnnot) {
+         const Tensor& noteOut = outputs[static_cast<size_t>(noteIdx)];
+         annotNFrames =
+            (noteOut.dims.size() == 3) ? noteOut.dims[1] : noteOut.dims[0];
+         haveAnnot = true;
+      }
+      accumulateWindow(outputs[static_cast<size_t>(noteIdx)],
+                       this->overlapFrames, accNote);
+      accumulateWindow(outputs[static_cast<size_t>(onsetIdx)],
+                       this->overlapFrames, accOnset);
+      if (haveContour) {
+         accumulateWindow(outputs[static_cast<size_t>(contourIdx)],
+                          this->overlapFrames, accContour);
+      }
+   }
+
+   // --- 3. Truncate to the expected global length and build the maps. -------
+   // The reference trims to int(origLen / hop * (annotNFrames -
+   // overlapFrames)).
+   const int64_t accumRows =
+      static_cast<int64_t>(accNote.size()) / this->nNoteBins;
+   const int64_t framesPerWindow = annotNFrames - this->overlapFrames;
+   const int64_t targetFrames = static_cast<int64_t>(
+      static_cast<double>(origLen) / static_cast<double>(this->hop) *
+      static_cast<double>(framesPerWindow));
+   int64_t totalFrames = std::min(accumRows, targetFrames);
+   if (totalFrames < 0) {
+      totalFrames = 0;
+   }
+
+   const size_t mapCount =
+      static_cast<size_t>(totalFrames) * static_cast<size_t>(this->nNoteBins);
+   Tensor noteMap({totalFrames, this->nNoteBins}, mapCount);
+   std::copy(accNote.begin(),
+             accNote.begin() + static_cast<ptrdiff_t>(mapCount),
+             noteMap.data.begin());
+   Tensor onsetMap({totalFrames, this->nNoteBins}, mapCount);
+   std::copy(accOnset.begin(),
+             accOnset.begin() + static_cast<ptrdiff_t>(mapCount),
+             onsetMap.data.begin());
+
+   // The fine-pitch contour map, same frame grid as the note map but 264 wide
+   // (3 bins / semitone). Built only when a contour was accumulated. The
+   // constructor zero-fills, so an accumulator that ran short leaves a flat
+   // tail.
+   Tensor contourMap;
+   if (haveContour) {
+      const size_t contCount = static_cast<size_t>(totalFrames) *
+                               static_cast<size_t>(this->nContourBins);
+      contourMap = Tensor({totalFrames, this->nContourBins}, contCount);
+      const size_t use = std::min(accContour.size(), contCount);
+      std::copy(accContour.begin(),
+                accContour.begin() + static_cast<ptrdiff_t>(use),
+                contourMap.data.begin());
+   }
+
+   RawPredictions pred;
+   pred.noteMap = std::move(noteMap);
+   pred.onsetMap = std::move(onsetMap);
+   pred.contourMap = std::move(contourMap);
+   pred.annotNFrames = annotNFrames;
+   pred.haveContour = haveContour;
+   return pred;
 }
 
 // ============================================================================
@@ -330,170 +521,23 @@ const BasicPitchOptions& BasicPitch::options() const {
 }
 
 Score BasicPitch::transcribe(std::string_view path) const {
-   const ModelDescriptor& desc = *impl_->desc;
-   const uint32_t modelRate = static_cast<uint32_t>(desc.sampleRate);
-   const std::string filePath(path);
-
-   // --- 1. Get mono float32 at the model's rate. ---
-   // Fast path: if libsndfile can read the file at the model's rate (or the
-   // rate is unknown), read directly. Otherwise (different rate, or a
-   // container libsndfile cannot open), decode + resample in-process via the
-   // FFmpeg libraries — no temp file, no subprocess.
-   std::vector<float> mono;
-   try {
-      AudioFileReader reader(filePath);
-      const uint32_t fileRate = reader.sampleRate();
-      if (fileRate == 0 || fileRate == modelRate) {
-         // At the model's rate already — read directly with libsndfile.
-         mono = readAllMono(reader);
-      } else {
-         // Different rate — in-process FFmpeg decode + resample.
-         mono = detail::decodeToMonoFloat(filePath, modelRate);
-      }
-   } catch (const std::runtime_error&) {
-      // libsndfile cannot open this container — in-process FFmpeg decode.
-      mono = detail::decodeToMonoFloat(filePath, modelRate);
-   }
-
-   // `origLen` is the (resampled) length *before* the front pad — it drives the
-   // final stitching truncation, exactly as the reference's `original_length`.
-   const int64_t origLen = static_cast<int64_t>(mono.size());
-
-   // --- 2. Front pad, then cut into overlapping windows and run the model. --
-   std::vector<float> padded(static_cast<size_t>(desc.frontPadSamples) +
-                                mono.size(),
-                             0.0f);
-   std::copy(mono.begin(), mono.end(),
-             padded.begin() +
-                static_cast<std::ptrdiff_t>(desc.frontPadSamples));
-   const int64_t paddedLen = static_cast<int64_t>(padded.size());
-
-   // Number of windows: the reference iterates `range(0, len, hop)`, i.e.
-   // ceil(len / hop). A positive hop is guaranteed by the descriptor.
-   const int64_t nWin = (paddedLen + impl_->hop - 1) / impl_->hop;
-
-   // Locate the note/onset outputs by *name* (never position): the runtime may
-   // return the model's outputs in any order. `desc.outputNames` is the
-   // semantic order {note, onset, contour}.
-   const auto outNames = impl_->session.outputNames();
-   int64_t noteIdx = -1;
-   int64_t onsetIdx = -1;
-   int64_t contourIdx = -1;
+   // Front-end (decode + window + run + overlap-stitch + truncate) is the
+   // shared `runFrontEnd`. `wantBends` is the pre-refactor gate for whether
+   // the contour is accumulated, so `transcribe` behaves exactly as it did
+   // before the factoring (a run with the default options is bit-identical).
    const bool wantBends = impl_->options_.includePitchBends &&
                           impl_->options_.bendDeadbandBins >= 0.0;
-   for (size_t i = 0; i < outNames.size(); ++i) {
-      if (desc.outputNames.size() > 0 && outNames[i] == desc.outputNames[0]) {
-         noteIdx = static_cast<int64_t>(i);
-      } else if (desc.outputNames.size() > 1 &&
-                 outNames[i] == desc.outputNames[1]) {
-         onsetIdx = static_cast<int64_t>(i);
-      } else if (wantBends && desc.outputNames.size() > 2 &&
-                 outNames[i] == desc.outputNames[2]) {
-         contourIdx = static_cast<int64_t>(i);
-      }
-   }
-   if (noteIdx < 0 || onsetIdx < 0) {
-      throw std::runtime_error(
-         "basic-pitch: could not locate the note/onset outputs by name");
-   }
-   // A missing contour (a model with no bend output) is not an error: it
-   // simply degrades to the faithful no-bend path for this run.
-   const bool wantContour = wantBends && contourIdx >= 0;
+   const RawPredictions raw = impl_->runFrontEnd(path, wantBends);
 
-   std::vector<float> accNote;
-   std::vector<float> accOnset;
-   std::vector<float> accContour;
-   int64_t annotNFrames = 0;
-   bool haveAnnot = false;
-   bool validatedInput = false;
-   bool validatedOutputs = false;
-
-   for (int64_t w = 0; w < nWin; ++w) {
-      const int64_t start = w * impl_->hop;
-
-      // One zero-filled window; fill the in-bounds samples, zero-pad the tail.
-      Tensor input({1, impl_->windowSamples, 1},
-                   static_cast<size_t>(impl_->windowSamples));
-      for (int64_t k = 0; k < impl_->windowSamples; ++k) {
-         const int64_t idx = start + k;
-         if (idx >= 0 && idx < paddedLen) {
-            input.data[static_cast<size_t>(k)] =
-               padded[static_cast<size_t>(idx)];
-         }
-      }
-      if (!validatedInput) {
-         desc.validateInput(input);
-         validatedInput = true;
-      }
-
-      std::vector<Tensor> outputs = impl_->session.run(input);
-      if (!validatedOutputs) {
-         desc.validateOutputs(outputs);
-         validatedOutputs = true;
-      }
-      if (!haveAnnot) {
-         const Tensor& noteOut = outputs[static_cast<size_t>(noteIdx)];
-         annotNFrames =
-            (noteOut.dims.size() == 3) ? noteOut.dims[1] : noteOut.dims[0];
-         haveAnnot = true;
-      }
-      accumulateWindow(outputs[static_cast<size_t>(noteIdx)],
-                       impl_->overlapFrames, accNote);
-      accumulateWindow(outputs[static_cast<size_t>(onsetIdx)],
-                       impl_->overlapFrames, accOnset);
-      if (wantContour) {
-         accumulateWindow(outputs[static_cast<size_t>(contourIdx)],
-                          impl_->overlapFrames, accContour);
-      }
-   }
-
-   // --- 3. Truncate to the expected global length and build the maps. -------
-   // The reference trims to int(origLen / hop * (annotNFrames -
-   // overlapFrames)).
-   const int64_t accumRows =
-      static_cast<int64_t>(accNote.size()) / impl_->nNoteBins;
-   const int64_t framesPerWindow = annotNFrames - impl_->overlapFrames;
-   const int64_t targetFrames = static_cast<int64_t>(
-      static_cast<double>(origLen) / static_cast<double>(impl_->hop) *
-      static_cast<double>(framesPerWindow));
-   int64_t totalFrames = std::min(accumRows, targetFrames);
-   if (totalFrames < 0) {
-      totalFrames = 0;
-   }
-
-   const size_t mapCount =
-      static_cast<size_t>(totalFrames) * static_cast<size_t>(impl_->nNoteBins);
-   Tensor noteMap({totalFrames, impl_->nNoteBins}, mapCount);
-   std::copy(accNote.begin(),
-             accNote.begin() + static_cast<ptrdiff_t>(mapCount),
-             noteMap.data.begin());
-   Tensor onsetMap({totalFrames, impl_->nNoteBins}, mapCount);
-   std::copy(accOnset.begin(),
-             accOnset.begin() + static_cast<ptrdiff_t>(mapCount),
-             onsetMap.data.begin());
-
-   // The fine-pitch contour map, same frame grid as the note map but 264 wide
-   // (3 bins / semitone). Built only when bends are requested. The constructor
-   // zero-fills, so an accumulator that ran short simply leaves a flat tail.
-   Tensor contourMap;
-   if (wantContour) {
-      const size_t contCount = static_cast<size_t>(totalFrames) *
-                               static_cast<size_t>(impl_->nContourBins);
-      contourMap = Tensor({totalFrames, impl_->nContourBins}, contCount);
-      const size_t use = std::min(accContour.size(), contCount);
-      std::copy(accContour.begin(),
-                accContour.begin() + static_cast<ptrdiff_t>(use),
-                contourMap.data.begin());
-   }
-
-   // --- 4. Decode the global maps into notes and assemble the Score. --------
+   // --- Decode the global maps into notes and assemble the Score. -----------
    // When a contour was accumulated, `process` also traces each note's bend
    // (the 4-arg overload); otherwise it is the faithful no-bend path.
    std::vector<Note> notes;
-   if (wantContour) {
-      notes = impl_->roll.process(noteMap, onsetMap, contourMap, annotNFrames);
+   if (raw.haveContour) {
+      notes = impl_->roll.process(raw.noteMap, raw.onsetMap, raw.contourMap,
+                                  raw.annotNFrames);
    } else {
-      notes = impl_->roll.process(noteMap, onsetMap, annotNFrames);
+      notes = impl_->roll.process(raw.noteMap, raw.onsetMap, raw.annotNFrames);
    }
 
    // Bend post-processing that is ours, not the reference's: clear the bend of
@@ -517,6 +561,12 @@ Score BasicPitch::transcribe(std::string_view path) const {
    builder.setTempo(120.0);
    builder.setTitle(std::filesystem::path(std::string(path)).stem().string());
    return builder.build();
+}
+
+RawPredictions BasicPitch::getRawPredictions(std::string_view path) const {
+   // The contour is always accumulated here, so a cached `RawPredictions` can
+   // be re-decoded with or without pitch bends without another model run.
+   return impl_->runFrontEnd(path, /*wantContour=*/true);
 }
 
 } // namespace libaudio

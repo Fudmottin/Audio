@@ -38,7 +38,9 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <filesystem>
 #include <libaudio/libaudio.h>
+#include <libaudio/rawMap.h>
 #include <string>
 #include <vector>
 
@@ -200,6 +202,123 @@ void testBendPostProcessing() {
    }
 }
 
+// --- Raw-map write/read round-trip: the binary format, no model ----------
+//
+// Exercises the dependency-free raw-map file format (rawMap.{h,cpp}) without
+// running the model: build small synthetic note/onset/contour maps, assemble a
+// `RawPredictions`, write it to a temp file, read it back, and check that
+//   (a) every field round-trips exactly (float32 is written by byte, so the
+//       maps are bit-identical; the scalar `annotNFrames` / `haveContour`
+//       match), and
+//   (b) decoding the *read-back* maps with `PianoRoll` yields the same notes
+//       as decoding the in-memory originals — i.e. the format is lossless for
+//       the downstream post-processor.
+//
+// One flat note is engineered (constant 0.8 in a single column, a single onset
+// peak, a flat contour on the base pitch) so the decode comparison is
+// unambiguous: exactly one note, no bends.
+void testRawMapRoundTrip() {
+   using namespace libaudio;
+   std::printf("\n--- raw-map write/read round-trip (no model) ---\n");
+   const ModelDescriptor& desc = basicPitchDescriptor();
+   PianoRoll roll(desc);
+
+   const int64_t nFrames = 40;
+   const int64_t nNote = desc.nNoteBins;       // 88
+   const int64_t nContour = desc.nContourBins; // 264
+   const int64_t pitchBin = 39; // MIDI 60 (C4) = bin 39 (offset 21)
+   const int64_t s = 5;
+   const int64_t e = 26; // half-open [5, 26): 21 frames > minNoteLen (11)
+   const int64_t centerCol = 3 * pitchBin; // 117 (mid-range, unclamped window)
+   const int64_t annotNFrames = 172;
+
+   Tensor noteMap({nFrames, nNote},
+                  static_cast<size_t>(nFrames) * static_cast<size_t>(nNote));
+   Tensor onsetMap({nFrames, nNote},
+                   static_cast<size_t>(nFrames) * static_cast<size_t>(nNote));
+   for (int64_t r = s; r < e; ++r) {
+      noteMap.data[static_cast<size_t>(r) * static_cast<size_t>(nNote) +
+                   static_cast<size_t>(pitchBin)] = 0.8f;
+   }
+   onsetMap.data[static_cast<size_t>(s) * static_cast<size_t>(nNote) +
+                 static_cast<size_t>(pitchBin)] = 0.9f; // onset peak
+   Tensor contourMap({nFrames, nContour}, static_cast<size_t>(nFrames) *
+                                             static_cast<size_t>(nContour));
+   for (int64_t r = s; r < e; ++r) {
+      contourMap.data[static_cast<size_t>(r) * static_cast<size_t>(nContour) +
+                      static_cast<size_t>(centerCol)] = 1.0f;
+   }
+
+   RawPredictions pred;
+   pred.noteMap = noteMap;
+   pred.onsetMap = onsetMap;
+   pred.contourMap = contourMap;
+   pred.annotNFrames = annotNFrames;
+   pred.haveContour = true;
+
+   // A unique temp file; it is removed at the end regardless of outcome.
+   const std::string path = (std::filesystem::temp_directory_path() /
+                             "libaudio_tier2_rawmap_roundtrip.rawmap")
+                               .string();
+
+   bool ioOk = true;
+   try {
+      writeRawPredictions(pred, path);
+   } catch (const std::exception& ex) {
+      std::printf("  [FAIL] writeRawPredictions threw: %s\n", ex.what());
+      ioOk = false;
+   }
+   check(ioOk, "writeRawPredictions succeeds");
+
+   bool rtOk = true;
+   RawPredictions back;
+   try {
+      back = readRawPredictions(path);
+   } catch (const std::exception& ex) {
+      std::printf("  [FAIL] readRawPredictions threw: %s\n", ex.what());
+      rtOk = false;
+   }
+   check(rtOk, "readRawPredictions succeeds");
+
+   if (rtOk) {
+      // Scalar fields.
+      check(back.annotNFrames == annotNFrames, "annotNFrames round-trips");
+      check(back.haveContour == pred.haveContour, "haveContour round-trips");
+      // Map shapes.
+      check(back.noteMap.dims == noteMap.dims, "noteMap shape round-trips");
+      check(back.onsetMap.dims == onsetMap.dims, "onsetMap shape round-trips");
+      check(back.contourMap.dims == contourMap.dims,
+            "contourMap shape round-trips");
+      // float32 is written by byte, so the element buffers are bit-identical.
+      check(back.noteMap.data == noteMap.data,
+            "noteMap data is byte-identical");
+      check(back.onsetMap.data == onsetMap.data,
+            "onsetMap data is byte-identical");
+      check(back.contourMap.data == contourMap.data,
+            "contourMap data is byte-identical");
+
+      // The decode must agree: re-decoding the read-back maps yields the same
+      // notes as decoding the in-memory originals (lossless for the post-proc).
+      const std::vector<Note> a = roll.process(pred.noteMap, pred.onsetMap,
+                                               pred.contourMap, annotNFrames);
+      const std::vector<Note> b = roll.process(back.noteMap, back.onsetMap,
+                                               back.contourMap, annotNFrames);
+      check(a.size() == b.size(), "decoded note count matches");
+      bool same = a.size() == b.size();
+      for (size_t i = 0; same && i < a.size(); ++i) {
+         if (a[i].pitch != b[i].pitch || a[i].startTime != b[i].startTime ||
+             a[i].endTime != b[i].endTime || a[i].velocity != b[i].velocity ||
+             a[i].channel != b[i].channel ||
+             a[i].pitchBends != b[i].pitchBends) {
+            same = false;
+         }
+      }
+      check(same, "decoded notes match the originals (lossless)");
+   }
+
+   std::filesystem::remove(path); // best-effort cleanup
+}
+
 } // namespace
 
 int main() {
@@ -210,6 +329,9 @@ int main() {
    // Pure post-processing (model-free): the get_pitch_bends port. Runs first
    // so it is exercised even in an environment where the model can't load.
    testBendPostProcessing();
+
+   // Pure serialization (model-free): the raw-map write/read round-trip.
+   testRawMapRoundTrip();
 
    // --- 1. Load the model ---------------------------------------------------
    // The model is embedded into the binary (nmp_onnx_data.h); there is no file

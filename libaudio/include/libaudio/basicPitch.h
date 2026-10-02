@@ -45,6 +45,7 @@
 #include <libaudio/modelDescriptor.h>
 #include <libaudio/onnxSession.h>
 #include <libaudio/pianoRoll.h>
+#include <libaudio/rawMap.h>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -130,6 +131,21 @@ class BasicPitch : public Analyzer {
    // Transcribe an audio file to a HIR Score (see the pipeline above).
    // @throws std::runtime_error if the audio cannot be read or a run fails.
    [[nodiscard]] Score transcribe(std::string_view path) const override;
+
+   // Run the model once over `path` and return the raw stitched activation
+   // maps (note / onset / contour) plus `annotNFrames` — the pre-decode state
+   // a post-processor (or a knob-sweep) consumes. This is the model's output
+   // before any thresholding / segmentation, and is the expensive artifact to
+   // cache: the resampled audio it was built from is deliberately *not* kept
+   // (it is cheap and regenerable from the source on demand).
+   //
+   // Unlike `transcribe` it always accumulates the contour map, so a cached
+   // `RawPredictions` can be re-decoded with or without pitch bends without
+   // another model run. Pair with `writeRawPredictions` / `readRawPredictions`
+   // (rawMap.h) to persist or reload it.
+   //
+   // @throws std::runtime_error if the audio cannot be read or a run fails.
+   [[nodiscard]] RawPredictions getRawPredictions(std::string_view path) const;
 
    // The analyzer's stable identifier.
    [[nodiscard]] std::string name() const override;

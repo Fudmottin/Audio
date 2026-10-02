@@ -75,3 +75,4 @@ Used in the COMM chunk for sample rate:
 | **MIDI file** | Musical Instrument Digital Interface file. Standard format for representing musical performance data. |
 | **DAW** | Digital Audio Workstation (e.g., Logic Pro, GarageBand). |
 | **DRM** | Digital Rights Management. Apple Music's encryption layer. |
+| **MAESTRO** | The Magenta piano dataset (v3.0.0: 1276 files; train 962 / val 137 / test 177; 2004–2018). Real **Yamaha** piano audio; the MIDI is the piano's **key-strike** capture (ground truth); includes room acoustics + deliberate degradation (added noise/artifacts). WAVs pending download. Ground truth for tuning the basic-pitch path. |
