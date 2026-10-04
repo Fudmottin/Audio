@@ -133,6 +133,19 @@ pitch error. It is now midicapture's **default `--model`** in a Tier-2 build
 (`aubio` is the monophonic fallback): `midicapture --run-corpus test-midi
 --model {basic|aubio}` (`--analyzer` is a deprecated alias for `--model`).
 
+**Reproducibility note (Core ML):** the model is **deterministic within a session**
+(a no-flag `--run-corpus` is byte-identical across repeated runs, and the metrics
+above are the stable regression gate). **Across sessions** the *exact output bytes*
+are *not* bit-stable on the Core ML path — the signature is a 1-velocity-tick flip,
+a near-threshold false note flickering in/out, or a few duration-boundary ticks,
+while the **recall / precision / onset / duration metrics stay identical** (the
+discrete note *detections* are bit-stable; only float-derived bytes move). This is
+*consistent with* the Core ML / Apple-ANE execution provider re-deriving slightly
+different activations across launches, and is **not** a code regression. It does not
+affect the post-proc **sweep**, which runs the model *once* and re-decodes the
+cached raw-map under each knob with pure C++ (immune to the drift) — see
+[../plans/postproc-tuning.md](../plans/postproc-tuning.md) §9.
+
 ## 6. Cross-References
 
 - [summary.md](summary.md) — the libaudio module overview (Tier-1 core)

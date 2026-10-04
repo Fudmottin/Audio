@@ -166,18 +166,31 @@ baseline. **Highest-leverage enabler for the whole plan.**
 ## 10. Ground truth: MAESTRO v3.0.0 + the overfitting guardrail
 
 - **MAESTRO** = real **Yamaha** piano recordings; the MIDI is the **key-strike**
-  data the piano captured while playing (audio is real — room acoustics), and the
-  dataset applies **deliberate degradation** (noise/artifacts). 1276 files (train
-  962 / val 137 / test 177), 10 years (2004–2018), duration median ~7 min up to
-  ~44 min. **WAVs not yet downloaded** (MIDI is here). GT = key-strike MIDI →
-  recall / precision / recall@octave.
+  data the piano captured while playing, and the audio is the *same* clean
+  performance (real room acoustics, **no added noise**). 1276 files (train 962 /
+  val 137 / test 177), 10 years (2004–2018), duration median ~7 min up to ~44 min.
+  The **full download is present** (120 GB at repo root `maestro-v3.0.0/`; the user
+  set it read-only; it is git-ignored and *never* copied into tracked dirs — it is
+  freely redistributable only as *public* metadata + sha256, never as audio bytes).
+  GT = key-strike MIDI → recall / precision / recall@octave. *Quality profile* (a
+  1276-row sweep + a 30-file audio sample): the recordings are **clean / tonal**
+  (spectral flatness −43…−59 dB), **mellow** (~55–95% of energy in 200 Hz–1 kHz;
+  little above 4 kHz; centroid ~520 Hz median), **dynamic** (LRA ~15 LU median), and
+  consistently 16-bit stereo at 44.1 kHz (1043) / 48 kHz (233) — a *warm piano*
+  dataset trait, **not** degradation. (An earlier draft of this section wrongly
+  called the audio "degraded," conflating it with the basic-pitch paper's
+  *robustness-on-tainted-audio* experiments; the magenta page makes no such claim.)
 - **Overfitting trap:** a `timidity` render has *free* GT (the source MIDI **is**
   the GT) but a **different instrument personality** than the model was trained on
   — valid for *relative* comparison only, not absolute quality.
-- **Fixed tuning set:** ~30–50 stratified MAESTRO files (tempo / duration /
-  density / register / dynamics) **plus** `timidity` renders mixed in, with a
-  sha256 manifest. **`--fuzz`** random-pick mode for coverage. MAESTRO pieces are
-  long → budget for runtime, or sample the shorter `test`-split works first.
+- **Fixed tuning set:** ~30–50 stratified MAESTRO files (duration / note-density /
+  register / dynamics; **not** tempo — the MIDI tempo meta is a uniform **120**
+  placeholder across all 1276, so it carries no signal) **plus** `timidity` renders
+  mixed in, with a sha256 manifest. **`--fuzz`** random-pick mode for coverage.
+  MAESTRO pieces are long → budget for runtime, or sample the shorter `test`-split
+  works first. Because the tempo meta is a placeholder, a GT matcher over it must
+  **duration-match** (rescale GT note times so the GT total = the audio total)
+  before scoring.
 
 ## 11. The NMP post-processing options menu (what the knobs unlock)
 
