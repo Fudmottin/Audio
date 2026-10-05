@@ -191,6 +191,12 @@ baseline. **Highest-leverage enabler for the whole plan.**
   works first. Because the tempo meta is a placeholder, a GT matcher over it must
   **duration-match** (rescale GT note times so the GT total = the audio total)
   before scoring.
+- **The GT reader is now trustworthy** (the MIDI file-handling fix): the
+  standards-compliant `MidiFileReader` reads a MAESTRO MIDI correctly, so the
+  sweep's duration-match rescale is a near-no-op (**F ≈ 1.0** on a 1293-note /
+  96 s file) — an earlier F ≈ 0.2 was an artifact of a reader that mis-parsed
+  running status, not a basic-pitch timing bug (the GT is registered to its
+  audio).
 
 ## 11. The NMP post-processing options menu (what the knobs unlock)
 
@@ -237,9 +243,22 @@ if it isn't, fetch it”), since **onnxruntime is the point**.
    path. A no-flag run stays byte-identical (14/14 corpus parity; metrics
    unchanged); `--midi-tempo` is intentionally not a flag (redundant with
    `--tempo`).
-3. **Separate experimental method** + a sweep driver (§8).
-4. **MAESTRO GT harness** + fixed set + `--fuzz` (§10).
+3. ✅ **Separate experimental method** + a sweep driver (§8) — done: the
+   `transcribe(path, options)` overload + `AnalyzerParams` (harness defaults
+   undisturbed) and the `--sweep` MAESTRO GT driver (runs the model once, re-
+   decodes the raw-map under a one-knob-at-a-time grid, scores vs `--gt` with a
+   duration-match rescale).
+4. **MAESTRO GT harness** + fixed set + `--fuzz` (§10) — the `--sweep` harness
+   + a 12-file MAESTRO set are done; `--fuzz` (random-pick) and the larger
+   stratified set remain.
 5. The **options-menu techniques**, highest-leverage first (§11).
+
+> **MIDI file-handling fix** (a user-directed task, not a numbered phase): the
+> reader is now standards-compliant (running status, per-segment tempo, malformed
+> → loud abort) and the writer emits canonical running status; both the corpus
+> harness and the sweep's GT readers fail loudly on invalid MIDI. The 14-file
+> corpus gate stays metric-identical. See
+> [../midicapture/writer.md](../midicapture/writer.md).
 
 ## 15. Port completeness (the honest “is it a complete port?”)
 

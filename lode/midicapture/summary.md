@@ -240,7 +240,10 @@ Requires: aubio, libsndfile, Boost (program_options); **Tier-2 additionally** on
 
 ## 8. Validation & Known Issues
 
-The writer is **validated, not a bug** — see [writer.md](writer.md). What
+The writer is **validated, not a bug** — see [writer.md](writer.md); it now
+emits canonical running status. The reader is a **standards-compliant** SMF
+parser (running status, per-segment tempo, malformed → loud abort) that fails
+loudly on invalid ground-truth rather than scoring a half-parsed file. What
 remains open is transcription quality.
 
 ### Validation toolchain (decided: not ffprobe)

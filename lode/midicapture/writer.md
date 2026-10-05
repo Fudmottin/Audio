@@ -99,6 +99,21 @@ decodes each `0xE0` to signed 14-bit (`((d2&0x7F)<<7 | (d1&0x7F)) − 8192`), an
 attaches it to the most-recently-opened note on that channel, so a written
 `Note::pitchBends` comes back intact.
 
+**A standards-compliant reader.** The reader is a *general* SMF parser, not one
+sized to this writer: it honours running status (a data byte reuses the last
+*channel* message, exactly as the MIDI 1.0 spec and the `midicsv` reference
+define it — a system message does not clear a channel running status), runs a
+per-segment clock that honours tempo changes (`FF 51` sets the tempo for later
+deltas), and **fails loudly** on malformed input — `ok()` is false and
+`error()` names the reason (a non-SMF, a short / oversized header, an
+unsupported ticks-per-division, an `MTrk` length past end-of-file, an
+unterminated varlen, event data past the track end, a data byte with no prior
+channel status, or a reserved / realtime status). Ground-truth callers abort on
+`!ok()` rather than score a half-parsed file. This replaced a parser whose
+`status = raw[j++]` unconditionally consumed a byte, so a running data byte
+desynced the stream (a tick explosion + note loss — the reader bug behind the
+earlier MAESTRO sweep's F ≈ 0.2).
+
 ---
 
 ## 3. Invariants the Writer Enforces
@@ -110,7 +125,7 @@ attaches it to the most-recently-opened note on that channel, so a written
 | 3 | Big-endian multi-byte fields | `writeUint16` / `writeUint32` emit MSB first. |
 | 4 | `MTrk` length == actual event bytes | Length is written from `track.size()` *after* building the track. |
 | 5 | `FF 2F 00` always present, always last | `buildTrack` appends `endOfTrack()` at the end. |
-| 6 | No running status | Every payload carries its own status byte. |
+| 6 | Canonical running status | A channel-voice event matching the last channel status omits its status byte; a system event always carries its full status and does not clear the channel running status. (A `Score` with no two consecutive same-status channel events — e.g. any bend-less file — is byte-identical to a non-running writer.) |
 | 7 | Velocities in [1,127]; pitches in [0,127] | `clamp7` (pitch) + `min(127, max(1, v))` (velocity floor/cap). |
 | 8 | Note duration ≥ 1 tick | If `offTick <= onTick`, off is bumped to `onTick + 1`. |
 | 9 | Bends emit 0xE0 only when the vector is non-empty | `buildTrack` skips the bend block for an empty `Note::pitchBends`; a constant-pitch note (and the entire aubio Tier-1 path) stays byte-identical to the pre-bend writer. |
@@ -207,7 +222,11 @@ The unit test `test_midiWriter` (`libaudio/tests/test_main.cpp`) asserts the
 raw bytes: header magic / length / format / tracks / division, `MTrk` length ==
 remaining bytes, **first event is `00 FF 51`** (regression guard against the
 historical garbage-prefix bug), note bytes present, EOT trailer, and
-empty-score structural validity.
+empty-score structural validity. `test_runningStatus` proves the writer emits
+canonical running status for a bent note (one full `0xE0`, the rest data-only)
+and the reader recovers a hand-crafted running-status *chord* the writer never
+emits; `test_malformedAbort` proves the reader fails loudly on a non-SMF, an
+over-long `MTrk`, and a bare data byte with no prior channel status.
 
 ---
 
