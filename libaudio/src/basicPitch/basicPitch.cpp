@@ -583,12 +583,25 @@ const BasicPitchOptions& BasicPitch::options() const {
 }
 
 Score BasicPitch::transcribe(std::string_view path) const {
+   // The one-argument form uses this transcriber's active options (the
+   // defaults until `setOptions`). It delegates to the two-argument overload so
+   // the pipeline logic lives in exactly one place.
+   return transcribe(path, impl_->options_);
+}
+
+Score BasicPitch::transcribe(std::string_view path,
+                             const BasicPitchOptions& options) const {
+   // Bound the caller's knobs to their sane ranges: a non-finite value is an
+   // error, an out-of-range value is clamped to its bound with a note.
+   // Re-clamping the already-clamped `options_` (the one-arg path) is a no-op,
+   // so that path stays bit-identical.
+   const BasicPitchOptions opt = clampOptions(options);
+
    // Front-end (decode + window + run + overlap-stitch + truncate) is the
-   // shared `runFrontEnd`. `wantBends` is the pre-refactor gate for whether
-   // the contour is accumulated, so `transcribe` behaves exactly as it did
-   // before the factoring (a run with the default options is bit-identical).
-   const bool wantBends = impl_->options_.includePitchBends &&
-                          impl_->options_.bendDeadbandBins >= 0.0;
+   // shared `runFrontEnd`. `wantBends` gates whether the contour is accumulated
+   // (the contour is the expensive third map, so it is only run when a bend
+   // will actually be decoded).
+   const bool wantBends = opt.includePitchBends && opt.bendDeadbandBins >= 0.0;
    const RawPredictions raw = impl_->runFrontEnd(path, wantBends);
 
    // --- Decode the global maps into notes and assemble the Score. -----------
@@ -597,10 +610,10 @@ Score BasicPitch::transcribe(std::string_view path) const {
    std::vector<Note> notes;
    if (raw.haveContour) {
       notes = impl_->roll.process(raw.noteMap, raw.onsetMap, raw.contourMap,
-                                  raw.annotNFrames, impl_->options_);
+                                  raw.annotNFrames, opt);
    } else {
       notes = impl_->roll.process(raw.noteMap, raw.onsetMap, raw.annotNFrames,
-                                  impl_->options_);
+                                  opt);
    }
 
    // Bend post-processing that is ours, not the reference's: clear the bend of
@@ -609,19 +622,19 @@ Score BasicPitch::transcribe(std::string_view path) const {
    // another. Applied here, on the decoded notes, before the Score is built
    // (the result is order-independent, so it is agnostic to the builder's
    // sort).
-   applyBendPolicy(notes, impl_->options_);
+   applyBendPolicy(notes, opt);
 
    // Channel policy: when multiple bends are on, route each distinct bent
    // pitch to its own channel (1..15) so overlapping bends don't fight on one
    // wheel. Must run after `applyBendPolicy` (which decides which notes have
    // bends) and before the Score is built (the writer reads `note.channel`).
-   applyChannelPolicy(notes, impl_->options_);
+   applyChannelPolicy(notes, opt);
 
    ScoreBuilder builder;
    for (Note& n : notes) {
       builder.addNote(std::move(n));
    }
-   builder.setTempo(impl_->options_.midiTempo);
+   builder.setTempo(opt.midiTempo);
    builder.setTitle(std::filesystem::path(std::string(path)).stem().string());
    return builder.build();
 }

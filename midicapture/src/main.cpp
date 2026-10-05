@@ -49,6 +49,9 @@
 
 #include <boost/program_options.hpp>
 
+#include <algorithm>
+#include <cmath>
+#include <cstdio>
 #include <filesystem>
 #include <iostream>
 #include <libaudio/analyzer.h>
@@ -59,7 +62,11 @@
 #include <memory>
 #ifdef LIBAUDIO_HAS_TIER2
 #include <libaudio/basicPitch.h>
+#include <libaudio/midiFileReader.h>
+#include <libaudio/modelDescriptor.h>
+#include <libaudio/pianoRoll.h>
 #include <libaudio/rawMap.h>
+#include <midicapture/noteMatcher.h>
 #endif // LIBAUDIO_HAS_TIER2
 #include <midicapture/corpusHarness.h>
 #include <string>
@@ -151,6 +158,15 @@ static void printUsage(const char* programName) {
    std::cerr << "  --dump-raw-map <path>     For --model basic: run the model"
              << " once and write its raw stitched maps to <path>; writes no"
              << " MIDI.\n";
+   std::cerr << "  --sweep                   MAESTRO ground-truth knob sweep:"
+             << " run the model once on <input>, re-decode the raw maps under"
+             << " a knob grid, and score each against --gt. Requires <input>"
+             << " + --gt.\n";
+   std::cerr << "  --gt <path>               Ground-truth MIDI for --sweep.\n";
+   std::cerr << "  --raw-map <path>          For --sweep: decode a dumped"
+             << " raw-map instead of re-running the model.\n";
+   std::cerr << "  --no-rescale              For --sweep: skip the"
+             << " ground-truth duration-match rescale.\n";
 #endif // LIBAUDIO_HAS_TIER2
    std::cerr << "\nExamples:\n";
    std::cerr << "  " << programName << " input.aiff output.mid\n";
@@ -457,6 +473,194 @@ static int runGenerateTestMidiFiles(const std::string& outputDir) {
    return 1;
 }
 
+#ifdef LIBAUDIO_HAS_TIER2
+// ============================================================================
+// runMaestroSweep — the MAESTRO ground-truth knob sweep (the tuner).
+//
+// The corpus harness (14 tempo-correct, timidity-rendered assets) tunes the
+// post-processing knobs against rendered ground truth. This sweep is the
+// *experimental* tuner for real recordings: it runs the basic-pitch model
+// once (or decodes a cached raw-map), then re-decodes the raw note/onset maps
+// under a one-knob-at-a-time grid, scoring every setting against the
+// recording's ground-truth MIDI. Re-decoding one model output under many
+// settings is what makes the knob effects comparable: the expensive model run
+// is shared, so any run-to-run drift (Core ML ULP noise) touches only the raw
+// maps, never the sweep axis.
+//
+// The MAESTRO MIDI carries a *placeholder* tempo (120 BPM, a fixed value the
+// dataset writes rather than a real one), so the ground-truth note times are
+// not on the audio's timeline. The sweep corrects this with a single
+// duration-match rescale: it stretches the ground-truth times by
+// audioDuration / groundTruthMidiDuration, a global factor that lands each
+// note's onset and length on the audio's clock. `--no-rescale` scores the raw
+// ground-truth timeline (the uncorrected baseline).
+//
+// @param audioPath  The input audio (the positional <input>).
+// @param gtPath     The ground-truth MIDI (--gt).
+// @param rawMapPath A cached raw-map to decode (empty = run the model once).
+// @param useRescale Whether to duration-match-rescale the ground truth.
+// @return 0 on success, 1 on error.
+// ============================================================================
+static int runMaestroSweep(const std::string& audioPath,
+                           const std::string& gtPath,
+                           const std::string& rawMapPath, bool useRescale) {
+   using midicapture::FileMetrics;
+   using midicapture::Note4;
+   using midicapture::evaluateFile;
+   using midicapture::toNote4;
+
+   std::cout << "midicapture — MAESTRO ground-truth knob sweep\n";
+   std::cout << "==============================================\n\n";
+   std::cout << "Audio: " << audioPath << "\n";
+   std::cout << "GT:    " << gtPath << "\n";
+
+   // --- Ground truth: read the MIDI and its (placeholder-tempo) times. ----
+   MidiFileReader gt(gtPath);
+   if (!gt.ok() || gt.score().notes.empty()) {
+      std::cerr << "Error: cannot read ground-truth MIDI '" << gtPath
+                << "' (unreadable or no notes).\n";
+      return 1;
+   }
+   std::vector<Note4> truth;
+   truth.reserve(gt.score().notes.size());
+   double gtMidiDur = 0.0; // the longest ground-truth note end (MIDI time)
+   for (const Note& n : gt.score().notes) {
+      truth.push_back(toNote4(n));
+      gtMidiDur = std::max(gtMidiDur, n.endTime);
+   }
+
+   // --- The audio's real duration (a cheap header probe). ------------------
+   double audioDur = 0.0;
+   try {
+      AudioFileReader af(audioPath);
+      audioDur = af.duration();
+   } catch (const std::exception& e) {
+      std::cerr << "Error: cannot read audio '" << audioPath << "': "
+                << e.what() << "\n";
+      return 1;
+   }
+   if (audioDur <= 0.0) {
+      std::cerr << "Error: audio duration " << audioDur
+                << " s is not usable for the sweep.\n";
+      return 1;
+   }
+
+   // The duration-match rescale (1.0 = off, the tempo-correct / corpus case).
+   const double rescale =
+      (useRescale && gtMidiDur > 0.0) ? audioDur / gtMidiDur : 1.0;
+   std::cout << "\nAudio duration:   " << audioDur << " s\n";
+   std::cout << "GT MIDI duration: " << gtMidiDur << " s  ("
+             << truth.size() << " notes)\n";
+   std::cout << "Duration-match F: " << rescale
+             << (rescale == 1.0 ? "   (off)" : "   (on)") << "\n";
+
+   // --- One model run (the expensive artifact) — or a cached raw-map. ------
+   RawPredictions raw;
+   if (!rawMapPath.empty()) {
+      try {
+         raw = readRawPredictions(rawMapPath);
+      } catch (const std::exception& e) {
+         std::cerr << "Error: cannot read raw-map '" << rawMapPath << "': "
+                   << e.what() << "\n";
+         return 1;
+      }
+      std::cout << "\nDecoding cached raw-map: " << rawMapPath << "\n";
+   } else {
+      std::cout << "\nRunning the model once over the audio...\n";
+      try {
+         BasicPitch bp;
+         raw = bp.getRawPredictions(audioPath);
+      } catch (const std::exception& e) {
+         std::cerr << "Error: model run failed: " << e.what() << "\n";
+         return 1;
+      }
+      std::cout << "Model run complete.\n";
+   }
+
+   // --- The one-knob-at-a-time grid: the reference defaults, then each knob
+   // that affects recall / precision varied alone. Bends / velocity / tempo
+   // are omitted (they do not change which notes are detected).
+   const BasicPitchOptions base = BasicPitchOptions();
+   std::vector<std::pair<std::string, BasicPitchOptions>> grid;
+   auto add = [&grid](std::string lbl, BasicPitchOptions o) {
+      grid.emplace_back(std::move(lbl), std::move(o));
+   };
+   auto lbl = [](const char* name, double v) {
+      char buf[48];
+      std::snprintf(buf, sizeof(buf), "%s=%.3f", name, v);
+      return std::string(buf);
+   };
+
+   add("baseline", base);
+   for (float v : {0.2f, 0.3f, 0.4f, 0.5f, 0.6f, 0.7f}) {
+      BasicPitchOptions o = base;
+      o.onsetThreshold = v;
+      add(lbl("onset", v), o);
+   }
+   for (float v : {0.1f, 0.2f, 0.3f, 0.4f, 0.5f}) {
+      BasicPitchOptions o = base;
+      o.frameThreshold = v;
+      add(lbl("frame", v), o);
+   }
+   for (double v : {50.0, 127.7, 250.0, 400.0}) {
+      BasicPitchOptions o = base;
+      o.minNoteLenMs = v;
+      add(lbl("minLen", v), o);
+   }
+   for (double v : {1000.0, 2000.0, 4000.0, 4186.0}) {
+      BasicPitchOptions o = base;
+      o.maxFrequency = v;
+      add(lbl("maxFreq", v), o);
+   }
+   {
+      BasicPitchOptions o = base; // A0 floor: a no-op row at the default.
+      o.minFrequency = 27.5;
+      add(lbl("minFreq", 27.5), o);
+   }
+
+   // --- Re-decode under each setting and score against the rescaled truth. --
+   // The 4-arg process (no contour) is used: pitch bends do not affect
+   // recall / precision, and skipping the contour trace keeps each re-decode
+   // cheap. One shared PianoRoll decodes the one shared raw map set.
+   const PianoRoll roll(basicPitchDescriptor());
+   std::cout << "\nSetting            recall   prec   Δonset   Δdur  notes "
+               "(miss/false)\n";
+   std::cout << std::string(72, '-') << "\n";
+
+   double bestF1 = -1.0;
+   std::string bestLabel;
+   FileMetrics best;
+   for (const auto& [name, setting] : grid) {
+      const std::vector<Note> notes =
+         roll.process(raw.noteMap, raw.onsetMap, raw.annotNFrames, setting);
+      std::vector<Note4> det;
+      det.reserve(notes.size());
+      for (const Note& n : notes) {
+         det.push_back(toNote4(n));
+      }
+      FileMetrics m = evaluateFile(truth, det, name, rescale);
+      std::printf("  %-18s %5.1f%%  %5.1f%%  %7.1f  %7.1f  %4d  (%3d/%3d)\n",
+                  m.name.c_str(), 100.0 * m.recall, 100.0 * m.precision,
+                  m.onsetMs, m.durMs, m.nDet, m.nMissed, m.nFalse);
+      const double s = m.recall + m.precision;
+      const double f1 = (s > 0.0) ? 2.0 * m.recall * m.precision / s : 0.0;
+      if (f1 > bestF1) {
+         bestF1 = f1;
+         best = m;
+         bestLabel = name;
+      }
+   }
+
+   std::cout << std::string(72, '-') << "\n";
+   std::cout << "Best by F1: " << bestLabel << "  —  recall "
+             << 100.0 * best.recall << "%  precision "
+             << 100.0 * best.precision << "%  (F1 " << 100.0 * bestF1
+             << "%, Δonset " << best.onsetMs << " ms, Δdur " << best.durMs
+             << " ms)\n";
+   return 0;
+}
+#endif // LIBAUDIO_HAS_TIER2
+
 // ============================================================================
 // main — Entry point for midicapture.
 //
@@ -533,6 +737,14 @@ int main(int argc, char* argv[]) {
    double bendDeadband = 1.0;
    bool noInferOnsets = false;
    bool noMelodia = false;
+   // --sweep: the MAESTRO ground-truth knob tuner. `gtPath` is the
+   // ground-truth MIDI to score the detections against; `sweepRawMapPath` is
+   // an optional cached raw-map to decode instead of re-running the model;
+   // `noRescale` disables the ground-truth duration-match rescale.
+   bool sweep = false;
+   std::string gtPath;
+   std::string sweepRawMapPath;
+   bool noRescale = false;
 #endif // LIBAUDIO_HAS_TIER2
 
    // Define the options: name, type, description.
@@ -658,7 +870,22 @@ int main(int argc, char* argv[]) {
       "dump-raw-map", po::value<std::string>(&dumpRawMapPath),
       "For --model basic: run the model once and write its raw stitched"
       " activation maps (note/onset/contour) to PATH as a binary raw-map"
-      " file; writes no MIDI. Requires a positional input audio file.");
+      " file; writes no MIDI. Requires a positional input audio file.")(
+      "sweep", po::bool_switch(&sweep),
+      "MAESTRO ground-truth knob sweep: run the basic-pitch model once on"
+      " <input>, re-decode the raw maps under a one-knob-at-a-time grid, and"
+      " score each setting against --gt. Requires a positional <input> and"
+      " --gt (the ground-truth MIDI).")(
+      "gt", po::value<std::string>(&gtPath),
+      "Ground-truth MIDI for --sweep (the notes to score detections against)."
+      " Its tempo is a placeholder, so the sweep rescales the ground-truth"
+      " times to the audio's duration by default.")(
+      "raw-map", po::value<std::string>(&sweepRawMapPath),
+      "For --sweep: decode a previously dumped raw-map (from --dump-raw-map)"
+      " instead of re-running the model; the model run is the expensive step.")(
+      "no-rescale", po::bool_switch(&noRescale),
+      "For --sweep: do NOT duration-match-rescale the ground truth (score on"
+      " the raw ground-truth timeline); useful to confirm the correction.");
 #endif // LIBAUDIO_HAS_TIER2
 
    // Define positional options: <input.aiff> <output.mid>.  These bind the
@@ -820,6 +1047,15 @@ int main(int argc, char* argv[]) {
          << "  --dump-raw-map <path>      For --model basic: run the model"
             " once and write its raw stitched maps to <path>; writes no"
             " MIDI.\n"
+         << "  --sweep                    MAESTRO ground-truth knob sweep: run"
+            " the model once on <input>, re-decode the raw maps under a knob"
+            " grid, and score each against --gt (requires <input> + --gt).\n"
+         << "  --gt <path>                Ground-truth MIDI for --sweep (the"
+            " notes to score against).\n"
+         << "  --raw-map <path>           For --sweep: decode a dumped"
+            " raw-map instead of re-running the model.\n"
+         << "  --no-rescale               For --sweep: skip the ground-truth"
+            " duration-match rescale.\n"
 #endif // LIBAUDIO_HAS_TIER2
          << "\n";
       return 0;
@@ -892,6 +1128,19 @@ int main(int argc, char* argv[]) {
       std::cout << "  haveContour   " << (raw.haveContour ? "yes" : "no")
                 << "\n";
       return 0;
+   }
+
+   // --sweep <input> --gt <gt>: the MAESTRO ground-truth knob sweep (the
+   // experimental tuner). Like --dump-raw-map it needs the positional <input>
+   // (validated above); a --gt is required. It runs the model once (or decodes
+   // a --raw-map), re-decodes under a knob grid, and scores each against the
+   // ground truth with the duration-match rescale.
+   if (sweep) {
+      if (gtPath.empty()) {
+         std::cerr << "Error: --sweep requires --gt <ground-truth.midi>.\n";
+         return 1;
+      }
+      return runMaestroSweep(inputPath, gtPath, sweepRawMapPath, !noRescale);
    }
 #endif // LIBAUDIO_HAS_TIER2
 

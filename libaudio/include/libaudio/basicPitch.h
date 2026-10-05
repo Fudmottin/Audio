@@ -209,9 +209,25 @@ class BasicPitch : public Analyzer {
    BasicPitch(BasicPitch&& other) noexcept;
    BasicPitch& operator=(BasicPitch&& other) noexcept;
 
-   // Transcribe an audio file to a HIR Score (see the pipeline above).
+   // Transcribe an audio file to a HIR Score (see the pipeline above), using
+   // this transcriber's currently active options (`options()`, i.e. the defaults
+   // until `setOptions`). This is the `Analyzer` port method the corpus
+   // evaluator and the direct-transcription path call.
    // @throws std::runtime_error if the audio cannot be read or a run fails.
    [[nodiscard]] Score transcribe(std::string_view path) const override;
+
+   // Transcribe an audio file with a *caller-supplied* post-processing options
+   // bundle, leaving this transcriber's stored options (`options()`) untouched.
+   // The options are clamped (`clampOptions`) before use, so an out-of-range
+   // value is bounded with a note and a non-finite value is an error. This is
+   // the entry point a knob-sweep uses to re-decode one model output under many
+   // option settings without perturbing a shared instance. Note the model itself
+   // is always run fresh here; to re-decode a *cached* raw-map under many
+   // settings without another model run, use `getRawPredictions` / `PianoRoll`.
+   // @throws std::runtime_error if the audio cannot be read or a run fails;
+   //         std::invalid_argument if any knob is non-finite.
+   [[nodiscard]] Score
+   transcribe(std::string_view path, const BasicPitchOptions& options) const;
 
    // Run the model once over `path` and return the raw stitched activation
    // maps (note / onset / contour) plus `annotNFrames` — the pre-decode state
