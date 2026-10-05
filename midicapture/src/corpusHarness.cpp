@@ -67,9 +67,9 @@ namespace fs = std::filesystem;
 // symbols; these import them at global scope so the function body below is
 // unchanged. The corpus passes the default rescale factor (1.0), so a run is
 // byte-identical to the pre-factor path.
+using midicapture::evaluateFile;
 using midicapture::FileMetrics;
 using midicapture::Note4;
-using midicapture::evaluateFile;
 using midicapture::printPerFile;
 using midicapture::printSummary;
 using midicapture::toNote4;
@@ -525,8 +525,16 @@ int runCorpus(const std::string& dir, const std::string& analyzerName,
       }
 
       libaudio::MidiFileReader reader(midPath);
-      if (!reader.ok() || reader.score().notes.empty()) {
-         std::cout << "  " << name << ":  no evaluation (skipped)\n";
+      if (!reader.ok()) {
+         // A malformed generated ground-truth file is a bug in our writer;
+         // abort loudly rather than score a half-parsed ground truth.
+         std::cerr << "  " << name << ":  invalid ground-truth MIDI, "
+                   << "aborting: " << reader.error() << "\n";
+         return 2;
+      }
+      if (reader.score().notes.empty()) {
+         std::cout << "  " << name << ":  no notes in the ground truth "
+                   << "(skipped)\n";
          continue;
       }
 

@@ -8,27 +8,41 @@
  * transcription evaluation harness needs: read a known-correct `.mid`, compare
  * it against what an analyzer detected, and score the difference.
  *
- * @section midifilereader-scope Scope: sized to the writer's output
+ * @section midifilereader-scope Scope: a standards-compliant SMF reader
  *
- * This is deliberately a *minimal* SMF reader, not a general-purpose one. It
- * understands exactly the structure `MidiFileWriter` emits and that our
- * generated test corpus uses:
+ * This is a general-purpose *standards-compliant* SMF reader, not one sized to
+ * a particular writer. It handles:
  *   - a `MThd` header (format, track count, ticks-per-division),
- *   - `MTrk` tracks holding: a tempo meta-event (`FF 51 03`), a title meta
- *     event (`FF 04`), and a run of note-on / note-off channel messages.
- * It handles the standard *running-status* byte (a status `< 0x80` reuses the
- * previous channel message) so it stays correct even if a writer ever omits a
- * repeated status byte. Pitch bends (`0xE0`) are read back and attached to the
- * most-recently-opened note on their channel (so a written `Note::pitchBends`
- * round-trips). Control changes, program changes, and sysex are skipped (not
- * notes). Everything else is ignored.
+ *   - `MTrk` tracks holding meta-events (tempo `FF 51`, title `FF 04`,
+ *     time-signature, end-of-track, ...) and channel voice messages (note
+ *     on/off, control change, program change, channel / poly aftertouch, pitch
+ *     bend), skipping the rest.
  *
- * @section midifilereader-timing Timing: ticks → seconds
+ * It honours the standard *running-status* byte (a status `< 0x80` reuses the
+ * most recent channel message) exactly as the MIDI 1.0 spec and the reference
+ * `midicsv` parser define it. Pitch bends (`0xE0`) are read back and attached
+ * to the most recently opened note on their channel (so a written
+ * `Note::pitchBends` round-trips).
  *
- * The reader converts event *ticks* to *seconds* using the track's tempo. A
- * note's `startTime` / `endTime` in the resulting `Score` are in seconds,
- * matching the HIR convention (see `hir.h`). The tempo (BPM) is also stored on
- * the `Score`.
+ * @section midifilereader-timing Timing: a per-segment running clock
+ *
+ * The reader converts event ticks to seconds with a *running clock* that
+ * honours tempo changes: each delta advances the clock using the tempo in
+ * effect at that point (a `FF 51` sets the tempo for subsequent deltas). A
+ * note's `startTime` / `endTime` are the running clock at its note-on /
+ * note-off; the `Score`'s tempo is the last tempo seen (BPM). For a
+ * single-tempo file this reduces to the flat `ticks * tempo` conversion.
+ *
+ * @section midifilereader-malformed Malformed input: a loud failure
+ *
+ * Rather than silently dropping a garbled file, the reader reports *why* it
+ * failed. `ok()` is false and `error()` names the problem for: a non-SMF, a
+ * short / oversized header, an unsupported ticks-per-division, an `MTrk`
+ * length past end-of-file, an unterminated variable-length value, event data
+ * running past the track end, a running-status data byte with no prior channel
+ * message, or an unknown / reserved / realtime status. Callers are expected to
+ * fail loudly on `!ok()` (the evaluation harness aborts on invalid MIDI rather
+ * than scoring against a half-parsed ground truth).
  *
  * @section midifilereader-hir HIR mapping
  *
@@ -61,8 +75,8 @@ struct Score;
 //
 // Domain context: the ground-truth reader for transcription evaluation. It is
 // the reader counterpart to `MidiFileWriter` (which goes Score → SMF); together
-// they round-trip a Score through the SMF format. See the file header for the
-// (deliberately minimal) scope and the HIR mapping.
+// they round-trip a Score through the SMF format. It is standards-compliant
+// (running status, per-segment tempo) and fails loudly on malformed input.
 //
 // RAII: the file is read in the constructor; there is no persistent handle to
 // release, but the parsed `Score` is owned by the `Impl`.
@@ -73,7 +87,8 @@ class MidiFileReader {
    //
    // The file is read and parsed immediately. On success `ok()` is true and
    // `score()` holds the parsed notes. On failure (unreadable file, not a SMF,
-   // or a parse error) `ok()` is false and `score()` is empty.
+   // or a malformed / unsupported structure) `ok()` is false, `score()` is
+   // empty, and `error()` names the reason.
    //
    // @param path Path to the `.mid` file.
    explicit MidiFileReader(std::string_view path);
@@ -95,8 +110,12 @@ class MidiFileReader {
    // The parsed Score. Only meaningful when `ok()` is true; otherwise empty.
    [[nodiscard]] const Score& score() const;
 
+   // A human-readable reason for failure (empty when `ok()` is true). Lets a
+   // caller fail loudly on malformed input rather than silently skipping it.
+   [[nodiscard]] const std::string& error() const;
+
  private:
-   // Private implementation — holds the parsed Score.
+   // Private implementation — holds the parsed Score and the byte-level parser.
    struct Impl;
    std::unique_ptr<Impl> impl_;
 };

@@ -10,7 +10,11 @@
  *
  * Invariants:
  * - Every event is preceded by a variable-length delta-time (>= 0).
- * - Channel events always include a status byte (no running status).
+ * - Channel events use canonical *running status*: a channel event whose status
+ *   matches the immediately preceding channel event omits its status byte; a
+ *   system event always carries its full status. (A Score with no two
+ *   consecutive same-status channel events — e.g. any bend-less single-channel
+ *   one — is byte-identical to a non-running-status writer.)
  * - Multi-byte fields are big-endian; the `MTrk` length equals the actual
  *   number of event bytes that follow.
  * - Each note emits exactly one Note On and one Note Off.
@@ -20,8 +24,8 @@
  * - Per-channel scaffolding: at t=0 the writer emits program change +
  *   sustain-on for each distinct channel used by the notes (sorted); at the
  *   end it emits sustain-off for each. When only channel 0 is used (the
- *   common case: aubio path, test corpus), the output is byte-identical to
- *   the single-channel writer.
+ *   common case: aubio path, test corpus) and no note bends, the output is
+ *   byte-identical to the non-running single-channel writer.
  * - The track always ends with an End-of-Track meta event (FF 2F 00).
  */
 
@@ -103,12 +107,34 @@ struct MidiFileWriter::Impl {
       }
    }
 
-   // Append a full event: [delta-time varlen][payload bytes].
+   // Append a full event: [delta-time varlen][payload bytes], applying the
+   // canonical running-status rule. For a channel-voice payload (a status byte
+   // 0x80-0xEF) matching the last channel status, the status byte is omitted
+   // (a running-status data byte); otherwise the full status is emitted and
+   // remembered. A system payload (0xF0-0xFF) is emitted in full and does not
+   // change the channel running status (a channel status may legally span it).
    static void emit(std::vector<uint8_t>& track, uint32_t deltaTicks,
-                    std::vector<uint8_t> payload) {
+                    std::vector<uint8_t> payload, uint8_t& lastChannelStatus) {
       appendVarLen(track, deltaTicks);
-      for (uint8_t b : payload) {
-         track.push_back(b);
+      if (!payload.empty()) {
+         if (payload[0] <= 0xEF) { // A channel-voice event.
+            if (payload[0] == lastChannelStatus) {
+               // Running status: emit only the data bytes.
+               for (size_t k = 1; k < payload.size(); ++k) {
+                  track.push_back(payload[k]);
+               }
+            } else {
+               for (uint8_t b : payload) {
+                  track.push_back(b);
+               }
+               lastChannelStatus = payload[0];
+            }
+         } else { // A system message: emit in full; leave the channel running
+                  // status untouched (it may be carried across a system event).
+            for (uint8_t b : payload) {
+               track.push_back(b);
+            }
+         }
       }
    }
 
@@ -130,8 +156,9 @@ struct MidiFileWriter::Impl {
    static uint8_t clamp7(uint8_t value) { return value & 0x7F; }
 
    // ------------------------------------------------------------------
-   // Event payload builders (no delta; the delta is added by emit()).
-   // No running status — every event carries its own status byte.
+   // Event payload builders (no delta; the delta is added by emit()). Each
+   // returns the full event (status + data); emit() applies the running-status
+   // rule on top (omitting a repeated channel status byte).
    // ------------------------------------------------------------------
 
    static std::vector<uint8_t> noteOn(uint8_t pitch, uint8_t velocity,
@@ -187,6 +214,7 @@ struct MidiFileWriter::Impl {
       std::vector<uint8_t> track;
       const double tempo = score.tempo;
       uint32_t lastTick = 0;
+      uint8_t lastChannelStatus = 0; // running status (0 = no channel pending)
 
       // Notes, sorted by start time. Each emits exactly one Note On
       // followed by one Note Off.
@@ -208,11 +236,11 @@ struct MidiFileWriter::Impl {
       // Byte-identity invariant: when only channel 0 is used (the default for
       // the aubio Tier-1 path and the test corpus) this emits exactly the
       // pre-bend writer's bytes (one program + one sustain per channel 0).
-      emit(track, 0, setTempo(tempo));
+      emit(track, 0, setTempo(tempo), lastChannelStatus);
       for (uint8_t ch = 0; ch < 16; ++ch) {
          if (channelUsed[ch]) {
-            emit(track, 0, programChange(0, ch));
-            emit(track, 0, controlChange(64, 127, ch));
+            emit(track, 0, programChange(0, ch), lastChannelStatus);
+            emit(track, 0, controlChange(64, 127, ch), lastChannelStatus);
          }
       }
 
@@ -232,7 +260,8 @@ struct MidiFileWriter::Impl {
 
          // Note On at the note's start.
          uint32_t onDelta = (onTick > lastTick) ? (onTick - lastTick) : 0;
-         emit(track, onDelta, noteOn(pitch, velocity, channel));
+         emit(track, onDelta, noteOn(pitch, velocity, channel),
+              lastChannelStatus);
          if (onTick > lastTick) {
             lastTick = onTick;
          }
@@ -257,7 +286,8 @@ struct MidiFileWriter::Impl {
                   note.startTime + (note.endTime - note.startTime) * frac;
                const uint32_t tick = secondsToTicks(tSec, tempo);
                const uint32_t delta = (tick > lastTick) ? (tick - lastTick) : 0;
-               emit(track, delta, pitchBend(note.pitchBends[i], channel));
+               emit(track, delta, pitchBend(note.pitchBends[i], channel),
+                    lastChannelStatus);
                if (tick > lastTick) {
                   lastTick = tick;
                }
@@ -266,7 +296,8 @@ struct MidiFileWriter::Impl {
 
          // Note Off at the note's end (delta against the running timeline).
          uint32_t offDelta = (offTick > lastTick) ? (offTick - lastTick) : 0;
-         emit(track, offDelta, noteOff(pitch, velocity, channel));
+         emit(track, offDelta, noteOff(pitch, velocity, channel),
+              lastChannelStatus);
 
          if (offTick > lastTick) {
             lastTick = offTick; // Keep the timeline monotonic.
@@ -284,7 +315,8 @@ struct MidiFileWriter::Impl {
          uint32_t delta = (tick > lastTick) ? (tick - lastTick) : 0;
          emit(track, delta,
               controlChange(clamp7(control.controller), clamp7(control.value),
-                            0));
+                            0),
+              lastChannelStatus);
          if (tick > lastTick) {
             lastTick = tick;
          }
@@ -293,10 +325,10 @@ struct MidiFileWriter::Impl {
       // Release the sustain pedal on every used channel, then terminate.
       for (uint8_t ch = 0; ch < 16; ++ch) {
          if (channelUsed[ch]) {
-            emit(track, 0, controlChange(64, 0, ch));
+            emit(track, 0, controlChange(64, 0, ch), lastChannelStatus);
          }
       }
-      emit(track, 0, endOfTrack());
+      emit(track, 0, endOfTrack(), lastChannelStatus);
 
       return track;
    }

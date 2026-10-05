@@ -17,7 +17,11 @@
  * - **End of Track** (`FF 2F 00`) at the end of every track.
  * - All multi-byte integers are **big-endian**.
  * - Delta-times are **non-negative** variable-length integers.
- * - No **running status** (for maximum parser compatibility).
+ * - Channel events use **canonical running status**: a channel event whose
+ *   status matches the immediately preceding channel event omits its status
+ *   byte; a system event always carries its full status. (A Score with no two
+ *   consecutive same-status channel events is byte-identical to a writer that
+ *   never uses running status.)
  *
  * @section midi-file-structure File Structure
  *
@@ -65,7 +69,8 @@ struct Score;
 // Key design decisions:
 // - Type 1 files (multi-track) for Logic Pro compatibility.
 // - 480 ticks per quarter note (Logic Pro default).
-// - No running status (for maximum parser compatibility).
+// - Canonical running status for channel events (a repeated status is omitted;
+//   system events always carry a full status).
 // - Big-endian byte order for all multi-byte integers.
 // - Variable-length integers for chunk lengths and delta-times.
 //

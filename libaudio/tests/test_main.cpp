@@ -27,6 +27,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <fstream>
 #include <libaudio/audioFile.h>
 #include <libaudio/fft.h>
 #include <libaudio/hir.h>
@@ -544,6 +545,87 @@ static size_t countPitchBendMessages(const std::vector<uint8_t>& b) {
    return count;
 }
 
+// Count the pitch-bend (0xE0) events that carry a *full* 0xE0 status byte, as
+// opposed to running-status bends (data bytes only). A bent note with N bends
+// has exactly one full 0xE0 (the first bend, following the 0x90 Note On); the
+// rest run their status. This is the byte-level proof that the writer emits
+// canonical running status. Like countPitchBendMessages it walks each MTrk with
+// running-status awareness, so a raw 0xE0 data byte (and the 0x01E0 MThd
+// division byte) is never counted.
+static size_t countFullPitchBendStatuses(const std::vector<uint8_t>& b) {
+   const size_t n = b.size();
+   size_t count = 0;
+   size_t i = 0;
+   while (i + 8 <= n) {
+      if (b[i] != 'M' || b[i + 1] != 'T') {
+         break;
+      }
+      const uint32_t len = be32(b, i + 4);
+      const size_t start = i + 8;
+      const size_t end = start + static_cast<size_t>(len);
+      if (end > n) {
+         break;
+      }
+      const bool isTrack = (b[i + 2] == 'r' && b[i + 3] == 'k');
+      i = end;
+      if (!isTrack) {
+         continue;
+      }
+      size_t j = start;
+      uint8_t running = 0;
+      while (j < end) {
+         bool more = true;
+         while (j < end && more) {
+            const uint8_t byte = b[j++];
+            more = (byte & 0x80) != 0;
+         }
+         if (j >= end) {
+            break;
+         }
+         uint8_t status;
+         bool fullStatus = false;
+         if (b[j] & 0x80) {
+            status = b[j++];
+            running = status;
+            fullStatus = true;
+         } else {
+            status = running;
+         }
+         if (status == 0xFF) {
+            if (j < end) {
+               ++j; // meta type byte
+            }
+            bool moreL = true;
+            uint32_t length = 0;
+            while (j < end && moreL) {
+               const uint8_t byte = b[j++];
+               length = (length << 7) | (byte & 0x7F);
+               moreL = (byte & 0x80) != 0;
+            }
+            j += length;
+         } else if (status == 0xF7) {
+            bool moreL = true;
+            uint32_t length = 0;
+            while (j < end && moreL) {
+               const uint8_t byte = b[j++];
+               length = (length << 7) | (byte & 0x7F);
+               moreL = (byte & 0x80) != 0;
+            }
+            j += length;
+         } else if (status >= 0xF0) {
+            break; // Realtime byte (invalid inside a track); stop.
+         } else {  // Channel message: 1 data byte (program/pressure), else 2.
+            const uint8_t hi = status & 0xF0;
+            if (hi == 0xE0 && fullStatus) {
+               ++count; // a pitch bend that actually carries a 0xE0 status
+            }
+            j += (hi == 0xC0 || hi == 0xD0) ? 1u : 2u;
+         }
+      }
+   }
+   return count;
+}
+
 static void test_midiWriter() {
    fprintf(stdout, "\n--- MidiFileWriter Tests ---\n");
 
@@ -667,12 +749,15 @@ static void test_midiRoundTrip() {
 
    // Byte-level: the writer must emit 0xE0 (pitch bend) messages.
    std::vector<uint8_t> bytes = readFileBytes(path);
+   // The first bend follows the Note On (0x90), so it keeps a full 0xE0
+   // status; the later bends run their status (the 0xE0 is omitted), so only
+   // their data bytes appear. (+8191 → {7F 7F}; -8192 → {00 00}.)
    ASSERT(hasSubseq(bytes, {0xE0, 0x00, 0x40}),
-          "RoundTrip: 0xE0 for bend 0 is {E0 00 40}");
-   ASSERT(hasSubseq(bytes, {0xE0, 0x7F, 0x7F}),
-          "RoundTrip: 0xE0 for bend +8191 is {E0 7F 7F}");
-   ASSERT(hasSubseq(bytes, {0xE0, 0x00, 0x00}),
-          "RoundTrip: 0xE0 for bend -8192 is {E0 00 00}");
+          "RoundTrip: the first bend (0) keeps a full {E0 00 40}");
+   ASSERT(hasSubseq(bytes, {0x7F, 0x7F}),
+          "RoundTrip: bend +8191 runs status (data-only {7F 7F})");
+   ASSERT(hasSubseq(bytes, {0x00, 0x00}),
+          "RoundTrip: bend -8192 runs status (data-only {00 00})");
    ASSERT(countPitchBendMessages(bytes) == bends.size(),
           "RoundTrip: exactly " + std::to_string(bends.size()) +
              " 0xE0 pitch-bend messages in the bent file");
@@ -863,6 +948,184 @@ static void test_midiMultiChannel() {
 }
 
 // ============================================================================
+// 5d. Running Status — the writer must emit canonical running status for a bent
+//     note's repeated 0xE0, and the reader must recover both a bent note
+//     (writer-produced) and a hand-crafted chord (which the writer never emits,
+//     proving the reader is a general SMF parser, not one sized to it).
+// ============================================================================
+static void test_runningStatus() {
+   fprintf(stdout, "\n--- MidiFileWriter/Reader Running-Status Tests ---\n");
+
+   // (a) Writer: a 3-bend note emits ONE full 0xE0 status (the first bend,
+   //     following the 0x90 Note On); the other two run their status.
+   const std::vector<int16_t> bends = {0, 4096, 0};
+   Score score;
+   score.tempo = 120.0;
+   Note note;
+   note.startTime = 0.0;
+   note.endTime = 1.0;
+   note.pitch = 60;
+   note.velocity = 100;
+   note.channel = 0;
+   note.pitchBends = bends;
+   score.notes.push_back(note);
+
+   const char* path = "/tmp/test_runningstatus.mid";
+   MidiFileWriter writer(path);
+   ASSERT(writer.write(score),
+          "RunningStatus: write() succeeds for a bent note");
+   std::vector<uint8_t> bytes = readFileBytes(path);
+   ASSERT(hasSubseq(bytes, {0xE0, 0x00, 0x40}),
+          "RunningStatus: the first bend keeps a full 0xE0 status");
+   ASSERT(countFullPitchBendStatuses(bytes) == 1,
+          "RunningStatus: exactly one 0xE0 carries a full status (the rest run "
+          "it) — canonical running status is emitted");
+   ASSERT(
+      countPitchBendMessages(bytes) == bends.size(),
+      "RunningStatus: all three bends are present (the running-status-aware "
+      "counter sees 3)");
+   MidiFileReader reader(path);
+   ASSERT(reader.ok(), "RunningStatus: the reader parses the bent file");
+   ASSERT(reader.score().notes.size() == 1 &&
+             reader.score().notes[0].pitchBends == bends,
+          "RunningStatus: all three bends round-trip despite running status");
+
+   // (b) Reader: a hand-crafted *chord* whose second Note On is a
+   //     running-status data byte (the writer never emits a running-status
+   //     note, since it interleaves on/off) reads back as two notes.
+   const std::vector<uint8_t> track = {
+      0x00, 0xFF, 0x51, 0x03, 0x0C, 0x42, 0xA0, // tempo 120 (500000 us/qn)
+      0x00, 0x90, 0x3C, 0x64,                   // Note On C4, delta 0
+      0x00, 0x40, 0x64,                         // Note On E4, delta 0 — RUNNING
+      0x60, 0x80, 0x3C, 0x40,                   // Note Off C4, delta 96
+      0x60, 0x80, 0x40, 0x40,                   // Note Off E4, delta 96
+      0x00, 0xFF, 0x2F, 0x00,                   // End of Track, delta 0
+   };
+   std::vector<uint8_t> file = {
+      'M',
+      'T',
+      'h',
+      'd',
+      0x00,
+      0x00,
+      0x00,
+      0x06,
+      0x00,
+      0x01,
+      0x00,
+      0x01,
+      0x01,
+      0xE0,
+      'M',
+      'T',
+      'r',
+      'k',
+      static_cast<uint8_t>((track.size() >> 24) & 0xFF),
+      static_cast<uint8_t>((track.size() >> 16) & 0xFF),
+      static_cast<uint8_t>((track.size() >> 8) & 0xFF),
+      static_cast<uint8_t>(track.size() & 0xFF),
+   };
+   file.insert(file.end(), track.begin(), track.end());
+   {
+      std::ofstream ofs("/tmp/test_runningstatus_chord.mid", std::ios::binary);
+      ofs.write(reinterpret_cast<const char*>(file.data()),
+                static_cast<std::streamsize>(file.size()));
+   }
+   MidiFileReader chordReader("/tmp/test_runningstatus_chord.mid");
+   ASSERT(
+      chordReader.ok(),
+      "RunningStatus: the reader parses a hand-crafted running-status chord");
+   ASSERT(chordReader.score().notes.size() == 2,
+          "RunningStatus: both chord notes read back (the 0x90 runs status)");
+   if (chordReader.score().notes.size() == 2) {
+      int c4 = 0;
+      int e4 = 0;
+      for (const Note& n : chordReader.score().notes) {
+         if (n.pitch == 60) {
+            ++c4;
+         }
+         if (n.pitch == 64) {
+            ++e4;
+         }
+      }
+      ASSERT(c4 == 1 && e4 == 1,
+             "RunningStatus: the chord's C4 and E4 each appear once");
+   }
+}
+
+// ============================================================================
+// 5e. Malformed Input — a non-SMF, an over-long MTrk, and a running-status data
+//     byte with no prior channel message must each yield ok()==false with a
+//     non-empty error() (a loud failure a caller can abort on, not a silent
+//     half-parse of the ground truth).
+// ============================================================================
+static void test_malformedAbort() {
+   fprintf(stdout, "\n--- MidiFileReader Malformed-Input Tests ---\n");
+
+   // A standard 14-byte MThd (format 1, 1 track, 480 ticks/qn) to reuse.
+   const std::vector<uint8_t> mthd = {
+      'M',  'T',  'h',  'd',  0x00, 0x00, 0x00,
+      0x06, 0x00, 0x01, 0x00, 0x01, 0x01, 0xE0,
+   };
+
+   // (a) Not a SMF at all (garbage, shorter than a header).
+   {
+      const uint8_t garbage[] = {0xDE, 0xAD, 0xBE, 0xEF, 0x01, 0x02, 0x03};
+      std::ofstream ofs("/tmp/test_malformed_garbage.mid", std::ios::binary);
+      ofs.write(reinterpret_cast<const char*>(garbage),
+                static_cast<std::streamsize>(sizeof(garbage)));
+   }
+   {
+      MidiFileReader r("/tmp/test_malformed_garbage.mid");
+      ASSERT(!r.ok(), "Malformed: a garbage file is not ok()");
+      ASSERT(!r.error().empty(), "Malformed: a garbage file names its error");
+   }
+
+   // (b) A valid MThd, but an MTrk length that runs past the end of the file.
+   {
+      std::vector<uint8_t> f = mthd;
+      f.insert(f.end(), {'M', 'T', 'r', 'k', 0x00, 0x00, 0x00, 0x30}); // 48…
+      f.insert(f.end(), {0x00, 0x90, 0x3C}); // …but only 3 body bytes present
+      std::ofstream ofs("/tmp/test_malformed_tracklen.mid", std::ios::binary);
+      ofs.write(reinterpret_cast<const char*>(f.data()),
+                static_cast<std::streamsize>(f.size()));
+   }
+   {
+      MidiFileReader r("/tmp/test_malformed_tracklen.mid");
+      ASSERT(!r.ok(), "Malformed: an MTrk length past end-of-file is not ok()");
+      ASSERT(!r.error().empty(),
+             "Malformed: an over-long MTrk names its error");
+   }
+
+   // (c) A bare data byte at the start of a track (a running-status byte with
+   //     no prior channel message to run its status) is malformed.
+   {
+      const std::vector<uint8_t> track = {
+         0x00, 0x64,             // delta 0, then a data byte with no status
+         0x00, 0xFF, 0x2F, 0x00, // End of Track
+      };
+      std::vector<uint8_t> f = mthd;
+      f.insert(f.end(), {'M', 'T', 'r', 'k'});
+      f.push_back(static_cast<uint8_t>((track.size() >> 24) & 0xFF));
+      f.push_back(static_cast<uint8_t>((track.size() >> 16) & 0xFF));
+      f.push_back(static_cast<uint8_t>((track.size() >> 8) & 0xFF));
+      f.push_back(static_cast<uint8_t>(track.size() & 0xFF));
+      f.insert(f.end(), track.begin(), track.end());
+      std::ofstream ofs("/tmp/test_malformed_running.mid", std::ios::binary);
+      ofs.write(reinterpret_cast<const char*>(f.data()),
+                static_cast<std::streamsize>(f.size()));
+   }
+   {
+      MidiFileReader r("/tmp/test_malformed_running.mid");
+      ASSERT(!r.ok(),
+             "Malformed: a data byte with no prior channel status is not ok()");
+      ASSERT(!r.error().empty(),
+             "Malformed: a bare data byte with no prior status names its "
+             "error");
+   }
+}
+
+// ============================================================================
 // 6. AudioFileReader Integration Test — requires a test audio file.
 // ============================================================================
 static void test_audioFileReader() {
@@ -928,6 +1191,8 @@ int main() {
       test_midiWriter();
       test_midiRoundTrip();
       test_midiMultiChannel();
+      test_runningStatus();
+      test_malformedAbort();
       test_audioFileReader();
    } catch (const std::exception& e) {
       fprintf(stderr, "EXCEPTION: %s\n", e.what());

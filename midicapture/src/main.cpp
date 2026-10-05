@@ -504,9 +504,9 @@ static int runGenerateTestMidiFiles(const std::string& outputDir) {
 static int runMaestroSweep(const std::string& audioPath,
                            const std::string& gtPath,
                            const std::string& rawMapPath, bool useRescale) {
+   using midicapture::evaluateFile;
    using midicapture::FileMetrics;
    using midicapture::Note4;
-   using midicapture::evaluateFile;
    using midicapture::toNote4;
 
    std::cout << "midicapture — MAESTRO ground-truth knob sweep\n";
@@ -516,9 +516,14 @@ static int runMaestroSweep(const std::string& audioPath,
 
    // --- Ground truth: read the MIDI and its (placeholder-tempo) times. ----
    MidiFileReader gt(gtPath);
-   if (!gt.ok() || gt.score().notes.empty()) {
-      std::cerr << "Error: cannot read ground-truth MIDI '" << gtPath
-                << "' (unreadable or no notes).\n";
+   if (!gt.ok()) {
+      std::cerr << "Error: invalid ground-truth MIDI '" << gtPath << ": "
+                << gt.error() << "\n";
+      return 1;
+   }
+   if (gt.score().notes.empty()) {
+      std::cerr << "Error: ground-truth MIDI '" << gtPath
+                << "' has no notes.\n";
       return 1;
    }
    std::vector<Note4> truth;
@@ -535,8 +540,8 @@ static int runMaestroSweep(const std::string& audioPath,
       AudioFileReader af(audioPath);
       audioDur = af.duration();
    } catch (const std::exception& e) {
-      std::cerr << "Error: cannot read audio '" << audioPath << "': "
-                << e.what() << "\n";
+      std::cerr << "Error: cannot read audio '" << audioPath
+                << "': " << e.what() << "\n";
       return 1;
    }
    if (audioDur <= 0.0) {
@@ -549,8 +554,8 @@ static int runMaestroSweep(const std::string& audioPath,
    const double rescale =
       (useRescale && gtMidiDur > 0.0) ? audioDur / gtMidiDur : 1.0;
    std::cout << "\nAudio duration:   " << audioDur << " s\n";
-   std::cout << "GT MIDI duration: " << gtMidiDur << " s  ("
-             << truth.size() << " notes)\n";
+   std::cout << "GT MIDI duration: " << gtMidiDur << " s  (" << truth.size()
+             << " notes)\n";
    std::cout << "Duration-match F: " << rescale
              << (rescale == 1.0 ? "   (off)" : "   (on)") << "\n";
 
@@ -560,8 +565,8 @@ static int runMaestroSweep(const std::string& audioPath,
       try {
          raw = readRawPredictions(rawMapPath);
       } catch (const std::exception& e) {
-         std::cerr << "Error: cannot read raw-map '" << rawMapPath << "': "
-                   << e.what() << "\n";
+         std::cerr << "Error: cannot read raw-map '" << rawMapPath
+                   << "': " << e.what() << "\n";
          return 1;
       }
       std::cout << "\nDecoding cached raw-map: " << rawMapPath << "\n";
@@ -624,7 +629,7 @@ static int runMaestroSweep(const std::string& audioPath,
    // cheap. One shared PianoRoll decodes the one shared raw map set.
    const PianoRoll roll(basicPitchDescriptor());
    std::cout << "\nSetting            recall   prec   Δonset   Δdur  notes "
-               "(miss/false)\n";
+                "(miss/false)\n";
    std::cout << std::string(72, '-') << "\n";
 
    double bestF1 = -1.0;
@@ -653,10 +658,9 @@ static int runMaestroSweep(const std::string& audioPath,
 
    std::cout << std::string(72, '-') << "\n";
    std::cout << "Best by F1: " << bestLabel << "  —  recall "
-             << 100.0 * best.recall << "%  precision "
-             << 100.0 * best.precision << "%  (F1 " << 100.0 * bestF1
-             << "%, Δonset " << best.onsetMs << " ms, Δdur " << best.durMs
-             << " ms)\n";
+             << 100.0 * best.recall << "%  precision " << 100.0 * best.precision
+             << "%  (F1 " << 100.0 * bestF1 << "%, Δonset " << best.onsetMs
+             << " ms, Δdur " << best.durMs << " ms)\n";
    return 0;
 }
 #endif // LIBAUDIO_HAS_TIER2
