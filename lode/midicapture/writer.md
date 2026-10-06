@@ -45,8 +45,8 @@ sequenceDiagram
     participant W as Writer (buildTrack)
     W->>W: SetTempo (FF 51) @ tick 0
     loop each distinct channel used (sorted)
-        W->>W: Program 0 = Acoustic Grand (C-ch) @ tick 0
-        W->>W: Sustain ON (B-ch 40 7F) @ tick 0
+        W->>W: Program 0 = Acoustic Grand (C-ch) @ tick 0   (unconditional)
+        W->>W: Sustain ON (B-ch 40 7F) @ tick 0   (only if the score sustains)
     end
     loop each Note, sorted by startTime
         W->>W: NoteOn  (9-ch nn vv) @ startTick
@@ -59,21 +59,26 @@ sequenceDiagram
         W->>W: ControlChange @ tick (channel 0)
     end
     loop each distinct channel used (sorted)
-        W->>W: Sustain OFF (B-ch 40 00) @ tick 0
+        W->>W: Sustain OFF (B-ch 40 00) @ tick 0   (only if the score sustains)
     end
     W->>W: EndOfTrack (FF 2F 00) @ tick 0
 ```
 
 ### Per-channel scaffolding
 
-The writer computes the **set of distinct channels** from the notes (sorted)
-and emits one `programChange(0, ch)` + `controlChange(64, 127, ch)` pair at
-t=0 per channel, and one `controlChange(64, 0, ch)` before the EOT per
-channel. **Byte-identity invariant:** when only channel 0 is used (the aubio
-Tier-1 path, the test corpus, and the `--test` sanity note), the output is
-exactly the single-channel writer — one program + one sustain on + one sustain
-off. Additional channels appear only when the basic-pitch channel policy
-routes bent notes to them (feature 3).
+The writer computes the **set of distinct channels** from the notes (sorted).
+At t=0 it emits one `programChange(0, ch)` per channel — **unconditional**
+scaffolding — and, only when `emitCoarsePedal` holds (a `Note.sustain` note
+is present *and* no explicit CC#64 control is), one `controlChange(64, 127,
+ch)` per channel; symmetrically it emits one `controlChange(64, 0, ch)`
+before the EOT per channel, again only when `emitCoarsePedal`. A score that
+neither sustains nor carries a CC#64 control writes **no pedal at all**, so
+the rendered audio reflects the real performance. **Byte-identity invariant:**
+when only channel 0 is used (the aubio Tier-1 path, the test corpus, and the
+`--test` sanity note) and no note sustains, the output is exactly the
+single-channel writer — one program, no pedal. Additional channels appear
+only when the basic-pitch channel policy routes bent notes to them (feature
+3).
 
 Every event is preceded by a **variable-length delta-time** that is always
 **≥ 0**; the absolute timeline is **monotonic** — a non-increasing tick yields
@@ -130,7 +135,7 @@ earlier MAESTRO sweep's F ≈ 0.2).
 | 8 | Note duration ≥ 1 tick | If `offTick <= onTick`, off is bumped to `onTick + 1`. |
 | 9 | Bends emit 0xE0 only when the vector is non-empty | `buildTrack` skips the bend block for an empty `Note::pitchBends`; a constant-pitch note (and the entire aubio Tier-1 path) stays byte-identical to the pre-bend writer. |
 | 10 | Bend 0xE0 values land between the note's on and off, on a linspace grid | Each bend's tick is `secondsToTicks(start + (end−start)·i/(n−1))`; `lastTick` advances after each bend, keeping the timeline monotonic. |
-| 11 | Per-channel scaffolding is byte-identical for single-channel Scores | The channel set is computed from the notes; when only channel 0 is present, the writer emits exactly one program + sustain pair (identical to the pre-bend writer). Additional channels appear only when `Note::channel > 0`. |
+| 11 | Scaffolding: program unconditional, sustain pedal conditional | A `programChange(0, ch)` is emitted per used channel unconditionally; a sustain-pedal on (t=0) and off (pre-EOT) are emitted per channel **only when** `emitCoarsePedal` (a `Note.sustain` note present, no explicit CC#64). A non-sustained, bend-less, single-channel Score is therefore byte-identical to the pre-bend writer. Additional channels appear only when `Note::channel > 0`. |
 
 ### Seconds → ticks
 
@@ -154,20 +159,20 @@ With 480 tpq @ 120 BPM → `s × 960`. **Do not divide by 60 twice.**
 ```
 00 FF 51 03 07 A1 20   SetTempo 500000 µs/qn = 120 BPM
 00 C0 00               Program 0 (Acoustic Grand)
-00 B0 40 7F            Sustain ON
 00 90 3C 64            C4 NoteOn vel 100   (delta 0)
 87 C0 80 3C 64         C4 NoteOff          (delta 960 ticks = 1 s)
-00 B0 40 00            Sustain OFF
 00 FF 2F 00            EndOfTrack
 ```
 
-= 31 event bytes → 14 (header) + 8 (`MTrk` + len) + 31 = **53 bytes**.
+= 23 event bytes → 14 (header) + 8 (`MTrk` + len) + 23 = **45 bytes**.
+The sanity note is non-sustained, so the writer emits **no sustain pedal** —
+a forced pedal would add a reverb-like tail the note never contained.
 
 `midicsv` of the file parses cleanly:
 
 ```
-Header 1,1,480  Tempo 500000  Program_c 0  Ctrl 64/127
-Note_on 0,60,100  (tick 960) Note_off 0,60,100  Ctrl 64/0  End_track
+Header 1,1,480  Tempo 500000  Program_c 0
+Note_on 0,60,100  (tick 960) Note_off 0,60,100  End_track
 ```
 
 `timidity -Ow out.wav <file>` renders a ~1 s note with `Notes lost totally: 0`
@@ -227,6 +232,11 @@ canonical running status for a bent note (one full `0xE0`, the rest data-only)
 and the reader recovers a hand-crafted running-status *chord* the writer never
 emits; `test_malformedAbort` proves the reader fails loudly on a non-SMF, an
 over-long `MTrk`, and a bare data byte with no prior channel status.
+`test_midiSustainPedal` pins the pedal-conditioning contract with relative
+byte-count + presence assertions: a sustained note adds a whole-performance
+on/off bracket (8 bytes), an explicit CC#64 control is written as-is with the
+redundant bracket suppressed (4 bytes smaller than the sustained case), and a
+non-sustained score emits no pedal at all.
 
 ---
 

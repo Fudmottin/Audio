@@ -255,10 +255,12 @@ if it isn't, fetch it”), since **onnxruntime is the point**.
 
 > **MIDI file-handling fix** (a user-directed task, not a numbered phase): the
 > reader is now standards-compliant (running status, per-segment tempo, malformed
-> → loud abort) and the writer emits canonical running status; both the corpus
-> harness and the sweep's GT readers fail loudly on invalid MIDI. The 14-file
-> corpus gate stays metric-identical. See
-> [../midicapture/writer.md](../midicapture/writer.md).
+> → loud abort) and the writer emits canonical running status with a
+> **conditional** sustain pedal (CC#64 written only when the score sustains);
+> both the corpus harness and the sweep's GT readers fail loudly on invalid MIDI.
+> The 14-file corpus gate stays metric-identical (the C++ synth ignores CC#64, so
+> only the GT `.mid` bytes change — the pedal is dropped from all 14 non-sustained
+> cases). See [../midicapture/writer.md](../midicapture/writer.md).
 
 ## 15. Port completeness (the honest “is it a complete port?”)
 

@@ -242,11 +242,12 @@ Requires: aubio, libsndfile, Boost (program_options); **Tier-2 additionally** on
 
 ## 8. Validation & Known Issues
 
-The writer is **validated, not a bug** — see [writer.md](writer.md); it now
-emits canonical running status. The reader is a **standards-compliant** SMF
-parser (running status, per-segment tempo, malformed → loud abort) that fails
-loudly on invalid ground-truth rather than scoring a half-parsed file. What
-remains open is transcription quality.
+The writer is **validated, not a bug** — see [writer.md](writer.md); it emits
+canonical running status and a **conditional** sustain pedal (CC#64 only when
+the score sustains). The reader is a **standards-compliant** SMF parser
+(running status, per-segment tempo, malformed → loud abort) that fails loudly
+on invalid ground-truth rather than scoring a half-parsed file. What remains
+open is transcription quality.
 
 ### Validation toolchain (decided: not ffprobe)
 
@@ -256,7 +257,7 @@ remains open is transcription quality.
 - **`timidity -Ow out.wav <file>`** — renders audio; `Notes lost totally: 0`
   and a correctly-timed note = semantically valid.
 
-The writer round-trips cleanly through both (53-byte `--test` file;
+The writer round-trips cleanly through both (45-byte `--test` file;
 clean 62-byte real-transcription file on `aiffcapture/final-fantasy.aiff`).
 
 ### Transcription quality (resolved — details in defrag.md)
