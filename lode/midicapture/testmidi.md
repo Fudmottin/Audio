@@ -13,9 +13,14 @@
 
 `midicapture --generate-test-midi-files` is a **generator** that **ignores all
 other options** (input, output, window-size, hop-size, silence, tempo,
-method). It builds a fixed set of `Score`s (HIR) and writes each to a
-`.mid` file. No audio is opened, no analysis is run. It takes precedence over
-`--test` if both are present.
+method). It writes the fixed 14-case corpus (below) to `.mid` files. No audio
+is opened, no analysis is run. It takes precedence over `--test` if both are
+present.
+
+The corpus itself — the 14 `Case`s and the `Case → Score` builder
+(`buildCorpusScore`) — is defined **once** in `corpusCase.{h,cpp}` and shared
+with the `--run-corpus --clean` renderer ([corpusHarness](summary.md)); the two
+generators consume the same source of truth and cannot drift apart.
 
 Purpose of the generated files:
 
@@ -84,9 +89,10 @@ noteDurationSec = noteBeats * beatSeconds
 ```
 
 So a "whole note" (2 beats) at 60 BPM is `2 × 1.0 = 2.0 s`; at 120 BPM it is
-`2 × 0.5 = 1.0 s`. The generator fills in absolute seconds computed from each
-file's tempo, so the *same* pattern renders faster/slower purely by tempo —
-which is exactly the timing variety the transcription needs to see.
+`2 × 0.5 = 1.0 s`. `buildCorpusScore` fills in those absolute seconds from each
+note's beats and the case tempo (`onsetBeats × beatSeconds`), so the *same*
+pattern renders faster/slower purely by tempo — which is exactly the timing
+variety the transcription needs to see.
 
 Notes are **non-overlapping**: each note's `startTime` equals the previous
 note's `endTime` (pure monophony), so the whole pattern length is
@@ -170,6 +176,7 @@ timidity -Ow <file>.mid <file>.wav # render; expect "Notes lost totally: 0"
 ## 8. Cross-References
 
 - [summary.md](summary.md) — module overview, CLI, pipeline
+- `corpusCase.{h,cpp}` — the shared corpus spec + `buildCorpusScore` (the single source of truth this mode renders)
 - [writer.md](writer.md) — the SMF renderer this mode drives
 - [../MIDI.md](../MIDI.md) — SMF format, varlen, note/tick encoding
 - [../libaudio/hir.md](../libaudio/hir.md) — `Score` / `Note` / `ControlEvent`

@@ -37,10 +37,12 @@ Audio/
 ├── midicapture/          # Phase 2: Audio → MIDI (thin CLI front-end)
 │   ├── CMakeLists.txt   # Build config (links libaudio, Boost)
 │   ├── include/midicapture/
-│   │   └── corpusHarness.h       # Analyzer-agnostic 14-file corpus evaluator
+│   │   ├── corpusHarness.h       # Analyzer-agnostic 14-file corpus evaluator (Tier-2)
+│   │   └── corpusCase.h          # Shared 14-case corpus spec (Case/sequential/coreCorpus)
 │   └── src/
 │       ├── main.cpp              # CLI entry point (Boost program_options; --run-corpus)
-│       └── corpusHarness.cpp     # Tier-2 corpus harness (recall/precision/Δ) + makeAnalyzer
+│       ├── corpusHarness.cpp     # Tier-2 corpus harness (recall/precision/Δ) + makeAnalyzer
+│       └── corpusCase.cpp        # The 14-case corpus + Score builder (HIR-only, all builds)
 └── lode/midicapture/    # Module documentation
 ```
 
