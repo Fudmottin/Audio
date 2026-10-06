@@ -51,6 +51,9 @@ add_subdirectory(${CMAKE_SOURCE_DIR}/../libaudio ${CMAKE_BINARY_DIR}/libaudio)
 # Core Guidelines: explicit source files. No wildcards.
 set(MIDICAPTURE_SOURCES
     src/main.cpp
+    # The shared 14-case corpus spec (corpusCase). HIR-only, so it compiles in
+    # every build; consumed by the always-on `--generate-test-midi-files`.
+    src/corpusCase.cpp
 )
 # Tier-2 analyzers + the analyzer-agnostic 14-file corpus harness. Compiled only
 # when libaudio was built with Tier-2, so a Tier-1 build is byte-for-byte

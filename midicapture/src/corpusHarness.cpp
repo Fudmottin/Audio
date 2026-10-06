@@ -37,6 +37,7 @@
 
 #ifdef LIBAUDIO_HAS_TIER2
 
+#include <midicapture/corpusCase.h>
 #include <midicapture/corpusHarness.h>
 #include <midicapture/noteMatcher.h>
 
@@ -80,146 +81,9 @@ namespace {
 // The `--clean` renderer (synthetic-voice assets).
 // ============================================================================
 
-// A corpus performance: a filename, a pitch sequence, a tempo, a per-note
-// duration, an optional velocity ladder, and an optional inter-note gap.
-struct ScaleSpec {
-   std::string fileName;
-   std::vector<int> pitches;
-   double tempoBpm = 120.0;
-   double noteBeats = 1.0;
-   std::vector<int> velocities;
-   double gapBeats = 0.0;
-};
-
-// The fixed 14-case corpus, duplicated from the `--generate-test-midi-files`
-// set so the renderer is self-contained (and the main entry point stays
-// untouched).
-std::vector<ScaleSpec> scaleSet() {
-   const std::vector<int> majorUp = {60, 64, 67, 72};
-   const std::vector<int> majorDown = {72, 67, 64, 60};
-   const std::vector<int> minorUp = {69, 72, 76, 81};
-   std::vector<int> chromaticUp;
-   for (int p = 60; p <= 71; ++p) {
-      chromaticUp.push_back(p);
-   }
-   const std::vector<int> majorLow = {48, 52, 55, 60};
-   const std::vector<int> majorMid = {60, 64, 67, 72};
-   const std::vector<int> majorHigh = {72, 76, 79, 84};
-   const std::vector<int> restSeparated = {60, 60};
-   const std::vector<int> sustainedRun = {60, 60, 60, 60};
-
-   return {
-      {"scale-major-ascending-whole-notes-60bpm.mid",
-       majorUp,
-       60.0,
-       2.0,
-       {},
-       0.0},
-      {"scale-major-ascending-half-notes-90bpm.mid",
-       majorUp,
-       90.0,
-       1.0,
-       {},
-       0.0},
-      {"scale-major-descending-whole-notes-60bpm.mid",
-       majorDown,
-       60.0,
-       2.0,
-       {},
-       0.0},
-      {"scale-major-descending-half-notes-90bpm.mid",
-       majorDown,
-       90.0,
-       1.0,
-       {},
-       0.0},
-      {"scale-chromatic-ascending-quarter-notes-120bpm.mid",
-       chromaticUp,
-       120.0,
-       0.5,
-       {},
-       0.0},
-      {"scale-minor-ascending-whole-notes-60bpm.mid",
-       minorUp,
-       60.0,
-       2.0,
-       {},
-       0.0},
-      {"scale-major-low-octave-whole-notes-60bpm.mid",
-       majorLow,
-       60.0,
-       2.0,
-       {},
-       0.0},
-      {"scale-major-mid-octave-whole-notes-60bpm.mid",
-       majorMid,
-       60.0,
-       2.0,
-       {},
-       0.0},
-      {"scale-major-high-octave-whole-notes-60bpm.mid",
-       majorHigh,
-       60.0,
-       2.0,
-       {},
-       0.0},
-      {"scale-major-ascending-whole-notes-30bpm.mid",
-       majorUp,
-       30.0,
-       2.0,
-       {},
-       0.0},
-      {"scale-major-ascending-whole-notes-180bpm.mid",
-       majorUp,
-       180.0,
-       2.0,
-       {},
-       0.0},
-      {"velocity-soft-loud-quarter-notes-60bpm.mid",
-       std::vector<int>{60, 60, 60, 60, 60, 60}, 60.0, 0.5,
-       std::vector<int>{30, 50, 70, 90, 110, 127}, 0.0},
-      {"sustained-run-whole-notes-60bpm.mid", sustainedRun, 60.0, 2.0, {}, 0.0},
-      {"rest-separated-whole-notes-60bpm.mid",
-       restSeparated,
-       60.0,
-       2.0,
-       {},
-       1.0},
-   };
-}
-
-// Build a monophonic Score from a spec (duplicated from main.cpp's
-// buildScaleScore: tempo-relative beats, per-note velocity ladder, optional
-// inter-note gap; the final note simply ends the timeline).
-libaudio::Score buildScaleScore(double tempoBpm,
-                                const std::vector<int>& pitches,
-                                double noteBeats, const std::string& title,
-                                const std::vector<int>& velocities = {},
-                                double gapBeats = 0.0) {
-   libaudio::Score score;
-   score.tempo = tempoBpm;
-   score.title = title;
-
-   const double beatSeconds = 60.0 / tempoBpm;
-   const double noteSeconds = noteBeats * beatSeconds;
-   const double gapSeconds = gapBeats * beatSeconds;
-   const bool haveVelocities = velocities.size() == pitches.size();
-
-   double cursor = 0.0;
-   for (size_t i = 0; i < pitches.size(); ++i) {
-      libaudio::Note note;
-      note.startTime = cursor;
-      note.endTime = cursor + noteSeconds;
-      note.pitch = static_cast<uint8_t>(pitches[i]);
-      note.velocity =
-         static_cast<uint8_t>(haveVelocities ? velocities[i] : 100);
-      note.channel = 0;
-      note.sustain = false;
-      score.notes.push_back(note);
-      cursor += noteSeconds + gapSeconds;
-   }
-   return score;
-}
+// The 14-case corpus and its Score builder now live in
+// `midicapture/corpusCase.{h,cpp}` (shared with `--generate-test-midi-files`);
+// `cleanScaleSet` below consumes that single source of truth.
 
 // A decaying six-harmonic stack for one note (the corpus's synthetic voice;
 // no soundfont). Mirrors render_test_suite.py::synth_note.
@@ -359,20 +223,19 @@ void cleanScaleSet(const std::string& dir, const std::string& ffmpegPath) {
    std::error_code ec;
    fs::create_directories(dir, ec);
 
+   const std::vector<Case> cases = coreCorpus();
    int ok = 0;
-   for (const ScaleSpec& spec : scaleSet()) {
-      const std::string stem = fs::path(spec.fileName).stem().string();
-      const std::string midPath = (fs::path(dir) / spec.fileName).string();
+   for (const Case& c : cases) {
+      const std::string stem = fs::path(c.fileName).stem().string();
+      const std::string midPath = (fs::path(dir) / c.fileName).string();
       const std::string wavPath = (fs::path(dir) / (stem + ".wav")).string();
       const std::string mp3Path = (fs::path(dir) / (stem + ".mp3")).string();
 
-      const libaudio::Score score =
-         buildScaleScore(spec.tempoBpm, spec.pitches, spec.noteBeats,
-                         spec.fileName, spec.velocities, spec.gapBeats);
+      const libaudio::Score score = buildCorpusScore(c);
 
       libaudio::MidiFileWriter writer(midPath);
       if (!writer.write(score)) {
-         std::cerr << "  " << spec.fileName << ":  failed to write .mid\n";
+         std::cerr << "  " << c.fileName << ":  failed to write .mid\n";
          continue;
       }
       std::vector<int16_t> pcm = synthesize(score.notes);
@@ -380,14 +243,14 @@ void cleanScaleSet(const std::string& dir, const std::string& ffmpegPath) {
       if (!encodeWavToMp3(ffmpegPath, wavPath, mp3Path)) {
          std::error_code rm;
          fs::remove(wavPath, rm);
-         std::cerr << "  " << spec.fileName << ":  mp3 encode failed\n";
+         std::cerr << "  " << c.fileName << ":  mp3 encode failed\n";
          continue;
       }
       std::error_code rm;
       fs::remove(wavPath, rm);
       ++ok;
    }
-   std::cout << "  Regenerated " << ok << " of " << scaleSet().size()
+   std::cout << "  Regenerated " << ok << " of " << cases.size()
              << " corpus assets in " << dir << "\n";
 }
 

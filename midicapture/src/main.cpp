@@ -68,6 +68,7 @@
 #include <libaudio/rawMap.h>
 #include <midicapture/noteMatcher.h>
 #endif // LIBAUDIO_HAS_TIER2
+#include <midicapture/corpusCase.h>
 #include <midicapture/corpusHarness.h>
 #include <string>
 #include <vector>
@@ -205,212 +206,6 @@ static Score makeSanityScore(double tempoBpm) {
 }
 
 // ============================================================================
-// buildScaleScore — build a monophonic piano Score from a sequence of pitches.
-//
-// Domain context: This is a small renderer helper shared by the
-// --generate-test-midi-files mode. It lays a set of *monophonic* notes
-// (one at a time) on the timeline with a fixed number of beats per note.
-// Timing is tempo-relative: a beat is (60.0 / tempoBpm) real seconds, so the
-// same pattern renders faster or slower purely by the Score's tempo. Every
-// note uses a uniform velocity (no dynamics) and channel 0 (Acoustic Grand),
-// with sustain off — the simplest possible performance, ideal as known ground
-// truth for the audio→MIDI transcription path. A single beat of rest follows
-// the final note.
-//
-// The writer (MidiFileWriter) converts these seconds to ticks using the Score's
-// tempo, so callers only reason in beats — never in ticks.
-//
-// @param tempoBpm   Tempo in BPM (drives real-time duration per note).
-// @param pitches    MIDI note numbers, in performance order (one at a time).
-// @param noteBeats  Duration of each note, in beats (2 = whole, 1 = half,
-//                   0.5 = quarter). Must be > 0.
-// @param title      Score title (embedded in the MIDI file metadata).
-// ============================================================================
-static Score buildScaleScore(double tempoBpm, const std::vector<int>& pitches,
-                             double noteBeats, const std::string& title,
-                             const std::vector<int>& velocities = {},
-                             double gapBeats = 0.0) {
-   Score score;
-   score.tempo = tempoBpm;
-   score.title = title;
-
-   // One real second per beat at the given tempo (a beat is a quarter note).
-   const double beatSeconds = 60.0 / tempoBpm;
-   const double noteSeconds = noteBeats * beatSeconds;
-   const double gapSeconds = gapBeats * beatSeconds; // silence after each note.
-
-   // Per-note velocity ladder: use the provided value when there is one for
-   // this note index, otherwise fall back to a uniform 100. This is how a
-   // dynamics test (soft → loud) is expressed without changing pitch or timing.
-   const bool haveVelocities = velocities.size() == pitches.size();
-
-   double cursor = 0.0;
-   for (size_t i = 0; i < pitches.size(); ++i) {
-      Note note;
-      note.startTime = cursor;
-      note.endTime = cursor + noteSeconds;
-      note.pitch = static_cast<uint8_t>(pitches[i]);
-      note.velocity =
-         static_cast<uint8_t>(haveVelocities ? velocities[i] : 100);
-      note.channel = 0; // channel 1 (Acoustic Grand Piano).
-      note.sustain = false;
-      score.notes.push_back(note);
-      // Monophonic: the next note starts one gap after this one ends.
-      cursor += noteSeconds + gapSeconds;
-   }
-
-   return score;
-}
-
-// ============================================================================
-// TestScale — one generated MIDI file: a filename, a pattern, a tempo, and
-//            the duration (in beats) of each of its notes.
-// ============================================================================
-struct TestScale {
-   std::string fileName;     // output filename (relative to --output-dir).
-   std::vector<int> pitches; // MIDI note numbers, one at a time.
-   double tempoBpm;          // drives real-time duration.
-   double noteBeats; // beats per note (2 = whole, 1 = half, 0.5 = quarter).
-   // Optional per-note velocity ladder (one value per pitch). When it is the
-   // right size, the i-th note gets velocities[i]; otherwise every note uses
-   // the uniform default (100). This lets a test exercise *dynamics* (velocity)
-   // rather than just pitch + timing.
-   std::vector<int> velocities;
-   // Silence between successive notes, in beats (0 = legato, notes touch).
-   // A non-zero gap gives a test the explicit rest between two notes that the
-   // same-pitch merge must *not* swallow.
-   double gapBeats = 0.0;
-};
-
-// ============================================================================
-// testScaleSet — the fixed set of performances written by
-// --generate-test-midi-files.
-//
-// Domain context: A small, deliberately simple corpus of monophonic piano
-// performances. It mixes (a) three note durations — whole, half, quarter —
-// and (b) three tempos — 60, 90, 120 BPM — so the resulting audio exercises a
-// spread of timing shapes the transcription pipeline must resolve. Patterns are
-// the classic first-lesson repertoire: a C-major arpeggio (both directions),
-// a one-octave chromatic scale, and an A-minor arpeggio. Durations land the
-// pieces in the "around five seconds" ballpark (~5–8 s each) without forcing a
-// hard five-second target.
-// ============================================================================
-static std::vector<TestScale> testScaleSet() {
-   // C-major arpeggio: C4=60, E4=64, G4=67, C5=72.
-   const std::vector<int> majorUp = {60, 64, 67, 72};
-   const std::vector<int> majorDown = {72, 67, 64, 60};
-   // A-minor arpeggio: A4=69, C5=72, E5=76, A5=81.
-   const std::vector<int> minorUp = {69, 72, 76, 81};
-   // One-octave chromatic run: C4=60 .. B4=71.
-   std::vector<int> chromaticUp;
-   for (int p = 60; p <= 71; ++p) {
-      chromaticUp.push_back(p);
-   }
-
-   // One-octave runs at three heights: separates an *octave* error from a
-   // *chroma* (pitch-class) error. A transcription that is "one octave low"
-   // here is a different, diagnosable failure than one with a wrong note.
-   const std::vector<int> majorLow = {48, 52, 55, 60};  // C3..C4
-   const std::vector<int> majorMid = {60, 64, 67, 72};  // C4..C5 (== majorUp)
-   const std::vector<int> majorHigh = {72, 76, 79, 84}; // C5..C6
-
-   // A sustained note, one beat of rest, then another — exercises the
-   // same-pitch merge's *boundary*: the gap equals a whole rest at this
-   // tempo, so the two must NOT be merged (they are distinct physical notes
-   // separated by silence, not wobble fragments of one note).
-   const std::vector<int> restSeparated = {60, 60};
-   // Same note, no rest: the run is a wobble-fragmented sustained note that
-   // the same-pitch merge must recombine into a single long note.
-   const std::vector<int> sustainedRun = {60, 60, 60, 60};
-
-   return {
-      // Scales: pitch + timing + defragmentation.
-      {"scale-major-ascending-whole-notes-60bpm.mid",
-       majorUp,
-       60.0,
-       2.0,
-       {},
-       0.0},
-      {"scale-major-ascending-half-notes-90bpm.mid",
-       majorUp,
-       90.0,
-       1.0,
-       {},
-       0.0},
-      {"scale-major-descending-whole-notes-60bpm.mid",
-       majorDown,
-       60.0,
-       2.0,
-       {},
-       0.0},
-      {"scale-major-descending-half-notes-90bpm.mid",
-       majorDown,
-       90.0,
-       1.0,
-       {},
-       0.0},
-      {"scale-chromatic-ascending-quarter-notes-120bpm.mid",
-       chromaticUp,
-       120.0,
-       0.5,
-       {},
-       0.0},
-      {"scale-minor-ascending-whole-notes-60bpm.mid",
-       minorUp,
-       60.0,
-       2.0,
-       {},
-       0.0},
-      // Octave: the same major arpeggio at three heights.
-      {"scale-major-low-octave-whole-notes-60bpm.mid",
-       majorLow,
-       60.0,
-       2.0,
-       {},
-       0.0},
-      {"scale-major-mid-octave-whole-notes-60bpm.mid",
-       majorMid,
-       60.0,
-       2.0,
-       {},
-       0.0},
-      {"scale-major-high-octave-whole-notes-60bpm.mid",
-       majorHigh,
-       60.0,
-       2.0,
-       {},
-       0.0},
-      // Timing: the same scale at two tempos (slow + fast).
-      {"scale-major-ascending-whole-notes-30bpm.mid",
-       majorUp,
-       30.0,
-       2.0,
-       {},
-       0.0},
-      {"scale-major-ascending-whole-notes-180bpm.mid",
-       majorUp,
-       180.0,
-       2.0,
-       {},
-       0.0},
-      // Dynamics: a soft → loud velocity ladder on one pitch. The only
-      // varying signal is loudness, so this is the suite's velocity test.
-      {"velocity-soft-loud-quarter-notes-60bpm.mid",
-       std::vector<int>{60, 60, 60, 60, 60, 60}, 60.0, 0.5,
-       std::vector<int>{30, 50, 70, 90, 110, 127}, 0.0},
-      // Defrag / merge: a wobble run that must collapse, and a rest-separated
-      // run that must NOT merge across the gap.
-      {"sustained-run-whole-notes-60bpm.mid", sustainedRun, 60.0, 2.0, {}, 0.0},
-      {"rest-separated-whole-notes-60bpm.mid",
-       restSeparated,
-       60.0,
-       2.0,
-       {},
-       1.0}, // one-beat rest between the two notes.
-   };
-}
-
-// ============================================================================
 // runGenerateTestMidiFiles — generator-mode entry point.
 //
 // Domain context: Called from main when --generate-test-midi-files is present
@@ -436,24 +231,20 @@ static int runGenerateTestMidiFiles(const std::string& outputDir) {
       return 1;
    }
 
-   const std::vector<TestScale> scales = testScaleSet();
+   const std::vector<Case> cases = coreCorpus();
    int written = 0;
    int failed = 0;
 
-   for (const TestScale& scale : scales) {
-      const std::string fullPath =
-         (fs::path(outputDir) / scale.fileName).string();
+   for (const Case& c : cases) {
+      const std::string fullPath = (fs::path(outputDir) / c.fileName).string();
 
-      Score score =
-         buildScaleScore(scale.tempoBpm, scale.pitches, scale.noteBeats,
-                         scale.fileName, scale.velocities, scale.gapBeats);
+      Score score = buildCorpusScore(c);
 
       MidiFileWriter midiWriter(fullPath);
       if (midiWriter.write(score)) {
          std::cout << "  Wrote " << fullPath << "  ("
-                   << midiWriter.bytesWritten() << " bytes, "
-                   << scale.pitches.size() << " notes, " << scale.tempoBpm
-                   << " BPM)\n";
+                   << midiWriter.bytesWritten() << " bytes, " << c.notes.size()
+                   << " notes, " << c.tempoBpm << " BPM)\n";
          ++written;
       } else {
          std::cerr << "  Failed to write " << fullPath << "\n";
@@ -461,7 +252,7 @@ static int runGenerateTestMidiFiles(const std::string& outputDir) {
       }
    }
 
-   std::cout << "\nGenerated " << written << " of " << scales.size()
+   std::cout << "\nGenerated " << written << " of " << cases.size()
              << " test MIDI files in " << outputDir << "\n";
    if (failed == 0) {
       std::cout
