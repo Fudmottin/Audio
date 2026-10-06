@@ -125,7 +125,10 @@ writer.write(score);
   MIDI and LilyPond output.
 - **Piano-first**: Default pitch detection tuned for piano (range 21–108, 88 keys).
 - **480 ticks per quarter note**: Logic Pro standard for MIDI output.
-- **Sustain pedal (CC#64)**: Fully supported in MIDI output.
+- **Sustain pedal (CC#64)**: written only when the score sustains — a
+  `Note.sustain` note with no explicit CC#64 gets a whole-performance
+  bracket; an explicit CC#64 control is written as-is; a non-sustained
+  score emits no pedal, so the render reflects the real performance.
 
 ## Cross-References
 

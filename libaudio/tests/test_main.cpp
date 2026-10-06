@@ -629,7 +629,8 @@ static size_t countFullPitchBendStatuses(const std::vector<uint8_t>& b) {
 static void test_midiWriter() {
    fprintf(stdout, "\n--- MidiFileWriter Tests ---\n");
 
-   // 5a. Write a simple score with 2 notes and a sustain pedal.
+   // 5a. Write a simple score with 2 non-sustained notes (no sustain pedal
+   //     requested -> the writer must not emit one).
    Score midiScore;
 
    Note m1, m2;
@@ -689,6 +690,15 @@ static void test_midiWriter() {
              "Midi: C4 Note On (90 3C 64) present");
       ASSERT(hasSubseq(bytes, {0x90, 0x40, 0x64}),
              "Midi: E4 Note On (90 40 64) present");
+
+      // Neither note is sustained and no CC#64 control is present, so the
+      // writer must not inject a sustain pedal (the historical bug: it added
+      // one unconditionally). A forced pedal adds a reverb-like tail to the
+      // render that the performance never contained.
+      ASSERT(!hasSubseq(bytes, {0xB0, 0x40, 0x7F}),
+             "Midi: no pedal-on when no note sustains (no CC#64 control)");
+      ASSERT(!hasSubseq(bytes, {0xB0, 0x40, 0x00}),
+             "Midi: no pedal-off when no note sustains (no CC#64 control)");
 
       // The track must end with End-of-Track (FF 2F 00).
       ASSERT(bytes.size() >= 3 && bytes[bytes.size() - 3] == 0xFF &&
@@ -829,16 +839,20 @@ static void test_midiMultiChannel() {
    Score score;
    score.tempo = 120.0;
 
-   // Non-bent note on channel 0 (C4, 0-1s).
+   // A sustained, non-bent note on channel 0 (C4, 0-1s). `sustain` is set so
+   // the writer's per-channel pedal scaffolding is exercised (a held note
+   // implies the sustain pedal); the note itself is still a single
+   // onset/offset.
    Note n0;
    n0.startTime = 0.0;
    n0.endTime = 1.0;
    n0.pitch = 60;
    n0.velocity = 100;
    n0.channel = 0;
+   n0.sustain = true;
    score.notes.push_back(n0);
 
-   // Bent note on channel 1 (E4=64, 0.5-1.5s, overlaps n0).
+   // A sustained, bent note on channel 1 (E4=64, 0.5-1.5s, overlaps n0).
    Note n1;
    n1.startTime = 0.5;
    n1.endTime = 1.5;
@@ -846,9 +860,10 @@ static void test_midiMultiChannel() {
    n1.velocity = 90;
    n1.channel = 1;
    n1.pitchBends = bends1;
+   n1.sustain = true;
    score.notes.push_back(n1);
 
-   // Bent note on channel 2 (G4=67, 1.0-2.0s, overlaps n1).
+   // A sustained, bent note on channel 2 (G4=67, 1.0-2.0s, overlaps n1).
    Note n2;
    n2.startTime = 1.0;
    n2.endTime = 2.0;
@@ -856,6 +871,7 @@ static void test_midiMultiChannel() {
    n2.velocity = 80;
    n2.channel = 2;
    n2.pitchBends = bends2;
+   n2.sustain = true;
    score.notes.push_back(n2);
 
    MidiFileWriter writer(path);
@@ -923,8 +939,10 @@ static void test_midiMultiChannel() {
              "MultiChannel: G4 bends round-trip exactly");
    }
 
-   // Invariant: a single-channel score (only channel 0) remains byte-identical
-   // to the pre-bend writer (the 53-byte --test file).
+   // Invariant: a single-channel, NON-sustained score (only channel 0, no
+   // pedal requested) carries no sustain pedal and is the canonical sanity
+   // note (the same shape as `midicapture --test`). The focused
+   // test_midiSustainPedal pins the full pedal contract.
    Score flat;
    flat.tempo = 120.0;
    Note flatNote;
@@ -933,18 +951,110 @@ static void test_midiMultiChannel() {
    flatNote.pitch = 60;
    flatNote.velocity = 100;
    flatNote.channel = 0;
+   flatNote.sustain = false; // non-sustained -> the writer adds no pedal.
    flat.notes.push_back(flatNote);
 
    MidiFileWriter flatWriter(path);
    ASSERT(flatWriter.write(flat),
           "MultiChannel: write() succeeds for a single-channel score");
    std::vector<uint8_t> flatBytes = readFileBytes(path);
-   // The file should be exactly 53 bytes (the canonical sanity note).
-   ASSERT(flatBytes.size() == 53,
-          "MultiChannel: single-channel file is 53 bytes (byte-identity)");
-   // No per-channel program/sustain scaffolding beyond channel 0.
+   // Exactly the pedal-less size: tempo + program + note-on + note-off + EOT
+   // (a non-sustained note carries no sustain pedal). Self-diagnostic: the
+   // message reports the actual size if the layout ever drifts.
+   ASSERT(flatBytes.size() == 45,
+          "MultiChannel: non-sustained single-channel file is 45 bytes (got " +
+             std::to_string(flatBytes.size()) + ")");
+   // No sustain pedal anywhere (neither on nor off).
+   ASSERT(!hasSubseq(flatBytes, {0xB0, 0x40, 0x7F}),
+          "MultiChannel: non-sustained note emits no pedal-on (B0 40 7F)");
+   ASSERT(!hasSubseq(flatBytes, {0xB0, 0x40, 0x00}),
+          "MultiChannel: non-sustained note emits no pedal-off (B0 40 00)");
+   // No per-channel program scaffolding beyond channel 0.
    ASSERT(!hasSubseq(flatBytes, {0x00, 0xC1, 0x00}),
           "MultiChannel: no channel-1 program in single-channel file");
+}
+
+// ============================================================================
+// 5c'. Sustain-Pedal Conditioning — the writer emits a CC#64 (sustain pedal)
+//      only when the Score asks for it. Three single-channel cases pin the
+//      contract using *relative* byte-count assertions (robust to the absolute
+//      header size) plus pedal-presence checks:
+//        (a) a sustained note, no explicit control -> the coarse whole-
+//            performance bracket (a pedal-on AND a pedal-off);
+//        (b) a non-sustained note, no control -> no pedal at all, exactly 8
+//            bytes smaller than (a) (the bracket's on + off);
+//        (c) a non-sustained note WITH one explicit CC#64 control -> written
+//            as-is, with the redundant bracket suppressed (4 bytes smaller
+//            than (a): the bracket's off).
+// ============================================================================
+static void test_midiSustainPedal() {
+   fprintf(stdout,
+           "\n--- MidiFileWriter Sustain-Pedal Conditioning Tests ---\n");
+
+   const char* path = "/tmp/test_sustainpedal.mid";
+
+   auto makeSingleNote = [](bool sustain) {
+      Note n;
+      n.startTime = 0.0;
+      n.endTime = 1.0; // one second at 120 BPM = 960 ticks.
+      n.pitch = 60;    // C4.
+      n.velocity = 100;
+      n.channel = 0;
+      n.sustain = sustain;
+      return n;
+   };
+
+   // (a) Sustained note, no explicit control -> the coarse bracket.
+   Score a;
+   a.tempo = 120.0;
+   a.notes.push_back(makeSingleNote(true));
+   MidiFileWriter writerA(path);
+   ASSERT(writerA.write(a), "SustainPedal: sustained note writes");
+   std::vector<uint8_t> aBytes = readFileBytes(path);
+   ASSERT(hasSubseq(aBytes, {0xB0, 0x40, 0x7F}),
+          "SustainPedal: sustained note emits a pedal-on (B0 40 7F)");
+   ASSERT(hasSubseq(aBytes, {0xB0, 0x40, 0x00}),
+          "SustainPedal: sustained note emits a pedal-off (B0 40 00)");
+
+   // (b) Non-sustained note, no control -> no pedal; 8 bytes smaller than (a).
+   Score b;
+   b.tempo = 120.0;
+   b.notes.push_back(makeSingleNote(false));
+   MidiFileWriter writerB(path);
+   ASSERT(writerB.write(b), "SustainPedal: non-sustained note writes");
+   std::vector<uint8_t> bBytes = readFileBytes(path);
+   ASSERT(!hasSubseq(bBytes, {0xB0, 0x40, 0x7F}),
+          "SustainPedal: non-sustained note emits no pedal-on");
+   ASSERT(!hasSubseq(bBytes, {0xB0, 0x40, 0x00}),
+          "SustainPedal: non-sustained note emits no pedal-off");
+   ASSERT(aBytes.size() == bBytes.size() + 8,
+          "SustainPedal: the coarse bracket adds exactly 8 bytes (on 4 + off "
+          "4); sustained=" +
+             std::to_string(aBytes.size()) +
+             " non-sustained=" + std::to_string(bBytes.size()));
+
+   // (c) Non-sustained note WITH one explicit CC#64 control -> written as-is,
+   //     with the redundant coarse bracket suppressed.
+   Score c;
+   c.tempo = 120.0;
+   c.notes.push_back(makeSingleNote(false));
+   ControlEvent pedal;
+   pedal.time = 0.25;
+   pedal.controller = 64; // sustain pedal.
+   pedal.value = 127;     // fully down.
+   c.controls.push_back(pedal);
+   MidiFileWriter writerC(path);
+   ASSERT(writerC.write(c), "SustainPedal: explicit pedal control writes");
+   std::vector<uint8_t> cBytes = readFileBytes(path);
+   ASSERT(hasSubseq(cBytes, {0xB0, 0x40, 0x7F}),
+          "SustainPedal: an explicit CC#64 control is written as-is");
+   ASSERT(!hasSubseq(cBytes, {0xB0, 0x40, 0x00}),
+          "SustainPedal: no writer-added pedal-off follows an explicit pedal");
+   ASSERT(cBytes.size() == aBytes.size() - 4,
+          "SustainPedal: an explicit control replaces the bracket's off (a is "
+          "4 bytes larger); explicit=" +
+             std::to_string(cBytes.size()) +
+             " sustained=" + std::to_string(aBytes.size()));
 }
 
 // ============================================================================
@@ -1191,6 +1301,7 @@ int main() {
       test_midiWriter();
       test_midiRoundTrip();
       test_midiMultiChannel();
+      test_midiSustainPedal();
       test_runningStatus();
       test_malformedAbort();
       test_audioFileReader();

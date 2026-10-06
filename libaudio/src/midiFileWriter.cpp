@@ -21,11 +21,19 @@
  * - A note with a non-empty pitch-bend vector emits its 0xE0 messages
  *   evenly across its duration (between the Note On and the Note Off);
  *   a constant-pitch note (empty vector) emits none.
- * - Per-channel scaffolding: at t=0 the writer emits program change +
- *   sustain-on for each distinct channel used by the notes (sorted); at the
- *   end it emits sustain-off for each. When only channel 0 is used (the
- *   common case: aubio path, test corpus) and no note bends, the output is
- *   byte-identical to the non-running single-channel writer.
+ * - Per-channel program change: at t=0 the writer emits a program change
+ *   (Acoustic Grand, patch 0) for each distinct channel used by the notes
+ *   (sorted). This is unconditional scaffolding.
+ * - Sustain pedal (CC#64): emitted only for content that actually sustains.
+ *   A `Note.sustain` note with no explicit CC#64 control gets a coarse
+ *   whole-performance bracket (CC64=127 at t=0, CC64=0 at the end) on each
+ *   used channel; an explicit CC#64 control is written as-is and suppresses
+ *   that redundant bracket; content that neither sustains nor carries a CC#64
+ *   control gets no pedal at all, so the rendered audio reflects the real
+ *   performance (a forced pedal would add a tail the performer never played).
+ * - When only channel 0 is used (the common case: aubio path, test corpus),
+ *   no note bends, and no note sustains, the output is byte-identical to the
+ *   non-running single-channel writer minus the (now-absent) pedal.
  * - The track always ends with an End-of-Track meta event (FF 2F 00).
  */
 
@@ -224,23 +232,51 @@ struct MidiFileWriter::Impl {
       });
 
       // Compute the set of distinct channels used by the notes (for the
-      // per-channel program/sustain scaffolding). Channel 0 is always in the
-      // set when there are notes (the common case); additional channels
-      // appear when the basic-pitch channel policy routes bent notes to them.
+      // per-channel program scaffolding). Channel 0 is always in the set when
+      // there are notes (the common case); additional channels appear when the
+      // basic-pitch channel policy routes bent notes to them.
       bool channelUsed[16] = {};
       for (const Note& n : notes) {
          channelUsed[n.channel & 0x0F] = true;
       }
 
-      // t=0 scaffolding: tempo, then per-channel program + sustain on.
-      // Byte-identity invariant: when only channel 0 is used (the default for
-      // the aubio Tier-1 path and the test corpus) this emits exactly the
-      // pre-bend writer's bytes (one program + one sustain per channel 0).
+      // Sustain-pedal policy. The writer emits a CC#64 (sustain pedal) only
+      // when the Score actually asks for it, so the rendered audio reflects
+      // the real performance:
+      //   - a note flagged `sustain` (a held / legato note) with no explicit
+      //     CC#64 control gets a coarse whole-performance bracket;
+      //   - an explicit CC#64 control is a deliberate, precisely-timed gesture
+      //     and is written as-is, with the redundant bracket suppressed;
+      //   - content that neither sustains nor carries a CC#64 control gets no
+      //     pedal at all (a forced pedal would add a reverb-like tail the
+      //     performer never played and measurably lowers transcription
+      //     precision on held runs).
+      bool anySustainedNote = false;
+      for (const Note& n : notes) {
+         if (n.sustain) {
+            anySustainedNote = true;
+            break;
+         }
+      }
+      bool anyPedalControl = false;
+      for (const ControlEvent& c : score.controls) {
+         if ((c.controller & 0x7F) == 64) {
+            anyPedalControl = true;
+            break;
+         }
+      }
+      const bool emitCoarsePedal = anySustainedNote && !anyPedalControl;
+
+      // t=0 scaffolding: tempo, then per-channel program (and a sustain-on for
+      // each used channel when the coarse pedal applies). Program changes are
+      // unconditional; the pedal is gated on `emitCoarsePedal` above.
       emit(track, 0, setTempo(tempo), lastChannelStatus);
       for (uint8_t ch = 0; ch < 16; ++ch) {
          if (channelUsed[ch]) {
             emit(track, 0, programChange(0, ch), lastChannelStatus);
-            emit(track, 0, controlChange(64, 127, ch), lastChannelStatus);
+            if (emitCoarsePedal) {
+               emit(track, 0, controlChange(64, 127, ch), lastChannelStatus);
+            }
          }
       }
 
@@ -322,10 +358,15 @@ struct MidiFileWriter::Impl {
          }
       }
 
-      // Release the sustain pedal on every used channel, then terminate.
-      for (uint8_t ch = 0; ch < 16; ++ch) {
-         if (channelUsed[ch]) {
-            emit(track, 0, controlChange(64, 0, ch), lastChannelStatus);
+      // Release the coarse sustain pedal on every used channel (only when the
+      // coarse pedal was emitted at t=0), then terminate. An explicit CC#64
+      // control is self-contained (it carries its own up/down) and needs no
+      // release here, so the release loop is gated on `emitCoarsePedal`.
+      if (emitCoarsePedal) {
+         for (uint8_t ch = 0; ch < 16; ++ch) {
+            if (channelUsed[ch]) {
+               emit(track, 0, controlChange(64, 0, ch), lastChannelStatus);
+            }
          }
       }
       emit(track, 0, endOfTrack(), lastChannelStatus);

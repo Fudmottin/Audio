@@ -162,7 +162,10 @@ The output is a **Type 1 MIDI file** with 480 ticks per quarter note, compatible
 - **Type**: 1 (multi-track, one track per channel)
 - **Division**: 480 ticks per quarter note (Logic Pro default)
 - **Instrument**: Acoustic Grand Piano (GM patch 0, channel 0)
-- **Sustain pedal**: ON at start, OFF at end (CC#64)
+- **Sustain pedal (CC#64)**: written only when the score sustains — a
+  `Note.sustain` note → a whole-performance on/off bracket, or an explicit
+  CC#64 control → written as-is; a non-sustained score writes no pedal, so
+  the render matches the real performance.
 - **Tempo**: from `--tempo` (default 120 BPM)
 - **Pitch bends**: the `basic` engine can attach 14-bit pitch-bend curves to notes (CC#0x00, `0xE0`); `--multiple-pitch-bends` spreads distinct bent pitches across channels 1..15.
 

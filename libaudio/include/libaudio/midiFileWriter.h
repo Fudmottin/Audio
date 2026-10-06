@@ -12,7 +12,10 @@
  * - **Type 1** multi-track files (multiple independent tracks).
  * - **480 ticks per quarter note** (Logic Pro default).
  * - **Acoustic Grand Piano = patch 0** (GM patch #1, channel 0).
- * - **Sustain pedal (CC#64)** messages are included.
+ * - **Sustain pedal (CC#64)** messages are emitted only for content that
+ *   actually sustains (a `Note.sustain` note, or an explicit CC#64 control);
+ *   a performance that neither sustains nor carries a CC#64 control writes no
+ *   pedal, so the file reflects what was really played.
  * - **Set Tempo** meta event is present (even if just 120 BPM).
  * - **End of Track** (`FF 2F 00`) at the end of every track.
  * - All multi-byte integers are **big-endian**.
@@ -32,10 +35,10 @@
  *   00  MTrk  [data]
  *     00  FF 51 03 0C 42 A0    // t=0, 120 BPM (500,000 µs/qn)
  *     00  C0 00                 // t=0, Program Change = 0 (Acoustic Grand)
- *     00  B0 40 7F              // t=0, sustain pedal ON (127)
+ *     00  B0 40 7F              // t=0, sustain ON (only if sustained)
  *     00  90 3C 64              // t=0, ch1, C4 (60), vel 100
  *    240  80 3C 40              // t=0.5s, ch1, C4 off, vel 64
- *     00  B0 40 00              // t=0, sustain pedal OFF (0)
+ *     00  B0 40 00              // end, sustain OFF (only if sustained)
  *     00  FF 2F 00              // t=0, End of Track
  * ```
  *
@@ -61,7 +64,7 @@ struct Score;
 // - Header chunk (Format 1, 480 ticks/qn)
 // - Track chunks (one track for piano, one for bass if present)
 // - Note On/Off events with proper delta-times
-// - Control Change events (sustain pedal CC#64, etc.)
+// - Control Change events (sustain pedal CC#64, only for sustained content)
 // - Program Change (Acoustic Grand Piano = patch 0)
 // - Set Tempo meta event (120 BPM default)
 // - End of Track marker (FF 2F 00)
