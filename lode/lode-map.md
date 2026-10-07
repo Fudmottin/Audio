@@ -52,7 +52,7 @@
 |----------|---------|
 | [summary.md](midicapture/summary.md) | Module overview, architecture, transcription pipeline, CLI, validation toolchain (defrag + octave details in [defrag.md](midicapture/defrag.md)) |
 | [defrag.md](midicapture/defrag.md) | Tier-1 note modeling: defragmentation, the YIN octave problem, the stereo segfault (measured) |
-| [writer.md](midicapture/writer.md) | SMF writer: byte layout, invariants (running status, conditional sustain pedal), `--test` flag, midicsv/timidity validation |
+| [writer.md](midicapture/writer.md) | SMF writer: byte layout, invariants (running status, conditional sustain pedal, time-ordered note/control merge), `--test` flag, midicsv/timidity validation |
 | [testmidi.md](midicapture/testmidi.md) | `--generate-test-midi-files`: monophonic scale ground-truth files, `--output-dir` |
 | [tmp/session-handoff-midicapture-diagnosis.md](tmp/session-handoff-midicapture-diagnosis.md) | Session diagnosis: secondsToTicks bug, transcription quality issues |
 

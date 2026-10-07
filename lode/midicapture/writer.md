@@ -48,21 +48,27 @@ sequenceDiagram
         W->>W: Program 0 = Acoustic Grand (C-ch) @ tick 0   (unconditional)
         W->>W: Sustain ON (B-ch 40 7F) @ tick 0   (only if the score sustains)
     end
-    loop each Note, sorted by startTime
-        W->>W: NoteOn  (9-ch nn vv) @ startTick
-        loop each bend in note.pitchBends (non-empty notes only)
-            W->>W: PitchBend (E-ch nn vv) @ gridTick  (linspace across the note)
-        end
-        W->>W: NoteOff (8-ch nn vv) @ endTick  (>= startTick + 1)
-    end
-    loop each ControlEvent, sorted by time
-        W->>W: ControlChange @ tick (channel 0)
+    loop each channel event, stable-sorted by absolute tick
+        W->>W: NoteOn  (9-ch nn vv) @ startTick   (per note, in note order)
+        W->>W: PitchBend (E-ch nn vv) @ gridTick  (bends, linspace across the note)
+        W->>W: NoteOff (8-ch nn vv) @ endTick     (>= startTick + 1)
+        W->>W: ControlChange @ tick               (Score controls, channel 0)
     end
     loop each distinct channel used (sorted)
         W->>W: Sustain OFF (B-ch 40 00) @ tick 0   (only if the score sustains)
     end
     W->>W: EndOfTrack (FF 2F 00) @ tick 0
 ```
+
+> The note events and the `Score` control events are **merged into one stream**
+> and stably sorted by absolute tick, then emitted in order. A control at time
+> *T* therefore lands at its true position among the notes — a t=0 sustain pedal
+> engages at t=0 and sustains the notes that follow — instead of being clamped
+> to the end of the track (the historical writer appended every control after
+> the last note, where an early one sustained nothing). At equal ticks the
+> stable sort keeps the historical per-note order, so a control-less `Score`
+> (the 14-case corpus, the `--test` sanity note) stays byte-identical to the
+> old writer.
 
 ### Per-channel scaffolding
 
@@ -136,6 +142,7 @@ earlier MAESTRO sweep's F ≈ 0.2).
 | 9 | Bends emit 0xE0 only when the vector is non-empty | `buildTrack` skips the bend block for an empty `Note::pitchBends`; a constant-pitch note (and the entire aubio Tier-1 path) stays byte-identical to the pre-bend writer. |
 | 10 | Bend 0xE0 values land between the note's on and off, on a linspace grid | Each bend's tick is `secondsToTicks(start + (end−start)·i/(n−1))`; `lastTick` advances after each bend, keeping the timeline monotonic. |
 | 11 | Scaffolding: program unconditional, sustain pedal conditional | A `programChange(0, ch)` is emitted per used channel unconditionally; a sustain-pedal on (t=0) and off (pre-EOT) are emitted per channel **only when** `emitCoarsePedal` (a `Note.sustain` note present, no explicit CC#64). A non-sustained, bend-less, single-channel Score is therefore byte-identical to the pre-bend writer. Additional channels appear only when `Note::channel > 0`. |
+| 12 | Notes and controls are emitted in non-decreasing absolute-time order | `buildTrack` merges the per-note events (in note order) and the `Score` controls into one stream and stable-sorts by tick; equal ticks keep insertion order (notes before controls), so a control at time *T* lands at its true position among the notes rather than after the last note. |
 
 ### Seconds → ticks
 
