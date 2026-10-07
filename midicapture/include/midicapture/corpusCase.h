@@ -5,17 +5,21 @@
  *
  * A `Case` is a small performance: a tempo, a set of (possibly simultaneous)
  * `CaseNote`s (timing in beats), and optional control events (e.g. sustain
- * pedal). It is the single definition both generators consume, so they can
- * never drift apart:
- *   - `--generate-test-midi-files` (main.cpp) writes each case as a `.mid`;
- *   - `--run-corpus --clean` (corpusHarness.cpp) writes the `.mid` and renders
- *     it to the synthetic-voice `.mp3`.
+ * pedal). It is the single definition the test-suite generators consume, so
+ * they can never drift apart:
+ *   - `--generate-test-midi-files` (main.cpp) writes each case as a `.mid`
+ *     (the ground truth);
+ *   - `render_test_suite.py` renders each `.mid` to the test voice (timidity)
+ *     and `--run-corpus` (corpusHarness.cpp) evaluates it as a pure evaluator.
  *
- * `coreCorpus()` is the fixed 14-case monophonic set (the regression gate);
- * it is expressed with the `sequential()` helper. `buildCorpusScore` converts
- * a `Case` to a `libaudio::Score` (beats -> seconds at the case tempo). The
- * header depends only on the HIR, so it is usable in Tier-1 and Tier-2 builds
- * alike (the gate itself is Tier-2; the generated files are not).
+ * `coreCorpus()` is the fixed corpus: the 14 monophonic cases (the regression
+ * gate) plus four gesture cases (a chord, a bent note, a sustain-pedal
+ * phrase, an overlapping legato run); the monophonic cases are expressed with
+ * the `sequential()` helper and the gesture cases are built directly.
+ * `buildCorpusScore` converts a `Case` to a `libaudio::Score` (beats ->
+ * seconds at the case tempo). The header depends only on the HIR, so it is
+ * usable in Tier-1 and Tier-2 builds alike (the gate itself is Tier-2; the
+ * generated files are not).
  */
 
 #ifndef MIDICAPTURE_CORPUS_CASE_H
@@ -49,7 +53,8 @@ struct CaseNote {
 // Domain context: an output filename, a tempo, a set of (possibly
 // simultaneous) notes, and optional control events. General enough for
 // monophonic runs, polyphonic chords, bent notes, and pedal cases alike; the
-// fixed 14-case gate set is expressed with `sequential()`.
+// monophonic cases are expressed with `sequential()` and the gesture cases
+// (chord / bend / pedal / overlap) are built directly.
 // Aggregate type with no hidden state or side effects.
 // ============================================================================
 struct Case {
@@ -74,10 +79,14 @@ Case sequential(const std::string& fileName, const std::vector<int>& pitches,
                 const std::vector<int>& velocities = {}, double gapBeats = 0.0);
 
 // ============================================================================
-// coreCorpus — the fixed 14-case monophonic corpus (the regression gate set).
+// coreCorpus — the fixed test-suite corpus (the regression gate set).
 //
-// Defined once here and shared by `--generate-test-midi-files` and
-// `--run-corpus --clean` so the two generators cannot drift apart.
+// The 14 monophonic cases (the historical gate) plus four gesture cases
+// (a simultaneous chord, a single bent note, a sustain-pedal phrase, and an
+// overlapping legato run), all defined once here. Shared by
+// `--generate-test-midi-files` (which writes each as a `.mid`) and
+// `render_test_suite.py` / `--run-corpus` (which render + evaluate them) so
+// the generators cannot drift apart.
 // ============================================================================
 std::vector<Case> coreCorpus();
 

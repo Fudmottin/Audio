@@ -32,8 +32,8 @@
  *   --tempo <float>      Tempo in BPM (default: 120).
  *   --method <string>    Pitch detection method (default: "yinfft"). [aubio
  * only]
- *   --ffmpeg <string>    Path to ffmpeg (aubio container-decode fallback +
- * corpus MP3 encoding; not used by basic-pitch).
+ *   --ffmpeg <string>    Path to ffmpeg (aubio container-decode fallback;
+ * not used by basic-pitch).
  *   --help               Print this message.
  *
  * @section engine-design Engine Design
@@ -123,15 +123,12 @@ static void printUsage(const char* programName) {
    std::cerr << "  --output-dir <string>     Directory for generated MIDI files"
              << " (default: .).\n";
 #ifdef LIBAUDIO_HAS_TIER2
-   std::cerr << "  --run-corpus DIR          Run the 14-file corpus evaluation"
+   std::cerr << "  --run-corpus DIR          Run the corpus evaluation"
              << " in DIR with --model.\n";
    std::cerr
       << "  --analyzer <string>       Deprecated: use --model instead.\n";
-   std::cerr
-      << "  --clean                   Regenerate the corpus assets before"
-      << " evaluating.\n";
    std::cerr << "  --ffmpeg <string>         Path to the ffmpeg executable"
-             << " (aubio container-decode fallback + corpus MP3 encoding)."
+             << " (aubio container-decode fallback)."
              << " Not used by basic-pitch (in-process decode). Default:"
              << " /opt/homebrew/bin/ffmpeg.\n";
    std::cerr << "  --no-pitch-bends          For --model basic: skip pitch-bend"
@@ -255,9 +252,8 @@ static int runGenerateTestMidiFiles(const std::string& outputDir) {
    std::cout << "\nGenerated " << written << " of " << cases.size()
              << " test MIDI files in " << outputDir << "\n";
    if (failed == 0) {
-      std::cout
-         << "Render reference audio with: timidity -Ow <name>.wav <name>.mid\n";
-      std::cout << "Then transcribe with:  midicapture <name>.mid\n";
+      std::cout << "Build + evaluate the full suite (timidity voice) with:\n";
+      std::cout << "  python3 render_test_suite.py --out " << outputDir << "\n";
       return 0;
    }
    std::cerr << "\nError: " << failed << " file(s) failed to write.\n";
@@ -268,7 +264,7 @@ static int runGenerateTestMidiFiles(const std::string& outputDir) {
 // ============================================================================
 // runMaestroSweep — the MAESTRO ground-truth knob sweep (the tuner).
 //
-// The corpus harness (14 tempo-correct, timidity-rendered assets) tunes the
+// The corpus harness (tempo-correct, timidity-rendered assets) tunes the
 // post-processing knobs against rendered ground truth. This sweep is the
 // *experimental* tuner for real recordings: it runs the basic-pitch model
 // once (or decodes a cached raw-map), then re-decodes the raw note/onset maps
@@ -515,7 +511,6 @@ int main(int argc, char* argv[]) {
    std::string dumpRawMapPath;
    std::string modelName = "basic";
    std::string analyzerArg;
-   bool clean = false;
    std::string ffmpegPath = "/opt/homebrew/bin/ffmpeg";
    bool noPitchBends = false;
    bool multiplePitchBends = false;
@@ -626,15 +621,13 @@ int main(int argc, char* argv[]) {
       " Tier-1 engine).")("analyzer", po::value<std::string>(&analyzerArg),
                           "Deprecated alias for --model. Use --model instead.")(
       "run-corpus", po::value<std::string>(&runCorpusDir),
-      "Run the 14-file corpus evaluation in DIR with --model (no positional"
+      "Run the corpus evaluation in DIR with --model (no positional"
       " input needed).")(
-      "clean", po::bool_switch(&clean),
-      "Before evaluating, regenerate the corpus assets (.mid + .mp3).")(
       "ffmpeg",
       po::value<std::string>(&ffmpegPath)
          ->default_value("/opt/homebrew/bin/ffmpeg"),
-      "Path to the ffmpeg executable (aubio container-decode fallback and"
-      " corpus MP3 encoding). Not used by basic-pitch (in-process decode).")(
+      "Path to the ffmpeg executable (aubio container-decode fallback)."
+      " Not used by basic-pitch (in-process decode).")(
       "no-pitch-bends", po::bool_switch(&noPitchBends),
       "For --model basic: skip pitch-bend extraction (the default is on,"
       " matching the Python reference).")(
@@ -808,14 +801,12 @@ int main(int argc, char* argv[]) {
             " to\n"
          << "                            (default: current directory).\n"
 #ifdef LIBAUDIO_HAS_TIER2
-         << "  --run-corpus DIR           Run the 14-file corpus evaluation in"
+         << "  --run-corpus DIR           Run the corpus evaluation in"
             " DIR with --model.\n"
          << "  --analyzer arg             Deprecated: use --model instead.\n"
-         << "  --clean                    Regenerate the corpus assets before"
-            " evaluating.\n"
          << "  --ffmpeg arg (=/opt/homebrew/bin/ffmpeg)\n"
          << "                            Path to the ffmpeg executable (aubio"
-            " container-decode fallback + corpus MP3 encoding). Not used by"
+            " container-decode fallback). Not used by"
             " basic-pitch (in-process decode).\n"
          << "  --no-pitch-bends           For --model basic: skip pitch-bend"
             " extraction (default: on).\n"
@@ -870,12 +861,12 @@ int main(int argc, char* argv[]) {
    }
 
 #ifdef LIBAUDIO_HAS_TIER2
-   // --run-corpus: the analyzer-agnostic 14-file corpus evaluator. Like the
+   // --run-corpus: the analyzer-agnostic corpus evaluator. Like the
    // generator mode above it needs no positional input and ignores the
    // analysis options, so it runs before the input-required check below.
    if (vm.count("run-corpus") > 0) {
-      return runCorpus(runCorpusDir, modelName, clean, ffmpegPath,
-                       !noPitchBends, multiplePitchBends);
+      return runCorpus(runCorpusDir, modelName, ffmpegPath, !noPitchBends,
+                       multiplePitchBends);
    }
 #endif // LIBAUDIO_HAS_TIER2
 
