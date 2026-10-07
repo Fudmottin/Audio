@@ -18,6 +18,13 @@
  * - Multi-byte fields are big-endian; the `MTrk` length equals the actual
  *   number of event bytes that follow.
  * - Each note emits exactly one Note On and one Note Off.
+ * - Channel events (notes and controls) are merged and emitted in
+ *   non-decreasing absolute-time order via a *stable* sort (equal ticks keep
+ *   authoring order). A control at time T lands at its true position among
+ *   the notes, not after the last note — so a t=0 sustain pedal engages at
+ *   t=0 and sustains the notes that follow (the historical writer appended
+ *   all controls after all notes, clamping an early control to the end where
+ *   it sustained nothing).
  * - A note with a non-empty pitch-bend vector emits its 0xE0 messages
  *   evenly across its duration (between the Note On and the Note Off);
  *   a constant-pitch note (empty vector) emits none.
@@ -280,10 +287,28 @@ struct MidiFileWriter::Impl {
          }
       }
 
+      // Unified event stream. Every channel event (a note's Note On, its
+      // pitch bends, its Note Off, and each Score control) is tagged with its
+      // absolute tick; the two groups are merged and *stably* sorted by tick,
+      // then walked in one pass. The stable sort preserves the historical
+      // per-note emission order, so a Score without control events (the
+      // monophonic test corpus, the single-note `--test` probe) renders
+      // byte-identically to the old append-controls-at-the-end writer. A
+      // control at an early time (a t=0 sustain pedal) now lands at its true
+      // tick instead of clamping to the end of the track, where it would have
+      // sustained nothing.
+      struct Event {
+         uint32_t tick;
+         std::vector<uint8_t> payload;
+      };
+      std::vector<Event> events;
+
+      // Notes, in the writer's canonical start-time order. Each contributes
+      // exactly one Note On, its pitch bends (if any), and one Note Off.
       for (const Note& note : notes) {
          uint8_t pitch = clamp7(note.pitch);
-         // A Note On with velocity 0 is a "silent note off" by the MIDI
-         // spec; enforce a minimum of 1 so a detected note always sounds.
+         // A Note On with velocity 0 is a "silent note off" by the MIDI spec;
+         // enforce a minimum of 1 so a detected note always sounds.
          uint8_t velocity = static_cast<uint8_t>(
             std::min(127u, std::max(1u, static_cast<unsigned>(note.velocity))));
          uint8_t channel = note.channel & 0x0F;
@@ -293,14 +318,7 @@ struct MidiFileWriter::Impl {
          if (offTick <= onTick) {
             offTick = onTick + 1; // Guarantee a non-zero-length note.
          }
-
-         // Note On at the note's start.
-         uint32_t onDelta = (onTick > lastTick) ? (onTick - lastTick) : 0;
-         emit(track, onDelta, noteOn(pitch, velocity, channel),
-              lastChannelStatus);
-         if (onTick > lastTick) {
-            lastTick = onTick;
-         }
+         events.push_back({onTick, noteOn(pitch, velocity, channel)});
 
          // Pitch bends (0xE0), evenly spread across the note's duration and
          // placed between the Note On and the Note Off. A note with no bends
@@ -308,8 +326,7 @@ struct MidiFileWriter::Impl {
          // aubio Tier-1 path and the test corpus) emits none, so such a Score
          // is byte-identical to the pre-bend writer. Each bend's time is a
          // point on the [start, end] grid (np.linspace in the reference) in
-         // seconds; its delta is against the running timeline so absolute
-         // ticks stay monotonic.
+         // seconds.
          if (!note.pitchBends.empty()) {
             const size_t n = note.pitchBends.size();
             for (size_t i = 0; i < n; ++i) {
@@ -320,41 +337,36 @@ struct MidiFileWriter::Impl {
                      : 0.0;
                const double tSec =
                   note.startTime + (note.endTime - note.startTime) * frac;
-               const uint32_t tick = secondsToTicks(tSec, tempo);
-               const uint32_t delta = (tick > lastTick) ? (tick - lastTick) : 0;
-               emit(track, delta, pitchBend(note.pitchBends[i], channel),
-                    lastChannelStatus);
-               if (tick > lastTick) {
-                  lastTick = tick;
-               }
+               events.push_back({secondsToTicks(tSec, tempo),
+                                 pitchBend(note.pitchBends[i], channel)});
             }
          }
 
-         // Note Off at the note's end (delta against the running timeline).
-         uint32_t offDelta = (offTick > lastTick) ? (offTick - lastTick) : 0;
-         emit(track, offDelta, noteOff(pitch, velocity, channel),
-              lastChannelStatus);
-
-         if (offTick > lastTick) {
-            lastTick = offTick; // Keep the timeline monotonic.
-         }
+         events.push_back({offTick, noteOff(pitch, velocity, channel)});
       }
 
-      // Score control events (pedals, etc.), sorted by time.
-      std::vector<ControlEvent> controls = score.controls;
-      std::sort(controls.begin(), controls.end(),
-                [](const ControlEvent& a, const ControlEvent& b) {
-                   return a.time < b.time;
-                });
-      for (const ControlEvent& control : controls) {
-         uint32_t tick = secondsToTicks(control.time, tempo);
-         uint32_t delta = (tick > lastTick) ? (tick - lastTick) : 0;
-         emit(track, delta,
-              controlChange(clamp7(control.controller), clamp7(control.value),
-                            0),
-              lastChannelStatus);
-         if (tick > lastTick) {
-            lastTick = tick;
+      // Score control events (pedals, etc.), by their absolute time.
+      for (const ControlEvent& control : score.controls) {
+         events.push_back({secondsToTicks(control.time, tempo),
+                           controlChange(clamp7(control.controller),
+                                         clamp7(control.value), 0)});
+      }
+
+      // Stable sort by absolute tick: equal ticks keep insertion order (notes
+      // in their historical per-note order, then the controls).
+      std::stable_sort(events.begin(), events.end(),
+                       [](const Event& a, const Event& b) {
+                          return a.tick < b.tick;
+                       });
+
+      // Walk the merged, time-ordered stream. A delta is never negative; the
+      // running timeline and the running channel status advance as each event
+      // is emitted.
+      for (Event& event : events) {
+         uint32_t delta = (event.tick > lastTick) ? (event.tick - lastTick) : 0;
+         emit(track, delta, std::move(event.payload), lastChannelStatus);
+         if (event.tick > lastTick) {
+            lastTick = event.tick;
          }
       }
 

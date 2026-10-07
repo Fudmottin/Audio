@@ -461,6 +461,26 @@ static bool hasSubseq(const std::vector<uint8_t>& b,
    return false;
 }
 
+// Sentinel for `findSubseq`: the index of the first occurrence of `needle` in
+// `b`, or kNoMatch when absent. `hasSubseq` is the boolean form; this lets an
+// ordering assertion compare where two events land in the raw byte stream.
+constexpr size_t kNoMatch = static_cast<size_t>(-1);
+static size_t findSubseq(const std::vector<uint8_t>& b,
+                         const std::vector<uint8_t>& needle) {
+   if (needle.size() > b.size()) return kNoMatch;
+   for (size_t i = 0; i + needle.size() <= b.size(); ++i) {
+      bool match = true;
+      for (size_t j = 0; j < needle.size(); ++j) {
+         if (b[i + j] != needle[j]) {
+            match = false;
+            break;
+         }
+      }
+      if (match) return i;
+   }
+   return kNoMatch;
+}
+
 // Count real pitch-bend (0xE0-0xEF) *status* messages in a Standard MIDI
 // File, walking every MTrk with running-status awareness. A raw 0xE0 byte is
 // a pitch bend only when it occupies a status position (>= 0x80); data bytes,
@@ -1050,11 +1070,76 @@ static void test_midiSustainPedal() {
           "SustainPedal: an explicit CC#64 control is written as-is");
    ASSERT(!hasSubseq(cBytes, {0xB0, 0x40, 0x00}),
           "SustainPedal: no writer-added pedal-off follows an explicit pedal");
-   ASSERT(cBytes.size() == aBytes.size() - 4,
-          "SustainPedal: an explicit control replaces the bracket's off (a is "
-          "4 bytes larger); explicit=" +
+   // The explicit pedal replaces the coarse bracket but is one byte larger than
+   // a zero-delta pedal: it lands at its true tick (0.25 s here, a non-zero
+   // varlen delta) between the note's On and Off, whereas the bracket's two
+   // pedals are zero-delta. So the bracket (a) is 3 bytes larger than the
+   // single explicit pedal (c) — not 4 as the old clamp-to-end writer gave.
+   ASSERT(cBytes.size() == aBytes.size() - 3,
+          "SustainPedal: the coarse bracket is 3 bytes larger than the single "
+          "explicit pedal; explicit=" +
              std::to_string(cBytes.size()) +
              " sustained=" + std::to_string(aBytes.size()));
+}
+
+// ============================================================================
+// 5c. Control Interleave — a control at an early time lands at its true tick
+//     (positioned among the notes), and one at a late time lands after them;
+//     neither is clamped to the end of the track. The historical writer
+//     appended all controls after all notes, so a t=0 pedal was clamped to the
+//     end where it sustained nothing; this pins the corrected ordering.
+// ============================================================================
+static void test_controlInterleave() {
+   fprintf(stdout, "\n--- MidiFileWriter Control-Interleave Tests ---\n");
+
+   const char* path = "/tmp/test_interleave.mid";
+
+   // One note at 1.0..2.0 s (120 BPM -> 960 ticks/s) on channel 0, non-
+   // sustained, plus an explicit pedal down at t=0 (before the note) and an
+   // explicit pedal up at t=3.0 (after it). Both pedals are authored controls,
+   // not the writer's coarse bracket, so each must land at its true tick.
+   Score s;
+   s.tempo = 120.0;
+   Note n;
+   n.startTime = 1.0;
+   n.endTime = 2.0;
+   n.pitch = 60; // C4.
+   n.velocity = 100;
+   n.channel = 0;
+   n.sustain = false;
+   s.notes.push_back(n);
+
+   ControlEvent down;
+   down.time = 0.0;
+   down.controller = 64; // sustain pedal.
+   down.value = 127;     // fully down.
+   s.controls.push_back(down);
+
+   ControlEvent up;
+   up.time = 3.0;
+   up.controller = 64;
+   up.value = 0; // fully up.
+   s.controls.push_back(up);
+
+   MidiFileWriter writer(path);
+   ASSERT(writer.write(s), "Interleave: writes");
+   std::vector<uint8_t> b = readFileBytes(path);
+
+   // The early pedal must precede the note's On; the late pedal must follow the
+   // note's Off. The historical append-at-end writer would have placed the
+   // early pedal AFTER the note's Off (clamping its t=0 tick to the end).
+   size_t posDown = findSubseq(b, {0xB0, 0x40, 0x7F});
+   size_t posOn = findSubseq(b, {0x90, 0x3C, 0x64});
+   size_t posOff = findSubseq(b, {0x80, 0x3C, 0x64});
+   size_t posUp = findSubseq(b, {0xB0, 0x40, 0x00});
+   ASSERT(posDown != kNoMatch && posOn != kNoMatch && posOff != kNoMatch &&
+             posUp != kNoMatch,
+          "Interleave: all four events present (down, On, Off, up)");
+   ASSERT(posDown < posOn,
+          "Interleave: the early pedal (t=0) lands before the note's On");
+   ASSERT(posOn < posOff, "Interleave: the note's On precedes its Off");
+   ASSERT(posOff < posUp,
+          "Interleave: the late pedal (t=3) lands after the note's Off");
 }
 
 // ============================================================================
@@ -1302,6 +1387,7 @@ int main() {
       test_midiRoundTrip();
       test_midiMultiChannel();
       test_midiSustainPedal();
+      test_controlInterleave();
       test_runningStatus();
       test_malformedAbort();
       test_audioFileReader();
