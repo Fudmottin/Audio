@@ -57,8 +57,9 @@ resamples it to the model's 22050 Hz mono float32 in one in-process streaming
 pass — no subprocess, no temp file. This is a **build-time** dependency gated
 by `LIBAUDIO_ENABLE_TIER2`; the Tier-1 aubio path does not link it. (The
 ffmpeg *binary* is still used at runtime by the Tier-1 `AudioSource` container
-fallback and midicapture's `--clean` MP3 encoding — a runtime, not a build,
-dependency.) See [tier2.md](tier2.md) → Front-end and [../plans/ffmpeg-link.md](../plans/ffmpeg-link.md).
+fallback — a runtime, not a build, dependency; basic-pitch decodes in-process,
+and the corpus MP3 is produced by `render_test_suite.py` in Python.) See
+[tier2.md](tier2.md) → Front-end and [../plans/ffmpeg-link.md](../plans/ffmpeg-link.md).
 
 ### Detailed decisions
 

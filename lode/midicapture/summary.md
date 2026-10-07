@@ -36,13 +36,15 @@ Audio/
 │   └── src/             # Implementation files (incl. transcriber.cpp, onnx/, basicPitch/)
 ├── midicapture/          # Phase 2: Audio → MIDI (thin CLI front-end)
 │   ├── CMakeLists.txt   # Build config (links libaudio, Boost)
+│   ├── render_test_suite.py  # corpus audio producer: timidity MIDI→MP3, then
+│   │                          #   the C++ `--run-corpus` evaluator (no C++ synth)
 │   ├── include/midicapture/
-│   │   ├── corpusHarness.h       # Analyzer-agnostic 14-file corpus evaluator (Tier-2)
-│   │   └── corpusCase.h          # Shared 14-case corpus spec (Case/sequential/coreCorpus)
+│   │   ├── corpusHarness.h       # Analyzer-agnostic corpus evaluator (Tier-2)
+│   │   └── corpusCase.h          # Shared 18-case corpus spec (Case/sequential/coreCorpus)
 │   └── src/
 │       ├── main.cpp              # CLI entry point (Boost program_options; --run-corpus)
 │       ├── corpusHarness.cpp     # Tier-2 corpus harness (recall/precision/Δ) + makeAnalyzer
-│       └── corpusCase.cpp        # The 14-case corpus + Score builder (HIR-only, all builds)
+│       └── corpusCase.cpp        # The 18-case corpus + Score builder (HIR-only, all builds)
 └── lode/midicapture/    # Module documentation
 ```
 
@@ -159,12 +161,11 @@ Engine selection:
   --no-melodia           [basic only] Skip the melodia trick (default on).
   --tempo (=120)         Tempo in BPM (both engines; a playback-rate control).
   --ffmpeg (=/opt/homebrew/bin/ffmpeg)  [Tier-2] ffmpeg *binary* path: aubio
-                           container-decode fallback + --clean MP3 encoding.
-                           Not used by basic-pitch (in-process decode).
+                           container-decode fallback. Not used by basic-pitch
+                           (in-process decode).
 
 Corpus (Tier-2 only):
-  --run-corpus DIR       Evaluate the 14-file corpus in DIR with --model.
-  --clean                Regenerate the corpus assets first.
+  --run-corpus DIR       Evaluate the corpus in DIR with --model.
   --dump-raw-map PATH    Run basic-pitch once; write the raw stitched maps
                          (note/onset/contour + timing) to PATH as a binary
                          raw-map file. Writes no MIDI; needs a positional input.
@@ -172,7 +173,7 @@ Corpus (Tier-2 only):
 Utility (all builds):
   -o [ --output ] arg    Output .mid.   --input / -i  Prefer positional instead.
   -t [ --test ]          Write a fixed single middle-C note; no analysis.
-  --generate-test-midi-files  Write the 14-file corpus to --output-dir.
+  --generate-test-midi-files  Write the corpus to --output-dir.
   -h [ --help ]          Usage.
 ```
 
@@ -186,7 +187,7 @@ Utility (all builds):
 > The basic-pitch **note-creation knobs** (onset/frame threshold, min-note-len,
 > min/max-freq, velocity-scale, bend-deadband, --no-infer-onsets, --no-melodia)
 > tune only `basic`; their defaults are the reference values, so a no-flag run is
-> byte-identical to the baseline (14/14 corpus parity). The symmetric gate applies
+> byte-identical to the baseline (18/18 corpus parity). The symmetric gate applies
 > in reverse: pass any of these with `--model aubio` and the tool prints a note
 > that it was ignored. `--midi-tempo` is deliberately not a flag — `--tempo`
 > (tempoBpm) already sets the output tempo.
@@ -205,7 +206,7 @@ Examples:
 midicapture song.aiff                          # → song.mid (default model: basic)
 midicapture song.aiff output.mid               # explicit output
 midicapture --model aubio song.aiff out.mid    # the monophonic engine
-midicapture --run-corpus ./test-midi           # evaluate the 14-file corpus (Tier-2)
+midicapture --run-corpus ./test-midi           # evaluate the corpus (Tier-2)
 midicapture --test song.aiff                   # fixed sanity note -> song.mid
 midicapture --generate-test-midi-files --output-dir ./test-midi
 ```
@@ -236,7 +237,7 @@ cmake --build . --config Release
 #   -> build-tier2/bin/midicapture
 ```
 
-Requires: aubio, libsndfile, Boost (program_options); **Tier-2 additionally** onnxruntime + a working Core ML EP + **FFmpeg (shared libraries, via pkg-config)**. The ffmpeg *binary* is still used at runtime by the aubio container fallback and `--clean` (corpus MP3 encoding).
+Requires: aubio, libsndfile, Boost (program_options); **Tier-2 additionally** onnxruntime + a working Core ML EP + **FFmpeg (shared libraries, via pkg-config)**. The ffmpeg *binary* is still used at runtime by the aubio container fallback only (basic-pitch decodes in-process; the corpus's MP3 assets are produced by `render_test_suite.py` in Python).
 
 ---
 

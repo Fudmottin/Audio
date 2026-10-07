@@ -67,8 +67,8 @@ sequenceDiagram
 > to the end of the track (the historical writer appended every control after
 > the last note, where an early one sustained nothing). At equal ticks the
 > stable sort keeps the historical per-note order, so a control-less `Score`
-> (the 14-case corpus, the `--test` sanity note) stays byte-identical to the
-> old writer.
+> (the monophonic corpus cases, the `--test` sanity note) stays
+> byte-identical to the old writer.
 
 ### Per-channel scaffolding
 

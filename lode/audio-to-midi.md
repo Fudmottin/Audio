@@ -83,7 +83,7 @@ dependency.
     piano, directly MIDI-out. → **This is the decided path, and it has landed:**
     hosted inside libaudio on ONNX Runtime (+ Core ML) as `libaudio::BasicPitch`
     and is now the **default `--model` in a Tier-2 midicapture build** (it resolves
-    the §5 octave problem monophonic DSP cannot — 100% recall on the 14-file corpus
+    the §5 octave problem monophonic DSP cannot — 100% recall on the 18-case corpus
     vs aubio's ~6%). Later hosts for TF-MAGS / Demucs. See §7.
   - **NNoteS** (2021): neural, per-note; relevant for monophonic robustness.
 
@@ -161,7 +161,7 @@ real "more interesting MIDI" step after monophonic is settled.
 
 - **Ground-truth round trip** is the core metric: `MIDI → timidity → audio →
   midicapture → compare note sets` (pitch recall/precision, onset offset vs. the
-  score). The 14-file corpus (`--generate-test-midi-files`) is the fixture.
+  score). The 18-case corpus (`--generate-test-midi-files`) is the fixture.
   *Caveat (from §5):* the round trip is only *clean* for sources with a strong
   fundamental; weak-fundamental renders confound the octave, so they validate
   **defragmentation and note count**, not absolute pitch.
@@ -181,5 +181,6 @@ real "more interesting MIDI" step after monophonic is settled.
 > cross-module file so both stay under the 250-line cap. In brief: fix the §5
 > octave problem by hosting *neural* transcribers (basic-pitch first) inside
 > **libaudio** on **ONNX Runtime** (+ Core ML EP). basic-pitch is implemented and
-> verified (Phase 1b: 14-file corpus → 100% recall / 68% precision, correct
-> octave + chroma). See that file for the architecture, contract, and phasing.
+> verified on the 18-case corpus (timidity voice) → 100% recall, correct octave
+> + chroma (precision is voice-dependent — see [tier2.md](libaudio/tier2.md)).
+> See that file for the architecture, contract, and phasing.

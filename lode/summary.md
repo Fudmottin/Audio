@@ -34,7 +34,7 @@ Audio/
 │       ├── summary.md    # Module overview, dependencies, architecture, API
 │       ├── decisions.md  # Library choices, wrapper pattern, defaults
 │       ├── hir.md        # High-level Instrumentation Representation
-│       └── tier2.md      # Tier-2 ONNX: basic-pitch, 14-file corpus, phasing
+│       └── tier2.md      # Tier-2 ONNX: basic-pitch, 18-case corpus (timidity), phasing
 │   ├── midicapture/      # Phase 2: transcription module
 │   │   └── summary.md    # Module overview, architecture, pipeline
 │   └── waterfall/        # Phase 3: frequency analysis module
@@ -67,7 +67,7 @@ Audio/
   locks below the fundamental; see [audio-to-midi.md](audio-to-midi.md) §5) —
   the scale round-trip validates note count / defrag, not absolute pitch.
   **Tier-2 (basic-pitch, Core ML):** resolves the octave — 100% recall, correct
-  octave + chroma on the 14-file corpus ([audio-to-midi.md](audio-to-midi.md) §7).
+  octave + chroma on the 18-case corpus ([audio-to-midi.md](audio-to-midi.md) §7).
   Writer validity is solved.
 - **Default engine (Tier-2):** the `basic` (basic-pitch) engine is the default
   `--model` in a Tier-2 build — it resolves the octave YIN cannot; `--model aubio`

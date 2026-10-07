@@ -1,7 +1,8 @@
 # Plan: Tunable post-processing for the basic-pitch (NMP) path
 
-> **Status: 🔧 In progress — Phase 2 (knob promotion + clamps + Boost flags) done
-> & committed; Phases 3–5 pending.** Code freeze is **lifted** (the user authorized
+> **Status: 🔧 In progress — Phases 1–3 (raw-map dump; knob promotion +
+> clamps + Boost flags; experimental method + MAESTRO `--sweep`) done &
+> committed; Phase 4 partial; Phase 5 pending.** Code freeze is **lifted** (the user authorized
 > implementation). Phase 1 added the model-front-end factor (`Impl::runFrontEnd`),
 > `BasicPitch::getRawPredictions`, a dependency-free binary raw-map format
 > (`rawMap.{h,cpp}`), and the `midicapture --dump-raw-map` flag. Phase 2 promoted
@@ -9,7 +10,7 @@
 > (same defaults), added the missing knobs (min/max frequency, the `melodia` /
 > `infer-onsets` gates, `midiTempo`), clamped each per §6, and wired Boost flags
 > into `midicapture` (the direct path) — all byte-identical to the no-flag baseline
-> (14/14 corpus parity; corpus metrics unchanged). This plan is the source of truth
+> (18/18 corpus parity; corpus metrics unchanged). This plan is the source of truth
 > for the remaining phases. Short-term priority is **improving the basic-pitch NMP
 > post-processing** over the Tier-1 path; **Tier-1 improvement is deprioritized**
 > for now.
@@ -235,12 +236,12 @@ if it isn't, fetch it”), since **onnxruntime is the point**.
 
 1. ✅ **Raw-map dump** (§9) — done: `getRawPredictions` + binary raw-map format +
    `--dump-raw-map`; the model front-end is factored so a no-flag `transcribe` is
-   unchanged (the 14-file corpus stays byte-identical).
+   unchanged (the corpus, now 18, stays byte-identical).
 2. ✅ **Knob promotion** descriptor→options + clamps + Boost flags (§3/4/5/6/7) —
    done: the four note-creation knobs now live in `BasicPitchOptions`; the missing
    knobs (min/max frequency, the `melodia`/`infer-onsets` gates, `midiTempo`) are
    added; each is clamped per §6; Boost flags wired into `midicapture`'s direct
-   path. A no-flag run stays byte-identical (14/14 corpus parity; metrics
+   path. A no-flag run stays byte-identical (18/18 corpus parity; metrics
    unchanged); `--midi-tempo` is intentionally not a flag (redundant with
    `--tempo`).
 3. ✅ **Separate experimental method** + a sweep driver (§8) — done: the
@@ -258,9 +259,15 @@ if it isn't, fetch it”), since **onnxruntime is the point**.
 > → loud abort) and the writer emits canonical running status with a
 > **conditional** sustain pedal (CC#64 written only when the score sustains);
 > both the corpus harness and the sweep's GT readers fail loudly on invalid MIDI.
-> The 14-file corpus gate stays metric-identical (the C++ synth ignores CC#64, so
-> only the GT `.mid` bytes change — the pedal is dropped from all 14 non-sustained
-> cases). See [../midicapture/writer.md](../midicapture/writer.md).
+> A no-flag corpus run stays byte-identical (18/18 parity): the writer's
+> time-ordered note/control merge is a no-op for a control-less score, and the
+> conditional pedal writes no CC#64 unless a note sustains — so the 14
+> non-sustained monophonic cases' GT bytes are unchanged. The corpus is now 18
+> (14 non-sustained mono + 4 gesture, one of which holds a pedal) and renders
+> via **timidity**, which honours CC#64 + bends, so the pedalled / gliding cases
+> now sound their signature in the audio. See
+> [../midicapture/writer.md](../midicapture/writer.md) and
+> [../libaudio/tier2.md](../libaudio/tier2.md).
 
 ## 15. Port completeness (the honest “is it a complete port?”)
 

@@ -37,7 +37,7 @@
 | [summary.md](libaudio/summary.md) | Module overview, dependencies, architecture, module-by-module API design |
 | [decisions.md](libaudio/decisions.md) | Library choices (aubio, libsndfile), wrapper pattern, default parameters |
 | [hir.md](libaudio/hir.md) | High-level Instrumentation Representation (Note, ControlEvent, Score) |
-| [tier2.md](libaudio/tier2.md) | Tier-2 ONNX transcription: basic-pitch I/O contract, 14-file corpus, phasing (the decided neural path) |
+| [tier2.md](libaudio/tier2.md) | Tier-2 ONNX transcription: basic-pitch I/O contract, 18-case corpus (timidity voice), phasing (the decided neural path) |
 
 ## Subsystem: waterfall
 
@@ -53,7 +53,7 @@
 | [summary.md](midicapture/summary.md) | Module overview, architecture, transcription pipeline, CLI, validation toolchain (defrag + octave details in [defrag.md](midicapture/defrag.md)) |
 | [defrag.md](midicapture/defrag.md) | Tier-1 note modeling: defragmentation, the YIN octave problem, the stereo segfault (measured) |
 | [writer.md](midicapture/writer.md) | SMF writer: byte layout, invariants (running status, conditional sustain pedal, time-ordered note/control merge), `--test` flag, midicsv/timidity validation |
-| [testmidi.md](midicapture/testmidi.md) | `--generate-test-midi-files`: monophonic scale ground-truth files, `--output-dir` |
+| [testmidi.md](midicapture/testmidi.md) | `--generate-test-midi-files`: scale + gesture ground-truth files (18-case corpus), `--output-dir` |
 | [tmp/session-handoff-midicapture-diagnosis.md](tmp/session-handoff-midicapture-diagnosis.md) | Session diagnosis: secondsToTicks bug, transcription quality issues |
 
 ## Plans

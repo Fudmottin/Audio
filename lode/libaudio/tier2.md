@@ -5,7 +5,8 @@
 > This is the content that lived in [../audio-to-midi.md](../audio-to-midi.md)
 > §7 (the cross-module file keeps a short pointer). It is libaudio-specific, so
 > it lives here. Status: **Phase 1a (ONNX foundation) + 1b (basic-pitch adapter +
-> 14-file corpus) implemented and verified.** Loded alongside [summary.md](summary.md).
+> 18-case corpus, timidity voice) implemented and verified.** Loded alongside
+> [summary.md](summary.md).
 
 ---
 
@@ -82,7 +83,8 @@ conversion step, which is why it leads.
 - **`LIBAUDIO_ENABLE_TIER2`** CMake flag gates all of the above (default **OFF**)
   so the Tier-1 aubio path is byte-for-byte unaffected when off.
 - **Test harness** — the analyzer-agnostic C++ port of
-  `midicapture/render_test_suite.py` (14-file corpus + recall/precision/Δ metrics).
+  `midicapture/render_test_suite.py` (18-case corpus, timidity-rendered +
+  recall/precision/Δ metrics).
 
 ## 3. basic-pitch I/O contract (verified from the real model)
 
@@ -99,7 +101,7 @@ contract): onset threshold **0.5**, frame threshold **0.3**, min note length
 **127.7 ms** (11 frames), velocity scale **127**, min/max frequency **27.5 / 4186
 Hz** (A0..C8; the band is kept *inclusive*), the `inferOnsets` / `melodiaTrick`
 gates (both on), and `midiTempo` **120**. All default to the reference values so a
-no-flag run is byte-identical (14/14 corpus parity, metrics unchanged); each is
+no-flag run is byte-identical (18/18 corpus parity, metrics unchanged); each is
 clamped per [../plans/postproc-tuning.md](../plans/postproc-tuning.md) §6.
 
 ## 4. Reuse (the C++ stays small)
@@ -115,7 +117,7 @@ not a from-scratch transcription engine.
 | Phase | Scope |
 |---|---|
 | **1a** | ~~ONNX foundation~~ **Done + verified:** `onnx_session` (Core ML EP) + `ModelDescriptor` + fail-fast I/O validation + a real-model smoke test. `nmp.onnx` loads, Core ML active, A4 → MIDI 69. |
-| **1b** | **basic-pitch** adapter (in-process FFmpeg decode→window→overlap-stitch) + `piano_roll` post-proc → HIR; 14-file corpus → **100% recall / 68% precision, correct octave+chroma** (Core ML, ~63/246 nodes, ~2 s). |
+| **1b** | **basic-pitch** adapter (in-process FFmpeg decode→window→overlap-stitch) + `piano_roll` post-proc → HIR; the corpus → **100% recall, correct octave+chroma** (Core ML, ~63/246 nodes, ~2 s; precision is voice-dependent — see the §5 *Measured* note on the timidity re-baseline). |
 | **1c** | **Pitch-bends** — (a) ~~extract~~ **done**: the `contour` map decodes into `Note.pitchBends` (14-bit ticks); (b) ~~emit 0xE0~~ **done**: the writer emits bends + the reader round-trips them (a constant-pitch note stays byte-identical); (c) ~~per-pitch channels~~ **done**: each distinct bent pitch gets its own channel 1..15 (ascending pitch, capped); the writer scaffolds per-channel program/sustain (byte-identical when only channel 0). `--no-pitch-bends` gates (a); `--multiple-pitch-bends` gates (c). See [plans/basic-pitch-tier1.md](../plans/basic-pitch-tier1.md). |
 | **2** | **TF-MAGS** (Onsets&Frames) via ONNX export + a mel front-end — a second model exercising the same seam. |
 | **3** | **Demucs** `Separator` + per-stem transcription (melody / accompaniment / vocals). |
@@ -124,14 +126,24 @@ not a from-scratch transcription engine.
 `find_package(onnxruntime CONFIG)` against the Homebrew prefix; the Core ML EP is
 requested but its failure is non-fatal (CPU fallback).
 
-**Measured on the 14-file corpus (current state):** basic-pitch on Core ML
-(63/246 nodes; ~2 s for all 14) → **100% recall, 68% precision**, correct octave
-(Δoct ≤ 0.5) and chroma (0.0); per-file onset 2–15 ms. It resolves the §5 octave
-problem monophonic YIN cannot (aubio on the same corpus: 6% recall,
-octave-unreliable); the precision dip is long/whole-note fragmentation, not a
-pitch error. It is now midicapture's **default `--model`** in a Tier-2 build
-(`aubio` is the monophonic fallback): `midicapture --run-corpus test-midi
---model {basic|aubio}` (`--analyzer` is a deprecated alias for `--model`).
+**Measured on the 18-case corpus (timidity voice — the current regression
+anchor):** basic-pitch on Core ML (63/246 nodes; ~2 s for all 18) → **100%
+recall (0 missed), avg precision 45.4%** (per-file 14–100%), correct octave
+(median Δoct 0.1) and chroma (median 0.0); median onset 3.9 ms. It resolves the
+§5 octave problem monophonic YIN cannot (aubio on the same corpus: 6% recall,
+octave-unreliable). The voice switch from the old in-process C++ synth to
+**timidity re-baselined** this corpus (the C++ synth is now gone): recall and
+octave/chroma are stable across the re-voice, but **precision dropped** (from the
+historical C++-synth 68% to timidity 45.4%) because timidity's longer, pedalled
+decays fragment long/whole notes into extra same-pitch notes — the same defrag
+precision sink, not a pitch error. `sustained-run-whole-notes` is the stand-out
+outlier (Δoct 2.0, precision 25%) — the in-corpus canary for the
+[post-proc defrag](../plans/postproc-tuning.md) work. Velocity is the most
+drift-prone metric (float-derived; the Core ML cross-session ULP note below);
+recall/precision/onset/duration are the stable gate. It is now midicapture's
+**default `--model`** in a Tier-2 build (`aubio` is the monophonic fallback):
+`midicapture --run-corpus test-midi --model {basic|aubio}` (`--analyzer` is a
+deprecated alias for `--model`).
 
 **Reproducibility note (Core ML):** the model is **deterministic within a session**
 (a no-flag `--run-corpus` is byte-identical across repeated runs, and the metrics

@@ -13,13 +13,13 @@
 
 `midicapture --generate-test-midi-files` is a **generator** that **ignores all
 other options** (input, output, window-size, hop-size, silence, tempo,
-method). It writes the fixed 14-case corpus (below) to `.mid` files. No audio
+method). It writes the fixed 18-case corpus (below) to `.mid` files. No audio
 is opened, no analysis is run. It takes precedence over `--test` if both are
 present.
 
-The corpus itself — the 14 `Case`s and the `Case → Score` builder
+The corpus itself — the 18 `Case`s and the `Case → Score` builder
 (`buildCorpusScore`) — is defined **once** in `corpusCase.{h,cpp}` and shared
-with the `--run-corpus --clean` renderer ([corpusHarness](summary.md)); the two
+with the `--run-corpus` corpus evaluator ([corpusHarness](summary.md)); the two
 generators consume the same source of truth and cannot drift apart.
 
 Purpose of the generated files:
@@ -40,15 +40,19 @@ value is a clean, known ground truth to measure progress against.
 
 ## 2. The Set of Files
 
-Fourteen files, one per pattern. All **monophonic** (one note at a time),
-Acoustic Grand (program 0, channel 0), sustain off. Most use a uniform
-**velocity 100** (no dynamics) except the velocity-ladder file. The set mixes
-**three note durations** (whole / half / quarter) and **five tempos**
-(30 / 60 / 90 / 120 / 180 BPM) across four axes — **pitch** (scales at three
-octave heights), **timing** (the same scale at slow / fast tempos), **dynamics**
-(a soft→loud velocity ladder), and **defrag/merge** (a wobble run that must
-collapse vs. a rest-separated run that must not) — so the rendered audio
-exercises a spread of shapes the transcription must resolve.
+Eighteen files: fourteen **monophonic** (one note at a time) plus four
+**gesture** cases that break past monophony (a struck chord, a bent-note
+glissando, a sustain-pedalled run, and overlapping legato notes). The
+monophonic set is Acoustic Grand (program 0, channel 0), sustain off, uniform
+**velocity 100** except the velocity-ladder file. It mixes **three note
+durations** (whole / half / quarter) and **five tempos** (30 / 60 / 90 / 120 /
+180 BPM) across four axes — **pitch** (scales at three octave heights),
+**timing** (the same scale at slow / fast tempos), **dynamics** (a soft→loud
+velocity ladder), and **defrag/merge** (a wobble run that must collapse vs.
+a rest-separated run that must not). The four gesture cases (all 60 BPM) add
+**polyphony** (a chord), **pitch contour** (a glissando), a **sustain pedal**
+held across a phrase, and **legato overlap** — shapes monophony cannot
+express, so the rendered audio exercises them.
 
 Each performance is "around five seconds" — a rough guideline, not a hard
 target. Rendered durations (incl. timidity's natural note-decay tail) land in
@@ -70,6 +74,10 @@ the 4–8 s neighborhood (the 30 BPM file is the longest).
 | `velocity-soft-loud-quarter-notes-60bpm.mid` | C4 ×6 (60) | quarter | ½ | 60 | 6 (vel 30→127) |
 | `sustained-run-whole-notes-60bpm.mid` | C4 ×4 (60 60 60 60) | whole | 2 | 60 | 4 |
 | `rest-separated-whole-notes-60bpm.mid` | C4, rest, C4 (60 60) | whole | 2 | 60 | 2 (1-beat gap) |
+| `chord-major-triad-whole-notes-60bpm.mid` | C4+E4+G4 (60 64 67) struck together | whole | 2 | 60 | 3 (a chord) |
+| `glissando-pitch-bend-60bpm.mid` | C4 (60), +1-semitone bend | whole | 2 | 60 | 1 (a glissando) |
+| `sustain-pedal-legato-60bpm.mid` | C4 E4 G4 C5 (60 64 67 72), pedal held | half | 1 | 60 | 4 (sustained) |
+| `legato-overlapping-half-notes-60bpm.mid` | C4 E4 G4 C5, half-beat overlap | half | 1 | 60 | 4 (legato) |
 
 Notes use **MIDI numbers**: C3=48, C4=60, C5=72, C6=84, E4=64, E5=76,
 G4=67, A4=69. A single beat of rest follows the final note.
@@ -140,7 +148,11 @@ help block.
 ├── scale-major-ascending-whole-notes-180bpm.mid
 ├── velocity-soft-loud-quarter-notes-60bpm.mid
 ├── sustained-run-whole-notes-60bpm.mid
-└── rest-separated-whole-notes-60bpm.mid
+├── rest-separated-whole-notes-60bpm.mid
+├── chord-major-triad-whole-notes-60bpm.mid
+├── glissando-pitch-bend-60bpm.mid
+├── sustain-pedal-legato-60bpm.mid
+└── legato-overlapping-half-notes-60bpm.mid
 ```
 
 ---
